@@ -1,0 +1,413 @@
+package com.example.fitty.feature_onboarding
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fitty.core.designsystem.component.FittyChoiceCard
+import com.example.fitty.core.designsystem.component.FittyPrimaryButton
+import com.example.fitty.core.designsystem.component.FittySecondaryButton
+import com.example.fitty.core.ui.FittyLazyScreen
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+
+private const val LastStep = 6
+
+data class OnboardingUiState(
+    val step: Int = 0,
+    val goal: String = "",
+    val age: String = "",
+    val height: String = "",
+    val weight: String = "",
+    val targetWeight: String = "",
+    val fitnessLevel: String = "",
+    val workoutDays: Set<String> = emptySet(),
+    val duration: String = "",
+    val preferredTime: String = "",
+    val equipment: String = "",
+    val injuryNote: String = "",
+    val nutrition: String = "",
+    val restrictions: Set<String> = emptySet(),
+    val reminders: Set<String> = emptySet(),
+    val errorMessage: String? = null
+)
+
+class OnboardingViewModel : ViewModel() {
+    private val _uiState = MutableStateFlow(OnboardingUiState())
+    val uiState: StateFlow<OnboardingUiState> = _uiState
+
+    fun selectGoal(value: String) = update { copy(goal = value) }
+    fun updateAge(value: String) = update { copy(age = value.filter(Char::isDigit)) }
+    fun updateHeight(value: String) = update { copy(height = value.filter(Char::isDigit)) }
+    fun updateWeight(value: String) = update { copy(weight = value.filter(Char::isDigit)) }
+    fun updateTargetWeight(value: String) = update { copy(targetWeight = value.filter(Char::isDigit)) }
+    fun selectFitnessLevel(value: String) = update { copy(fitnessLevel = value) }
+    fun selectDuration(value: String) = update { copy(duration = value) }
+    fun selectPreferredTime(value: String) = update { copy(preferredTime = value) }
+    fun selectEquipment(value: String) = update { copy(equipment = value) }
+    fun updateInjuryNote(value: String) = update { copy(injuryNote = value) }
+    fun selectNutrition(value: String) = update { copy(nutrition = value) }
+
+    fun toggleWorkoutDay(value: String) {
+        update {
+            copy(workoutDays = workoutDays.toggle(value))
+        }
+    }
+
+    fun toggleRestriction(value: String) {
+        update {
+            copy(restrictions = restrictions.toggle(value))
+        }
+    }
+
+    fun toggleReminder(value: String) {
+        update {
+            copy(reminders = reminders.toggle(value))
+        }
+    }
+
+    fun back() {
+        _uiState.update { state ->
+            state.copy(step = (state.step - 1).coerceAtLeast(0), errorMessage = null)
+        }
+    }
+
+    fun next(onFinished: () -> Unit) {
+        val error = validate(_uiState.value)
+        if (error != null) {
+            _uiState.update { it.copy(errorMessage = error) }
+            return
+        }
+
+        if (_uiState.value.step == LastStep) {
+            onFinished()
+        } else {
+            _uiState.update { it.copy(step = it.step + 1, errorMessage = null) }
+        }
+    }
+
+    private fun update(transform: OnboardingUiState.() -> OnboardingUiState) {
+        _uiState.update { it.transform().copy(errorMessage = null) }
+    }
+
+    private fun validate(state: OnboardingUiState): String? = when (state.step) {
+        0 -> if (state.goal.isBlank()) "Choose one primary goal" else null
+        1 -> when {
+            state.age.toIntOrNull() == null -> "Enter your age"
+            state.height.toIntOrNull() == null -> "Enter your height"
+            state.weight.toIntOrNull() == null -> "Enter your weight"
+            state.targetWeight.toIntOrNull() == null -> "Enter your target weight"
+            else -> null
+        }
+        2 -> if (state.fitnessLevel.isBlank()) "Choose your fitness level" else null
+        3 -> when {
+            state.workoutDays.isEmpty() -> "Choose at least one workout day"
+            state.duration.isBlank() -> "Choose workout duration"
+            state.preferredTime.isBlank() -> "Choose preferred time"
+            else -> null
+        }
+        4 -> if (state.equipment.isBlank()) "Choose where you train" else null
+        5 -> if (state.nutrition.isBlank()) "Choose your eating style" else null
+        else -> null
+    }
+
+    private fun Set<String>.toggle(value: String): Set<String> =
+        if (contains(value)) this - value else this + value
+}
+
+@Composable
+fun OnboardingRoute(
+    onFinished: () -> Unit,
+    viewModel: OnboardingViewModel = viewModel()
+) {
+    val state by viewModel.uiState.collectAsState()
+    OnboardingScreen(
+        state = state,
+        onGoalSelected = viewModel::selectGoal,
+        onAgeChanged = viewModel::updateAge,
+        onHeightChanged = viewModel::updateHeight,
+        onWeightChanged = viewModel::updateWeight,
+        onTargetWeightChanged = viewModel::updateTargetWeight,
+        onFitnessLevelSelected = viewModel::selectFitnessLevel,
+        onWorkoutDayToggled = viewModel::toggleWorkoutDay,
+        onDurationSelected = viewModel::selectDuration,
+        onPreferredTimeSelected = viewModel::selectPreferredTime,
+        onEquipmentSelected = viewModel::selectEquipment,
+        onInjuryNoteChanged = viewModel::updateInjuryNote,
+        onNutritionSelected = viewModel::selectNutrition,
+        onRestrictionToggled = viewModel::toggleRestriction,
+        onReminderToggled = viewModel::toggleReminder,
+        onBack = viewModel::back,
+        onNext = { viewModel.next(onFinished) }
+    )
+}
+
+@Composable
+fun OnboardingScreen(
+    state: OnboardingUiState,
+    onGoalSelected: (String) -> Unit,
+    onAgeChanged: (String) -> Unit,
+    onHeightChanged: (String) -> Unit,
+    onWeightChanged: (String) -> Unit,
+    onTargetWeightChanged: (String) -> Unit,
+    onFitnessLevelSelected: (String) -> Unit,
+    onWorkoutDayToggled: (String) -> Unit,
+    onDurationSelected: (String) -> Unit,
+    onPreferredTimeSelected: (String) -> Unit,
+    onEquipmentSelected: (String) -> Unit,
+    onInjuryNoteChanged: (String) -> Unit,
+    onNutritionSelected: (String) -> Unit,
+    onRestrictionToggled: (String) -> Unit,
+    onReminderToggled: (String) -> Unit,
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    FittyLazyScreen {
+        item {
+            Column {
+                Text("Step ${state.step + 1} of 7", style = MaterialTheme.typography.labelLarge)
+                LinearProgressIndicator(
+                    progress = { (state.step + 1) / 7f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                )
+            }
+        }
+        item {
+            Text(
+                text = stepTitle(state.step),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        item {
+            when (state.step) {
+                0 -> ChoiceList(
+                    values = listOf("Lose Weight", "Gain Muscle", "Maintain Fitness", "Improve Endurance", "Improve Flexibility", "Build Healthy Habits"),
+                    selected = state.goal,
+                    onSelected = onGoalSelected
+                )
+                1 -> BodyMetricsStep(state, onAgeChanged, onHeightChanged, onWeightChanged, onTargetWeightChanged)
+                2 -> ChoiceList(
+                    values = listOf("Beginner", "Intermediate", "Advanced"),
+                    selected = state.fitnessLevel,
+                    onSelected = onFitnessLevelSelected
+                )
+                3 -> ScheduleStep(state, onWorkoutDayToggled, onDurationSelected, onPreferredTimeSelected)
+                4 -> EquipmentStep(state, onEquipmentSelected, onInjuryNoteChanged)
+                5 -> NutritionStep(state, onNutritionSelected, onRestrictionToggled)
+                6 -> ReminderStep(state, onReminderToggled)
+            }
+        }
+        item {
+            state.errorMessage?.let {
+                Text(text = it, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (state.step > 0) {
+                    FittySecondaryButton(
+                        text = "Back",
+                        onClick = onBack,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                FittyPrimaryButton(
+                    text = if (state.step == LastStep) "Preview Plan" else "Continue",
+                    onClick = onNext,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BodyMetricsStep(
+    state: OnboardingUiState,
+    onAgeChanged: (String) -> Unit,
+    onHeightChanged: (String) -> Unit,
+    onWeightChanged: (String) -> Unit,
+    onTargetWeightChanged: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        NumberField("Age", state.age, onAgeChanged)
+        NumberField("Height cm", state.height, onHeightChanged)
+        NumberField("Weight kg", state.weight, onWeightChanged)
+        NumberField("Target weight kg", state.targetWeight, onTargetWeightChanged)
+    }
+}
+
+@Composable
+private fun ScheduleStep(
+    state: OnboardingUiState,
+    onWorkoutDayToggled: (String) -> Unit,
+    onDurationSelected: (String) -> Unit,
+    onPreferredTimeSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        MultiChoiceList(
+            title = "Workout days",
+            values = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+            selected = state.workoutDays,
+            onToggle = onWorkoutDayToggled
+        )
+        ChoiceList(
+            values = listOf("20 min", "30 min", "45 min", "60 min"),
+            selected = state.duration,
+            onSelected = onDurationSelected
+        )
+        ChoiceList(
+            values = listOf("Morning", "Afternoon", "Evening"),
+            selected = state.preferredTime,
+            onSelected = onPreferredTimeSelected
+        )
+    }
+}
+
+@Composable
+private fun EquipmentStep(
+    state: OnboardingUiState,
+    onEquipmentSelected: (String) -> Unit,
+    onInjuryNoteChanged: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ChoiceList(
+            values = listOf("Home, no equipment", "Home, basic equipment", "Gym", "Mix of home and gym"),
+            selected = state.equipment,
+            onSelected = onEquipmentSelected
+        )
+        OutlinedTextField(
+            value = state.injuryNote,
+            onValueChange = onInjuryNoteChanged,
+            label = { Text("Injury or mobility note optional") },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun NutritionStep(
+    state: OnboardingUiState,
+    onNutritionSelected: (String) -> Unit,
+    onRestrictionToggled: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ChoiceList(
+            values = listOf("Standard", "High Protein", "Vegetarian", "Vegan", "Low Carb", "Flexible"),
+            selected = state.nutrition,
+            onSelected = onNutritionSelected
+        )
+        MultiChoiceList(
+            title = "Optional restrictions",
+            values = listOf("Lactose-free", "Nut allergy", "Avoid seafood"),
+            selected = state.restrictions,
+            onToggle = onRestrictionToggled
+        )
+    }
+}
+
+@Composable
+private fun ReminderStep(
+    state: OnboardingUiState,
+    onReminderToggled: (String) -> Unit
+) {
+    MultiChoiceList(
+        title = "Set your reminders",
+        values = listOf("Workout reminder", "Meal reminder", "Water reminder", "Sleep reminder"),
+        selected = state.reminders,
+        onToggle = onReminderToggled
+    )
+}
+
+@Composable
+private fun ChoiceList(
+    values: List<String>,
+    selected: String,
+    onSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        values.forEach { value ->
+            FittyChoiceCard(
+                title = value,
+                body = choiceDescription(value),
+                selected = selected == value,
+                onClick = { onSelected(value) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MultiChoiceList(
+    title: String,
+    values: List<String>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        values.forEach { value ->
+            FittyChoiceCard(
+                title = value,
+                body = if (selected.contains(value)) "Selected" else "Tap to select",
+                selected = selected.contains(value),
+                onClick = { onToggle(value) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun NumberField(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+private fun stepTitle(step: Int): String = when (step) {
+    0 -> "What is your main goal?"
+    1 -> "Tell us about your body"
+    2 -> "What is your current fitness level?"
+    3 -> "When can you work out?"
+    4 -> "Where do you usually train?"
+    5 -> "What best matches your eating style?"
+    else -> "Set your reminders"
+}
+
+private fun choiceDescription(value: String): String = when (value) {
+    "Lose Weight" -> "Create a realistic calorie and workout plan."
+    "Gain Muscle" -> "Prioritize strength sessions and protein habits."
+    "Maintain Fitness" -> "Keep a balanced weekly rhythm."
+    "Improve Endurance" -> "Build cardio capacity step by step."
+    "Improve Flexibility" -> "Add mobility work and recovery routines."
+    "Build Healthy Habits" -> "Focus on consistency, hydration, and sleep."
+    "Beginner" -> "0-2 workouts per week."
+    "Intermediate" -> "3-4 workouts per week."
+    "Advanced" -> "5+ structured sessions per week."
+    else -> "Personalize your Fitty plan."
+}
