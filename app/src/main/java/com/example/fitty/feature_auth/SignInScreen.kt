@@ -1,9 +1,14 @@
 package com.example.fitty.feature_auth
 
 import android.app.Application
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -15,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -24,17 +30,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.local.FittyLocalRepository
 import com.example.fitty.data.preferences.AppPreferencesDataSource
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class SignInUiState(
-    val email: String = "",
+    val identifier: String = "",
     val password: String = "",
-    val emailError: String? = null,
+    val identifierError: String? = null,
     val passwordError: String? = null,
     val errorMessage: String? = null,
     val isSubmitting: Boolean = false
@@ -42,11 +48,12 @@ data class SignInUiState(
 
 class SignInViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
+    private val repository = FittyLocalRepository(application.applicationContext)
     private val _uiState = MutableStateFlow(SignInUiState())
     val uiState: StateFlow<SignInUiState> = _uiState
 
-    fun onEmailChanged(value: String) {
-        _uiState.update { it.copy(email = value, emailError = null, errorMessage = null) }
+    fun onIdentifierChanged(value: String) {
+        _uiState.update { it.copy(identifier = value, identifierError = null, errorMessage = null) }
     }
 
     fun onPasswordChanged(value: String) {
@@ -55,18 +62,23 @@ class SignInViewModel(application: Application) : AndroidViewModel(application) 
 
     fun submit(onSuccess: () -> Unit) {
         val current = _uiState.value
-        val emailError = validateEmail(current.email)
+        val identifierError = validateIdentifier(current.identifier)
         val passwordError = validatePassword(current.password)
-        if (emailError != null || passwordError != null) {
+        if (identifierError != null || passwordError != null) {
             _uiState.update {
-                it.copy(emailError = emailError, passwordError = passwordError)
+                it.copy(identifierError = identifierError, passwordError = passwordError)
             }
             return
         }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            delay(450)
+            val result = repository.signInWithPassword(current.identifier, current.password)
+            if (result.user == null) {
+                _uiState.update { it.copy(isSubmitting = false, errorMessage = result.errorMessage) }
+                return@launch
+            }
+            preferences.setCurrentUserId(result.user.id)
             preferences.setSignedIn(true)
             preferences.setGuestModeEnabled(false)
             _uiState.update { it.copy(isSubmitting = false) }
@@ -74,9 +86,24 @@ class SignInViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun validateEmail(value: String): String? = when {
-        value.isBlank() -> "Email is required"
-        "@" !in value -> "Enter a valid email"
+    fun continueWithGoogle(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            val result = repository.continueWithGoogleDemo()
+            if (result.user == null) {
+                _uiState.update { it.copy(isSubmitting = false, errorMessage = result.errorMessage) }
+                return@launch
+            }
+            preferences.setCurrentUserId(result.user.id)
+            preferences.setSignedIn(true)
+            preferences.setGuestModeEnabled(false)
+            _uiState.update { it.copy(isSubmitting = false) }
+            onSuccess()
+        }
+    }
+
+    private fun validateIdentifier(value: String): String? = when {
+        value.isBlank() -> "Email or username is required"
         else -> null
     }
 
@@ -99,9 +126,10 @@ fun SignInRoute(
         state = state,
         onBack = onBack,
         onCreateAccount = onCreateAccount,
-        onEmailChanged = viewModel::onEmailChanged,
+        onIdentifierChanged = viewModel::onIdentifierChanged,
         onPasswordChanged = viewModel::onPasswordChanged,
-        onSubmit = { viewModel.submit(onSignedIn) }
+        onSubmit = { viewModel.submit(onSignedIn) },
+        onGoogleSignIn = { viewModel.continueWithGoogle(onSignedIn) }
     )
 }
 
@@ -111,9 +139,10 @@ fun SignInScreen(
     state: SignInUiState,
     onBack: () -> Unit,
     onCreateAccount: () -> Unit,
-    onEmailChanged: (String) -> Unit,
+    onIdentifierChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    onGoogleSignIn: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -131,12 +160,19 @@ fun SignInScreen(
             item { Spacer(modifier = Modifier.height(padding.calculateTopPadding())) }
             item {
                 OutlinedTextField(
-                    value = state.email,
-                    onValueChange = onEmailChanged,
-                    label = { Text("Email") },
-                    isError = state.emailError != null,
-                    supportingText = { state.emailError?.let { Text(it) } },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                    value = state.identifier,
+                    onValueChange = onIdentifierChanged,
+                    label = { Text("Email or username") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.AlternateEmail,
+                            contentDescription = null
+                        )
+                    },
+                    isError = state.identifierError != null,
+                    supportingText = { state.identifierError?.let { Text(it) } },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             item {
@@ -144,10 +180,17 @@ fun SignInScreen(
                     value = state.password,
                     onValueChange = onPasswordChanged,
                     label = { Text("Password") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Lock,
+                            contentDescription = null
+                        )
+                    },
                     isError = state.passwordError != null,
                     supportingText = { state.passwordError?.let { Text(it) } },
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
             item {
@@ -168,7 +211,18 @@ fun SignInScreen(
                 )
             }
             item {
-                FittySecondaryButton(text = "Continue with Google", onClick = { })
+                FittySecondaryButton(
+                    text = "Continue with Google",
+                    onClick = onGoogleSignIn,
+                    enabled = !state.isSubmitting,
+                    leadingIcon = {
+                        Text(
+                            text = "G",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                )
             }
             item {
                 TextButton(onClick = onCreateAccount) {

@@ -3,6 +3,7 @@ package com.example.fitty.data.preferences
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -24,6 +25,10 @@ class AppPreferencesDataSource(
         preferences[SIGNED_IN] ?: false
     }
 
+    val currentUserId: Flow<Long?> = context.fittyDataStore.data.map { preferences ->
+        preferences[CURRENT_USER_ID]
+    }
+
     suspend fun setOnboardingCompleted(completed: Boolean) {
         context.fittyDataStore.edit { preferences ->
             preferences[ONBOARDING_COMPLETED] = completed
@@ -42,11 +47,22 @@ class AppPreferencesDataSource(
         }
     }
 
+    suspend fun setCurrentUserId(userId: Long?) {
+        context.fittyDataStore.edit { preferences ->
+            if (userId == null) {
+                preferences.remove(CURRENT_USER_ID)
+            } else {
+                preferences[CURRENT_USER_ID] = userId
+            }
+        }
+    }
+
     suspend fun clearSession() {
         context.fittyDataStore.edit { preferences ->
             preferences[GUEST_MODE_ENABLED] = false
             preferences[SIGNED_IN] = false
             preferences[ONBOARDING_COMPLETED] = false
+            preferences.remove(CURRENT_USER_ID)
         }
     }
 
@@ -54,5 +70,6 @@ class AppPreferencesDataSource(
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val GUEST_MODE_ENABLED = booleanPreferencesKey("guest_mode_enabled")
         val SIGNED_IN = booleanPreferencesKey("signed_in")
+        val CURRENT_USER_ID = longPreferencesKey("current_user_id")
     }
 }

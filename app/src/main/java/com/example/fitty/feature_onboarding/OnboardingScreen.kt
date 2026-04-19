@@ -1,5 +1,6 @@
 package com.example.fitty.feature_onboarding
 
+import android.app.Application
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -16,18 +22,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.designsystem.component.FittyChoiceCard
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.local.FittyLocalRepository
+import com.example.fitty.data.local.OnboardingAnswers
+import com.example.fitty.data.preferences.AppPreferencesDataSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 private const val LastStep = 6
 
@@ -50,7 +63,9 @@ data class OnboardingUiState(
     val errorMessage: String? = null
 )
 
-class OnboardingViewModel : ViewModel() {
+class OnboardingViewModel(application: Application) : AndroidViewModel(application) {
+    private val preferences = AppPreferencesDataSource(application.applicationContext)
+    private val repository = FittyLocalRepository(application.applicationContext)
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState
 
@@ -98,7 +113,15 @@ class OnboardingViewModel : ViewModel() {
         }
 
         if (_uiState.value.step == LastStep) {
-            onFinished()
+            viewModelScope.launch {
+                val userId = preferences.currentUserId.first()
+                if (userId == null) {
+                    _uiState.update { it.copy(errorMessage = "Start a session before saving onboarding") }
+                    return@launch
+                }
+                repository.saveOnboardingAnswers(userId, _uiState.value.toAnswers())
+                onFinished()
+            }
         } else {
             _uiState.update { it.copy(step = it.step + 1, errorMessage = null) }
         }
@@ -131,6 +154,24 @@ class OnboardingViewModel : ViewModel() {
 
     private fun Set<String>.toggle(value: String): Set<String> =
         if (contains(value)) this - value else this + value
+
+    private fun OnboardingUiState.toAnswers(): OnboardingAnswers =
+        OnboardingAnswers(
+            goal = goal,
+            age = age.toIntOrNull(),
+            heightCm = height.toIntOrNull(),
+            weightKg = weight.toIntOrNull(),
+            targetWeightKg = targetWeight.toIntOrNull(),
+            fitnessLevel = fitnessLevel,
+            workoutDays = workoutDays,
+            durationMinutes = duration.filter(Char::isDigit).toIntOrNull() ?: 0,
+            preferredTime = preferredTime,
+            equipment = equipment,
+            injuryNote = injuryNote,
+            nutrition = nutrition,
+            restrictions = restrictions,
+            reminders = reminders
+        )
 }
 
 @Composable
@@ -267,20 +308,23 @@ private fun ScheduleStep(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MultiChoiceList(
-            title = "Workout days",
+            title = "Days",
+            icon = Icons.Outlined.CalendarMonth,
             values = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
             selected = state.workoutDays,
             onToggle = onWorkoutDayToggled
         )
-        ChoiceList(
-            values = listOf("20 min", "30 min", "45 min", "60 min"),
-            selected = state.duration,
-            onSelected = onDurationSelected
-        )
+        SectionHeader(Icons.Outlined.Schedule, "Workout time")
         ChoiceList(
             values = listOf("Morning", "Afternoon", "Evening"),
             selected = state.preferredTime,
             onSelected = onPreferredTimeSelected
+        )
+        SectionHeader(Icons.Outlined.Timer, "Session duration")
+        ChoiceList(
+            values = listOf("20 min", "30 min", "45 min", "60 min"),
+            selected = state.duration,
+            onSelected = onDurationSelected
         )
     }
 }
@@ -334,6 +378,7 @@ private fun ReminderStep(
 ) {
     MultiChoiceList(
         title = "Set your reminders",
+        icon = null,
         values = listOf("Workout reminder", "Meal reminder", "Water reminder", "Sleep reminder"),
         selected = state.reminders,
         onToggle = onReminderToggled
@@ -361,12 +406,17 @@ private fun ChoiceList(
 @Composable
 private fun MultiChoiceList(
     title: String,
+    icon: ImageVector? = null,
     values: List<String>,
     selected: Set<String>,
     onToggle: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (icon == null) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        } else {
+            SectionHeader(icon, title)
+        }
         values.forEach { value ->
             FittyChoiceCard(
                 title = value,
@@ -387,6 +437,21 @@ private fun NumberField(label: String, value: String, onValueChange: (String) ->
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+@Composable
+private fun SectionHeader(icon: ImageVector, title: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.secondary
+        )
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    }
 }
 
 private fun stepTitle(step: Int): String = when (step) {
