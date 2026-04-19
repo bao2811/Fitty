@@ -2,8 +2,9 @@ package com.example.fitty.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Restaurant
@@ -82,9 +83,9 @@ fun MainScaffold(onLogout: () -> Unit) {
 private fun MainTabIcon(route: String) {
     val icon = when (route) {
         MainRoutes.Home -> Icons.Outlined.Home
-        MainRoutes.Plan -> Icons.Outlined.CalendarMonth
+        MainRoutes.Plan -> Icons.Outlined.FitnessCenter
         MainRoutes.Track -> Icons.Outlined.Restaurant
-        MainRoutes.Coach -> Icons.Outlined.Chat
+        MainRoutes.Coach -> Icons.AutoMirrored.Outlined.Chat
         else -> Icons.Outlined.Person
     }
     Icon(imageVector = icon, contentDescription = null)

@@ -1,6 +1,7 @@
 package com.example.fitty.feature_onboarding
 
 import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Timer
@@ -18,6 +20,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -176,10 +179,21 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
 
 @Composable
 fun OnboardingRoute(
+    onExit: () -> Unit,
     onFinished: () -> Unit,
     viewModel: OnboardingViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val handleBack = {
+        if (state.step > 0) {
+            viewModel.back()
+        } else {
+            onExit()
+        }
+    }
+
+    BackHandler(onBack = handleBack)
+
     OnboardingScreen(
         state = state,
         onGoalSelected = viewModel::selectGoal,
@@ -196,7 +210,8 @@ fun OnboardingRoute(
         onNutritionSelected = viewModel::selectNutrition,
         onRestrictionToggled = viewModel::toggleRestriction,
         onReminderToggled = viewModel::toggleReminder,
-        onBack = viewModel::back,
+        onBack = handleBack,
+        onExit = onExit,
         onNext = { viewModel.next(onFinished) }
     )
 }
@@ -219,9 +234,28 @@ fun OnboardingScreen(
     onRestrictionToggled: (String) -> Unit,
     onReminderToggled: (String) -> Unit,
     onBack: () -> Unit,
+    onExit: () -> Unit,
     onNext: () -> Unit
 ) {
     FittyLazyScreen {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = null
+                    )
+                    Text("Back")
+                }
+                TextButton(onClick = onExit) {
+                    Text("Exit")
+                }
+            }
+        }
         item {
             Column {
                 Text("Step ${state.step + 1} of 7", style = MaterialTheme.typography.labelLarge)
@@ -266,13 +300,11 @@ fun OnboardingScreen(
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (state.step > 0) {
-                    FittySecondaryButton(
-                        text = "Back",
-                        onClick = onBack,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                FittySecondaryButton(
+                    text = "Back",
+                    onClick = onBack,
+                    modifier = Modifier.weight(1f)
+                )
                 FittyPrimaryButton(
                     text = if (state.step == LastStep) "Preview Plan" else "Continue",
                     onClick = onNext,
