@@ -1115,34 +1115,500 @@ strong contrast for progress metrics
 avoid relying on color alone
 captions for charts
 haptic confirmation on important actions
-voice-friendly coach interaction optional 19. Suggested database design
+voice-friendly coach interaction optional
 
-Main entities:
+19. Suggested database design and Firebase storage plan
 
-User
-Goal
-WorkoutPlan
-WorkoutDay
-Exercise
-WorkoutSession
-MealLog
-FoodItem
-CalorieEstimation
-BodyAssessment
-ProgressMetric
-Achievement
-StreakRecord
-ReminderSetting
-ChatMessage
-CoachSuggestion
+Fitty should not upload the whole local SQLite database file to Firebase. The correct production approach is to use Firebase as the cloud backend and map the designed database schema into Firebase services.
 
-Relationships:
+Recommended storage architecture:
 
-one user → many workout sessions
-one user → many meal logs
-one user → many body assessments
-one workout plan → many workout days
-one meal log → many food items 20. Example user journey
+Firebase Authentication:
+
+stores login identity
+supports email/password sign in
+supports Google sign in
+handles password reset
+provides a secure `uid` for each user
+
+Cloud Firestore:
+
+stores structured app data
+stores user profile, onboarding answers, plans, workouts, meals, tracking logs, reminders, achievements, AI messages, and AI insights
+stores references to image/video files, not the raw files themselves
+
+Firebase Storage:
+
+stores avatar images
+stores meal scan photos
+stores body scan photos
+stores exercise thumbnails
+stores exercise demo videos or GIF files
+
+SQLite local database:
+
+stores offline cache
+stores demo data
+stores recently opened exercise/program data
+stores sync queue when the device is offline
+
+DataStore:
+
+stores lightweight state only
+examples: current user id, onboarding completed flag, guest mode flag, signed-in flag
+
+19.1 Authentication data
+
+Use Firebase Auth for real login.
+
+Do not store raw passwords or password hashes in Firestore.
+The Firebase Auth `uid` should be the main id for all user-owned Firestore data.
+
+Firestore user document:
+
+`users/{uid}`
+
+Fields:
+
+`username`: string
+`email`: string
+`displayName`: string
+`avatarUrl`: string
+`authProvider`: string
+`createdAt`: timestamp
+`updatedAt`: timestamp
+
+19.2 User profile and settings
+
+`users/{uid}/profile/main`
+
+Fields:
+
+`fullName`: string
+`age`: number
+`gender`: string
+`heightCm`: number
+`weightKg`: number
+`targetWeightKg`: number
+`activityLevel`: string
+`fitnessLevel`: string
+`primaryGoal`: string
+`calorieTarget`: number
+`waterGoalMl`: number
+`updatedAt`: timestamp
+
+`users/{uid}/settings/main`
+
+Fields:
+
+`unitWeight`: string
+`unitHeight`: string
+`unitEnergy`: string
+`language`: string
+`darkMode`: string
+`aiDataEnabled`: boolean
+`photoStorageEnabled`: boolean
+`updatedAt`: timestamp
+
+19.3 Onboarding and personalization
+
+`users/{uid}/onboarding/main`
+
+Fields:
+
+`primaryGoal`: string
+`fitnessLevel`: string
+`workoutDurationMinutes`: number
+`preferredTime`: string
+`equipment`: string
+`injuryNote`: string
+`nutritionStyle`: string
+`completedAt`: timestamp
+`updatedAt`: timestamp
+
+`users/{uid}/workoutAvailability/{availabilityId}`
+
+Fields:
+
+`dayOfWeek`: string
+`preferredTime`: string
+`durationMinutes`: number
+
+`users/{uid}/dietaryRestrictions/{restrictionId}`
+
+Fields:
+
+`name`: string
+
+`users/{uid}/reminders/{reminderId}`
+
+Fields:
+
+`reminderType`: string
+`enabled`: boolean
+`scheduleText`: string
+`timeMinutes`: number
+`repeatRule`: string
+`updatedAt`: timestamp
+
+19.4 Exercise library
+
+Top-level collection:
+
+`exercises/{exerciseId}`
+
+Fields:
+
+`name`: string
+`description`: string
+`difficulty`: string
+`primaryMuscleGroup`: string
+`equipment`: string
+`defaultReps`: string
+`defaultDurationSeconds`: number
+`mediaUrl`: string
+`createdAt`: timestamp
+`updatedAt`: timestamp
+
+Exercise subcollections:
+
+`exercises/{exerciseId}/steps/{stepId}`
+`exercises/{exerciseId}/mistakes/{mistakeId}`
+`exercises/{exerciseId}/tips/{tipId}`
+`exercises/{exerciseId}/variations/{variationId}`
+`exercises/{exerciseId}/targetMuscles/{muscleId}`
+
+Example:
+
+`exercises/bodyweight_squat`
+
+`name`: Bodyweight Squat
+`difficulty`: Beginner
+`primaryMuscleGroup`: Legs
+`equipment`: No equipment
+`defaultReps`: 15 reps
+`mediaUrl`: exercises/bodyweight_squat/demo.mp4
+
+19.5 Ready-made programs
+
+Top-level collection:
+
+`programs/{programId}`
+
+Fields:
+
+`title`: string
+`goal`: string
+`difficulty`: string
+`weeks`: number
+`workoutsPerWeek`: number
+`averageDurationMinutes`: number
+`equipment`: string
+`description`: string
+`thumbnailUrl`: string
+`isTemplate`: boolean
+`createdAt`: timestamp
+`updatedAt`: timestamp
+
+Program subcollections:
+
+`programs/{programId}/weeks/{weekId}`
+`programs/{programId}/sessions/{sessionId}`
+`programs/{programId}/sessions/{sessionId}/exercises/{itemId}`
+
+Example program:
+
+`programs/beginner_fat_loss_starter`
+
+`title`: Beginner Fat Loss Starter
+`goal`: Fat Loss
+`difficulty`: Beginner
+`weeks`: 4
+`workoutsPerWeek`: 4
+`averageDurationMinutes`: 25
+`equipment`: Home - No equipment
+
+Program session fields:
+
+`weekNumber`: number
+`dayNumber`: number
+`title`: string
+`focusArea`: string
+`difficulty`: string
+`durationMinutes`: number
+`estimatedCalories`: number
+`notes`: string
+
+Program session exercise fields:
+
+`exerciseId`: string
+`order`: number
+`sets`: number
+`reps`: string
+`durationSeconds`: number
+`restSeconds`: number
+`notes`: string
+
+19.6 Custom plans and custom workouts
+
+`users/{uid}/plans/{planId}`
+
+Fields:
+
+`sourceProgramId`: string or null
+`name`: string
+`goal`: string
+`durationWeeks`: number
+`workoutsPerWeek`: number
+`equipment`: string
+`trainingStyle`: string
+`status`: string
+`startedAt`: timestamp
+`completedAt`: timestamp
+`updatedAt`: timestamp
+
+Subcollection:
+
+`users/{uid}/plans/{planId}/days/{dayId}`
+
+Fields:
+
+`dayOfWeek`: string
+`workoutId`: string or null
+`isRestDay`: boolean
+
+`users/{uid}/workouts/{workoutId}`
+
+Fields:
+
+`name`: string
+`focusArea`: string
+`difficulty`: string
+`estimatedDurationMinutes`: number
+`structureType`: string
+`notes`: string
+`createdAt`: timestamp
+`updatedAt`: timestamp
+
+Subcollection:
+
+`users/{uid}/workouts/{workoutId}/exercises/{itemId}`
+
+Fields:
+
+`exerciseId`: string
+`order`: number
+`sets`: number
+`reps`: string
+`durationSeconds`: number
+`restSeconds`: number
+`notes`: string
+
+19.7 Tracking data
+
+`users/{uid}/workoutLogs/{logId}`
+
+Fields:
+
+`workoutId`: string or null
+`programId`: string or null
+`programSessionId`: string or null
+`startedAt`: timestamp
+`completedAt`: timestamp
+`durationMinutes`: number
+`caloriesBurned`: number
+`status`: string
+
+`users/{uid}/workoutLogs/{logId}/exerciseLogs/{exerciseLogId}`
+
+Fields:
+
+`exerciseId`: string
+`setsCompleted`: number
+`repsCompleted`: string
+`durationSeconds`: number
+`notes`: string
+
+`users/{uid}/meals/{mealId}`
+
+Fields:
+
+`mealType`: string
+`loggedAt`: timestamp
+`photoUrl`: string
+`totalCalories`: number
+`proteinG`: number
+`carbsG`: number
+`fatG`: number
+`aiConfidence`: number
+`notes`: string
+
+`users/{uid}/meals/{mealId}/items/{itemId}`
+
+Fields:
+
+`name`: string
+`calories`: number
+`proteinG`: number
+`carbsG`: number
+`fatG`: number
+`servingText`: string
+
+`users/{uid}/bodyMeasurements/{measurementId}`
+
+Fields:
+
+`measuredAt`: timestamp
+`weightKg`: number
+`bodyFatPercent`: number
+`waistCm`: number
+`chestCm`: number
+`hipCm`: number
+`notes`: string
+
+`users/{uid}/bodyScans/{scanId}`
+
+Fields:
+
+`scannedAt`: timestamp
+`frontPhotoUrl`: string
+`sidePhotoUrl`: string
+`backPhotoUrl`: string
+`aiSummary`: string
+`privacyMode`: string
+
+`users/{uid}/waterLogs/{waterLogId}`
+
+Fields:
+
+`loggedAt`: timestamp
+`amountMl`: number
+
+19.8 Home dashboard, achievements, and AI
+
+`users/{uid}/dailyTasks/{taskId}`
+
+Fields:
+
+`taskType`: string
+`title`: string
+`description`: string
+`dueAt`: timestamp
+`status`: string
+`relatedEntityType`: string
+`relatedEntityId`: string
+`createdAt`: timestamp
+`completedAt`: timestamp
+
+`users/{uid}/streak/main`
+
+Fields:
+
+`currentDays`: number
+`bestDays`: number
+`lastActionDate`: string
+`updatedAt`: timestamp
+
+`achievements/{achievementId}`
+
+Fields:
+
+`code`: string
+`title`: string
+`description`: string
+`iconName`: string
+`requirementText`: string
+
+`users/{uid}/achievements/{achievementId}`
+
+Fields:
+
+`unlockedAt`: timestamp
+
+`users/{uid}/aiMessages/{messageId}`
+
+Fields:
+
+`role`: string
+`message`: string
+`createdAt`: timestamp
+`relatedFeature`: string
+
+`users/{uid}/aiInsights/{insightId}`
+
+Fields:
+
+`insightType`: string
+`title`: string
+`body`: string
+`actionLabel`: string
+`status`: string
+`createdAt`: timestamp
+`dismissedAt`: timestamp
+
+19.9 Firebase Storage paths
+
+Recommended file paths:
+
+`users/{uid}/avatars/avatar.jpg`
+`users/{uid}/meals/{mealId}/photo.jpg`
+`users/{uid}/body-scans/{scanId}/front.jpg`
+`users/{uid}/body-scans/{scanId}/side.jpg`
+`users/{uid}/body-scans/{scanId}/back.jpg`
+`exercises/{exerciseId}/thumbnail.jpg`
+`exercises/{exerciseId}/demo.mp4`
+`programs/{programId}/thumbnail.jpg`
+
+Firestore should store only the URL or Storage path in fields such as:
+
+`avatarUrl`
+`photoUrl`
+`frontPhotoUrl`
+`mediaUrl`
+`thumbnailUrl`
+
+19.10 Mapping from local SQLite to Firebase
+
+`users` -> `users/{uid}`
+`user_profiles` -> `users/{uid}/profile/main`
+`user_settings` -> `users/{uid}/settings/main`
+`onboarding_preferences` -> `users/{uid}/onboarding/main`
+`workout_availability` -> `users/{uid}/workoutAvailability/{availabilityId}`
+`reminders` -> `users/{uid}/reminders/{reminderId}`
+`exercises` -> `exercises/{exerciseId}`
+`programs` -> `programs/{programId}`
+`user_plans` -> `users/{uid}/plans/{planId}`
+`user_workouts` -> `users/{uid}/workouts/{workoutId}`
+`workout_logs` -> `users/{uid}/workoutLogs/{logId}`
+`meals` -> `users/{uid}/meals/{mealId}`
+`body_measurements` -> `users/{uid}/bodyMeasurements/{measurementId}`
+`body_scan_records` -> `users/{uid}/bodyScans/{scanId}`
+`water_logs` -> `users/{uid}/waterLogs/{waterLogId}`
+`daily_tasks` -> `users/{uid}/dailyTasks/{taskId}`
+`streaks` -> `users/{uid}/streak/main`
+`ai_messages` -> `users/{uid}/aiMessages/{messageId}`
+`ai_insights` -> `users/{uid}/aiInsights/{insightId}`
+
+19.11 Security rule concept
+
+Users should read and write only their own private data:
+
+`users/{uid}` is accessible only when `request.auth.uid == uid`.
+`users/{uid}/...` subcollections are accessible only by that same user.
+`exercises`, `programs`, and `achievements` can be readable by signed-in users.
+Only admin accounts should create or edit official `exercises`, `programs`, and `achievements`.
+Storage paths under `users/{uid}` should be accessible only by that user.
+
+This design keeps Fitty realistic and safe:
+
+Auth data stays in Firebase Auth.
+Private user data stays under `users/{uid}`.
+Shared app content stays in top-level collections.
+Images and videos stay in Firebase Storage.
+SQLite remains useful for offline cache, not as the cloud database file.
+
+20. Example user journey
+
 
 A good way to prove screen logic is to show one complete flow.
 
