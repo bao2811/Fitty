@@ -6,6 +6,7 @@ on:
       - main
       - master
       - develop
+      - bao
   pull_request:
     branches:
       - main
@@ -50,7 +51,8 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Run lint, unit tests, and debug build
-        run: ./gradlew --no-daemon -Dorg.gradle.java.home="$JAVA_HOME" lintDebug testDebugUnitTest assembleDebug
+        run: ./gradlew --no-daemon -Dorg.gradle.java.home="$JAVA_HOME" lintDebug
+          testDebugUnitTest assembleDebug
 
       - name: Upload unit test report
         if: always()
