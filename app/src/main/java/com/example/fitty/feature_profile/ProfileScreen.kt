@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.HealthAndSafety
@@ -51,6 +52,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,14 +70,75 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.firebase.FittyFirebaseRepository
+import com.example.fitty.data.firebase.FittyUser
 import com.example.fitty.data.preferences.AppPreferencesDataSource
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
+import kotlin.math.roundToInt
+
+data class ProfileUiState(
+    val isLoading: Boolean = true,
+    val displayName: String = "Fitty User",
+    val email: String = "",
+    val avatarInitial: String = "F",
+    val profileLabel: String = "Complete onboarding to personalize your profile",
+    val currentGoal: String = "Set your goal",
+    val targetWeightLabel: String = "Target weight not set",
+    val goalProgress: Float = 0f,
+    val goalProgressLabel: String = "Profile setup incomplete",
+    val heightLabel: String = "-- cm",
+    val weightLabel: String = "-- kg",
+    val bmiLabel: String = "--",
+    val calorieTargetLabel: String = "-- kcal",
+    val waterGoalLabel: String = "2.5L",
+    val trainingDaysCountLabel: String = "0 days",
+    val workoutPreferenceLabel: String = "Not set",
+    val trainingDaysLabel: String = "Not set",
+    val equipmentLabel: String = "Not set",
+    val dietaryLabel: String = "Not set",
+    val languageLabel: String = "English",
+    val themeLabel: String = "System",
+    val unitsLabel: String = "kg | cm | kcal",
+    val currentStreak: Int = 0,
+    val bestStreak: Int = 0,
+    val totalWorkouts: Int = 0,
+    val mealsLogged: Int = 0,
+    val achievementsUnlocked: Int = 0,
+    val aiConsentEnabled: Boolean = true,
+    val photoStorageEnabled: Boolean = true,
+    val isGuest: Boolean = false
+)
 
 class ProfileViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
+    private val _uiState = MutableStateFlow(ProfileUiState())
+    val uiState: StateFlow<ProfileUiState> = _uiState
+
+    init {
+        refreshUser()
+    }
+
+    fun refreshUser() {
+        viewModelScope.launch {
+            val user = repository.getCurrentUser()
+            _uiState.update { current ->
+                if (user == null) {
+                    current.copy(isLoading = false)
+                } else {
+                    user.toProfileUiState()
+                }
+            }
+        }
+    }
 
     fun logout(onComplete: () -> Unit) {
         viewModelScope.launch {
+            repository.signOut()
             preferences.clearSession()
             onComplete()
         }
@@ -86,28 +150,40 @@ fun ProfileRoute(
     onLogout: () -> Unit,
     viewModel: ProfileViewModel = viewModel()
 ) {
-    ProfileScreen(onLogout = { viewModel.logout(onLogout) })
+    val state by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshUser()
+    }
+
+    ProfileScreen(
+        state = state,
+        onLogout = { viewModel.logout(onLogout) }
+    )
 }
 
 @Composable
-fun ProfileScreen(onLogout: () -> Unit) {
+fun ProfileScreen(
+    state: ProfileUiState,
+    onLogout: () -> Unit
+) {
     FittyLazyScreen {
-        item { ProfileHeader() }
-        item { GoalSummaryCard() }
-        item { BodyMetricsSection() }
-        item { PreferenceSection() }
+        item { ProfileHeader(state = state) }
+        item { GoalSummaryCard(state = state) }
+        item { BodyMetricsSection(state = state) }
+        item { PreferenceSection(state = state) }
         item { ReminderSettingsSection() }
-        item { AchievementsRow() }
+        item { AchievementsRow(state = state) }
         item { LinkedAppsSection() }
-        item { PrivacySection() }
-        item { AppSettingsSection() }
+        item { PrivacySection(state = state) }
+        item { AppSettingsSection(state = state) }
         item { LogoutSection(onLogout = onLogout) }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
 
 @Composable
-private fun ProfileHeader() {
+private fun ProfileHeader(state: ProfileUiState) {
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -125,29 +201,47 @@ private fun ProfileHeader() {
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(38.dp)
+                Text(
+                    text = state.avatarInitial,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "Anna Nguyen",
+                    text = state.displayName,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (state.isGuest) Icons.Outlined.Person else Icons.Outlined.Email,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = if (state.isGuest) "Guest mode" else state.email.ifBlank { "Email not available" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
-                    text = "Beginner • Fat Loss Goal",
+                    text = state.profileLabel,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick = { }, label = { Text("Level 3") })
-                    AssistChip(onClick = { }, label = { Text("12-day streak") })
+                    AssistChip(onClick = { }, label = { Text("${state.currentStreak}-day streak") })
+                    AssistChip(onClick = { }, label = { Text(state.currentGoal) })
                 }
             }
             OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp)) {
@@ -158,7 +252,7 @@ private fun ProfileHeader() {
 }
 
 @Composable
-private fun GoalSummaryCard() {
+private fun GoalSummaryCard(state: ProfileUiState) {
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
@@ -176,9 +270,14 @@ private fun GoalSummaryCard() {
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Current Goal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("Lose Weight", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("Target Weight: 58 kg • Review in 6 weeks", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                LinearProgressIndicator(progress = { 0.42f }, modifier = Modifier.fillMaxWidth())
+                Text(state.currentGoal, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(state.targetWeightLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LinearProgressIndicator(progress = { state.goalProgress }, modifier = Modifier.fillMaxWidth())
+                Text(
+                    state.goalProgressLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             Button(onClick = { }, shape = RoundedCornerShape(8.dp)) {
                 Text("Update")
@@ -189,7 +288,7 @@ private fun GoalSummaryCard() {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BodyMetricsSection() {
+private fun BodyMetricsSection(state: ProfileUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Body Metrics")
         FlowRow(
@@ -197,12 +296,12 @@ private fun BodyMetricsSection() {
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            MetricTile("165 cm", "Height", Icons.Outlined.Straighten)
-            MetricTile("61.5 kg", "Weight", Icons.Outlined.MonitorWeight)
-            MetricTile("22.6", "BMI", Icons.Outlined.HealthAndSafety)
-            MetricTile("2,100", "Calorie Target", Icons.Outlined.Restaurant)
-            MetricTile("2.5L", "Water Goal", Icons.Outlined.WaterDrop)
-            MetricTile("4 days", "Training Days", Icons.Outlined.FitnessCenter)
+            MetricTile(state.heightLabel, "Height", Icons.Outlined.Straighten)
+            MetricTile(state.weightLabel, "Weight", Icons.Outlined.MonitorWeight)
+            MetricTile(state.bmiLabel, "BMI", Icons.Outlined.HealthAndSafety)
+            MetricTile(state.calorieTargetLabel, "Calorie Target", Icons.Outlined.Restaurant)
+            MetricTile(state.waterGoalLabel, "Water Goal", Icons.Outlined.WaterDrop)
+            MetricTile(state.trainingDaysCountLabel, "Training Days", Icons.Outlined.FitnessCenter)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
@@ -237,15 +336,15 @@ private fun MetricTile(value: String, label: String, icon: ImageVector) {
 }
 
 @Composable
-private fun PreferenceSection() {
+private fun PreferenceSection(state: ProfileUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Preferences")
         SettingsCard {
-            SettingsRow(Icons.Outlined.FitnessCenter, "Workout Preference", "Home workouts • 4 days/week • Evening")
-            SettingsRow(Icons.Outlined.Schedule, "Training Days", "Mon, Wed, Fri, Sat")
-            SettingsRow(Icons.Outlined.Badge, "Equipment Access", "Home, basic equipment")
-            SettingsRow(Icons.Outlined.Restaurant, "Dietary Preference", "High protein • lactose-free")
-            SettingsRow(Icons.Outlined.Language, "Language", "English")
+            SettingsRow(Icons.Outlined.FitnessCenter, "Workout Preference", state.workoutPreferenceLabel)
+            SettingsRow(Icons.Outlined.Schedule, "Training Days", state.trainingDaysLabel)
+            SettingsRow(Icons.Outlined.Badge, "Equipment Access", state.equipmentLabel)
+            SettingsRow(Icons.Outlined.Restaurant, "Dietary Preference", state.dietaryLabel)
+            SettingsRow(Icons.Outlined.Language, "Language", state.languageLabel)
         }
     }
 }
@@ -265,7 +364,7 @@ private fun ReminderSettingsSection() {
 }
 
 @Composable
-private fun AchievementsRow() {
+private fun AchievementsRow(state: ProfileUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Achievements", "See All")
         Row(
@@ -274,10 +373,10 @@ private fun AchievementsRow() {
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            AchievementBadge("First Workout", Icons.Outlined.FitnessCenter)
-            AchievementBadge("7-Day Streak", Icons.Outlined.EmojiEvents)
-            AchievementBadge("10 Meals Logged", Icons.Outlined.Restaurant)
-            AchievementBadge("5 Workouts", Icons.Outlined.MonitorHeart)
+            AchievementBadge("${state.totalWorkouts} Workouts", Icons.Outlined.FitnessCenter)
+            AchievementBadge("${state.currentStreak}-Day Streak", Icons.Outlined.EmojiEvents)
+            AchievementBadge("${state.mealsLogged} Meals Logged", Icons.Outlined.Restaurant)
+            AchievementBadge("${state.achievementsUnlocked} Unlocked", Icons.Outlined.MonitorHeart)
         }
     }
 }
@@ -312,26 +411,34 @@ private fun LinkedAppsSection() {
 }
 
 @Composable
-private fun PrivacySection() {
+private fun PrivacySection(state: ProfileUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Privacy & AI")
         SettingsCard {
-            SettingsRow(Icons.Outlined.Lock, "Manage AI Data", "Control chat and recommendation history")
+            SettingsRow(
+                Icons.Outlined.Lock,
+                "Manage AI Data",
+                if (state.aiConsentEnabled) "AI assistance is enabled" else "AI assistance is disabled"
+            )
             SettingsRow(Icons.Outlined.HealthAndSafety, "Body Scan Privacy", "Control how body analysis images are stored")
-            SettingsRow(Icons.Outlined.Restaurant, "Photo Storage Permission", "Meal and body photos")
+            SettingsRow(
+                Icons.Outlined.Restaurant,
+                "Photo Storage Permission",
+                if (state.photoStorageEnabled) "Meal and body photos are allowed" else "Photo storage is disabled"
+            )
             SettingsRow(Icons.Outlined.Badge, "Terms & Privacy Policy", "Fitty data rules")
         }
     }
 }
 
 @Composable
-private fun AppSettingsSection() {
+private fun AppSettingsSection(state: ProfileUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("App Settings")
         SettingsCard {
-            ToggleRow(Icons.Outlined.DarkMode, "Dark Mode", "Use system setting", false)
-            SettingsRow(Icons.Outlined.Language, "App Language", "English")
-            SettingsRow(Icons.Outlined.Settings, "Units", "kg • cm • kcal")
+            ToggleRow(Icons.Outlined.DarkMode, "Dark Mode", state.themeLabel, state.themeLabel.equals("Dark", ignoreCase = true))
+            SettingsRow(Icons.Outlined.Language, "App Language", state.languageLabel)
+            SettingsRow(Icons.Outlined.Settings, "Units", state.unitsLabel)
             SettingsRow(Icons.Outlined.Badge, "Help Center", "Guides and support")
             SettingsRow(Icons.Outlined.Badge, "About Fitty", "Version 1.0")
         }
@@ -439,5 +546,113 @@ private fun SectionHeader(title: String, action: String? = null) {
         if (action != null) {
             Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
+    }
+}
+
+private fun FittyUser.toProfileUiState(): ProfileUiState {
+    val resolvedName = displayName.ifBlank {
+        email.substringBefore("@").ifBlank { "Fitty User" }
+    }
+    val goal = profile.primaryGoal.toDisplayLabel(defaultValue = "Set your goal")
+    val fitness = profile.fitnessLevel.toDisplayLabel(defaultValue = "Beginner")
+    val preferredTime = onboarding.preferredTime.toDisplayLabel(defaultValue = "Any time")
+    val duration = onboarding.workoutDurationMinutes?.let { "$it min/session" } ?: "Duration not set"
+    val trainingDays = onboarding.workoutDays.formatWorkoutDays()
+    val heightValue = profile.heightCm
+    val weightValue = profile.weightKg
+    val targetWeightValue = profile.targetWeightKg
+    val workoutDaysCount = onboarding.workoutDays.size
+    val progress = profileCompletionProgress()
+
+    return ProfileUiState(
+        isLoading = false,
+        displayName = resolvedName,
+        email = email,
+        avatarInitial = resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "F",
+        profileLabel = "$fitness | $goal",
+        currentGoal = goal,
+        targetWeightLabel = targetWeightValue?.let { "Target Weight: $it ${settings.weightUnit}" } ?: "Target weight not set",
+        goalProgress = progress,
+        goalProgressLabel = "Profile setup ${(progress * 100).roundToInt()}% complete",
+        heightLabel = heightValue?.let { "$it ${settings.heightUnit}" } ?: "-- ${settings.heightUnit}",
+        weightLabel = weightValue?.let { "$it ${settings.weightUnit}" } ?: "-- ${settings.weightUnit}",
+        bmiLabel = calculateBmi(weightValue, heightValue),
+        calorieTargetLabel = estimateCalories(weightValue, profile.primaryGoal, settings.energyUnit),
+        waterGoalLabel = "2.5L",
+        trainingDaysCountLabel = "$workoutDaysCount days",
+        workoutPreferenceLabel = listOf(fitness, duration, preferredTime).joinToString(" | "),
+        trainingDaysLabel = trainingDays,
+        equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(defaultValue = "Not set"),
+        dietaryLabel = onboarding.nutritionStyle.toDisplayLabel(defaultValue = "Not set"),
+        languageLabel = settings.language.toLanguageLabel(),
+        themeLabel = settings.themeMode.toDisplayLabel(defaultValue = "System"),
+        unitsLabel = "${settings.weightUnit} | ${settings.heightUnit} | ${settings.energyUnit}",
+        currentStreak = stats.currentStreak,
+        bestStreak = stats.bestStreak,
+        totalWorkouts = stats.totalWorkouts,
+        mealsLogged = stats.mealsLogged,
+        achievementsUnlocked = stats.achievementsUnlocked,
+        aiConsentEnabled = settings.aiConsent,
+        photoStorageEnabled = settings.photoStorageEnabled,
+        isGuest = guest
+    )
+}
+
+private fun FittyUser.profileCompletionProgress(): Float {
+    val checkpoints = listOf(
+        profile.age != null,
+        profile.heightCm != null,
+        profile.weightKg != null,
+        profile.targetWeightKg != null,
+        profile.primaryGoal.isNotBlank(),
+        profile.fitnessLevel.isNotBlank(),
+        onboarding.workoutDays.isNotEmpty(),
+        onboarding.workoutDurationMinutes != null,
+        onboarding.preferredTime.isNotBlank()
+    )
+    return checkpoints.count { it }.toFloat() / checkpoints.size.toFloat()
+}
+
+private fun calculateBmi(weightKg: Int?, heightCm: Int?): String {
+    if (weightKg == null || heightCm == null || heightCm == 0) return "--"
+    val heightMeters = heightCm / 100f
+    return String.format(Locale.US, "%.1f", weightKg / (heightMeters * heightMeters))
+}
+
+private fun estimateCalories(weightKg: Int?, goal: String, energyUnit: String): String {
+    val baseCalories = when {
+        weightKg == null -> null
+        goal == "gain_muscle" -> weightKg * 34
+        goal == "lose_weight" -> weightKg * 28
+        else -> weightKg * 30
+    }
+    return baseCalories?.let { "$it $energyUnit" } ?: "-- $energyUnit"
+}
+
+private fun String.toDisplayLabel(defaultValue: String): String {
+    if (isBlank()) return defaultValue
+    return split('_', ' ')
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part ->
+            part.replaceFirstChar { char ->
+                if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
+            }
+        }
+}
+
+private fun List<String>.formatWorkoutDays(): String {
+    if (isEmpty()) return "Not set"
+    return joinToString(", ") { day ->
+        day.replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
+        }
+    }
+}
+
+private fun String.toLanguageLabel(): String {
+    return when (lowercase(Locale.US)) {
+        "vi" -> "Vietnamese"
+        "en" -> "English"
+        else -> toDisplayLabel(defaultValue = "English")
     }
 }

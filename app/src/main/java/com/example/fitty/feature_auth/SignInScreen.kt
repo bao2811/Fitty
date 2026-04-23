@@ -8,7 +8,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -19,9 +22,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -30,8 +36,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
-import com.example.fitty.data.local.FittyLocalRepository
+import com.example.fitty.data.firebase.FittyFirebaseRepository
 import com.example.fitty.data.preferences.AppPreferencesDataSource
+import com.example.fitty.notifications.FittyMessagingCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -48,7 +55,12 @@ data class SignInUiState(
 
 class SignInViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
-    private val repository = FittyLocalRepository(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
+    private val messagingCoordinator = FittyMessagingCoordinator(
+        context = application.applicationContext,
+        repository = repository,
+        preferences = preferences
+    )
     private val _uiState = MutableStateFlow(SignInUiState())
     val uiState: StateFlow<SignInUiState> = _uiState
 
@@ -60,7 +72,7 @@ class SignInViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(password = value, passwordError = null, errorMessage = null) }
     }
 
-    fun submit(onSuccess: () -> Unit) {
+    fun submit(onSuccess: (Boolean) -> Unit) {
         val current = _uiState.value
         val identifierError = validateIdentifier(current.identifier)
         val passwordError = validatePassword(current.password)
@@ -72,38 +84,56 @@ class SignInViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val result = repository.signInWithPassword(current.identifier, current.password)
-            if (result.user == null) {
-                _uiState.update { it.copy(isSubmitting = false, errorMessage = result.errorMessage) }
-                return@launch
+            try {
+                _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+                val result = repository.signInWithPassword(current.identifier, current.password)
+                if (result.user == null) {
+                    _uiState.update { it.copy(isSubmitting = false, errorMessage = result.errorMessage) }
+                    return@launch
+                }
+                preferences.setCurrentUserId(result.user.uid)
+                preferences.setSignedIn(!result.user.guest)
+                preferences.setGuestModeEnabled(result.user.guest)
+                preferences.setOnboardingCompleted(result.user.onboardingCompleted)
+                runCatching {
+                    messagingCoordinator.syncTokenAndWelcomeUser(
+                        user = result.user,
+                        forceNotification = true
+                    )
+                }
+                _uiState.update { it.copy(isSubmitting = false) }
+                onSuccess(result.user.onboardingCompleted)
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        errorMessage = error.message ?: "Sign in failed"
+                    )
+                }
             }
-            preferences.setCurrentUserId(result.user.id)
-            preferences.setSignedIn(true)
-            preferences.setGuestModeEnabled(false)
-            _uiState.update { it.copy(isSubmitting = false) }
-            onSuccess()
         }
     }
 
-    fun continueWithGoogle(onSuccess: () -> Unit) {
+    fun continueAsGuest(onSuccess: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val result = repository.continueWithGoogleDemo()
+            val result = repository.continueAsGuest()
             if (result.user == null) {
                 _uiState.update { it.copy(isSubmitting = false, errorMessage = result.errorMessage) }
                 return@launch
             }
-            preferences.setCurrentUserId(result.user.id)
-            preferences.setSignedIn(true)
-            preferences.setGuestModeEnabled(false)
+            preferences.setCurrentUserId(result.user.uid)
+            preferences.setSignedIn(false)
+            preferences.setGuestModeEnabled(true)
+            preferences.setOnboardingCompleted(result.user.onboardingCompleted)
             _uiState.update { it.copy(isSubmitting = false) }
             onSuccess()
         }
     }
 
     private fun validateIdentifier(value: String): String? = when {
-        value.isBlank() -> "Email or username is required"
+        value.isBlank() -> "Email is required"
+        "@" !in value -> "Enter a valid email address"
         else -> null
     }
 
@@ -118,7 +148,8 @@ class SignInViewModel(application: Application) : AndroidViewModel(application) 
 fun SignInRoute(
     onBack: () -> Unit,
     onCreateAccount: () -> Unit,
-    onSignedIn: () -> Unit,
+    onSignedIn: (Boolean) -> Unit,
+    onContinueAsGuest: () -> Unit,
     viewModel: SignInViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -129,7 +160,7 @@ fun SignInRoute(
         onIdentifierChanged = viewModel::onIdentifierChanged,
         onPasswordChanged = viewModel::onPasswordChanged,
         onSubmit = { viewModel.submit(onSignedIn) },
-        onGoogleSignIn = { viewModel.continueWithGoogle(onSignedIn) }
+        onGuestSignIn = { viewModel.continueAsGuest(onContinueAsGuest) }
     )
 }
 
@@ -142,7 +173,7 @@ fun SignInScreen(
     onIdentifierChanged: (String) -> Unit,
     onPasswordChanged: (String) -> Unit,
     onSubmit: () -> Unit,
-    onGoogleSignIn: () -> Unit
+    onGuestSignIn: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -162,7 +193,7 @@ fun SignInScreen(
                 OutlinedTextField(
                     value = state.identifier,
                     onValueChange = onIdentifierChanged,
-                    label = { Text("Email or username") },
+                    label = { Text("Email") },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Outlined.AlternateEmail,
@@ -176,21 +207,10 @@ fun SignInScreen(
                 )
             }
             item {
-                OutlinedTextField(
+                SignInPasswordField(
                     value = state.password,
                     onValueChange = onPasswordChanged,
-                    label = { Text("Password") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Lock,
-                            contentDescription = null
-                        )
-                    },
-                    isError = state.passwordError != null,
-                    supportingText = { state.passwordError?.let { Text(it) } },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth()
+                    error = state.passwordError
                 )
             }
             item {
@@ -212,16 +232,9 @@ fun SignInScreen(
             }
             item {
                 FittySecondaryButton(
-                    text = "Continue with Google",
-                    onClick = onGoogleSignIn,
-                    enabled = !state.isSubmitting,
-                    leadingIcon = {
-                        Text(
-                            text = "G",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    text = "Continue as Guest",
+                    onClick = onGuestSignIn,
+                    enabled = !state.isSubmitting
                 )
             }
             item {
@@ -231,4 +244,37 @@ fun SignInScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SignInPasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    error: String?
+) {
+    var visible by rememberSaveable { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text("Password") },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.Lock,
+                contentDescription = null
+            )
+        },
+        isError = error != null,
+        supportingText = { error?.let { Text(it) } },
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    contentDescription = if (visible) "Hide password" else "Show password"
+                )
+            }
+        },
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        modifier = Modifier.fillMaxWidth()
+    )
 }

@@ -1,5 +1,6 @@
 package com.example.fitty.feature_home
 
+import android.app.Application
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,6 +41,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,17 +53,79 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.firebase.FittyFirebaseRepository
+import com.example.fitty.data.firebase.FittyUser
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.time.LocalTime
+import java.util.Locale
+
+data class HomeUiState(
+    val isLoading: Boolean = true,
+    val displayName: String = "Fitty User",
+    val avatarInitial: String = "F",
+    val greetingTitle: String = "Welcome back",
+    val greetingSubtitle: String = "Let's make today count",
+    val focusDescription: String = "Finish onboarding to generate your daily workout focus.",
+    val workoutTarget: String = "0/1",
+    val mealsTarget: String = "0/3",
+    val waterTarget: String = "0L / 2.5L",
+    val workoutName: String = "Starter Workout",
+    val workoutMeta: String = "Set up your plan to see today's session",
+    val equipmentLabel: String = "No equipment selected",
+    val currentStreak: Int = 0,
+    val bestStreak: Int = 0
+)
+
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository = FittyFirebaseRepository()
+    private val _uiState = MutableStateFlow(HomeUiState())
+    val uiState: StateFlow<HomeUiState> = _uiState
+
+    init {
+        refreshUser()
+    }
+
+    fun refreshUser() {
+        viewModelScope.launch {
+            val user = repository.getCurrentUser()
+            _uiState.update { current ->
+                if (user == null) {
+                    current.copy(isLoading = false)
+                } else {
+                    user.toHomeUiState()
+                }
+            }
+        }
+    }
+}
 
 @Composable
-fun HomeScreen() {
+fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
+    val state by viewModel.uiState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshUser()
+    }
+
+    HomeScreen(state = state)
+}
+
+@Composable
+fun HomeScreen(state: HomeUiState) {
     FittyLazyScreen {
-        item { HomeTopBar() }
-        item { TodaySummaryCard() }
+        item { HomeTopBar(state = state) }
+        item { TodaySummaryCard(state = state) }
         item { QuickActionsRow() }
         item { TodayTasksSection() }
-        item { StreakCard() }
-        item { WorkoutTodayCard() }
+        item { StreakCard(state = state) }
+        item { WorkoutTodayCard(state = state) }
         item { NutritionSummaryCard() }
         item { AIInsightCard() }
         item { AchievementPreviewCard() }
@@ -68,7 +134,7 @@ fun HomeScreen() {
 }
 
 @Composable
-private fun HomeTopBar() {
+private fun HomeTopBar(state: HomeUiState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -86,18 +152,22 @@ private fun HomeTopBar() {
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Text("A", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = state.avatarInitial,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
             Column {
                 Text(
-                    text = "Good Morning, Anna",
+                    text = state.greetingTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Let's make today count",
+                    text = state.greetingSubtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -132,7 +202,7 @@ private fun BadgedIconButton(icon: ImageVector, hasBadge: Boolean) {
 }
 
 @Composable
-private fun TodaySummaryCard() {
+private fun TodaySummaryCard(state: HomeUiState) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         shadowElevation = 2.dp,
@@ -164,7 +234,7 @@ private fun TodaySummaryCard() {
                         color = Color.White
                     )
                     Text(
-                        text = "30 min Full Body Workout + stay within 2,100 kcal",
+                        text = state.focusDescription,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.9f),
                         modifier = Modifier.padding(top = 6.dp)
@@ -178,9 +248,9 @@ private fun TodaySummaryCard() {
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FocusMetric("Workout", "0/1")
-                FocusMetric("Meals Logged", "1/3")
-                FocusMetric("Water", "1.2L / 2.5L")
+                FocusMetric("Workout", state.workoutTarget)
+                FocusMetric("Meals Logged", state.mealsTarget)
+                FocusMetric("Water", state.waterTarget)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
@@ -354,7 +424,7 @@ private fun TaskCard(
 }
 
 @Composable
-private fun StreakCard() {
+private fun StreakCard(state: HomeUiState) {
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -377,9 +447,9 @@ private fun StreakCard() {
                     modifier = Modifier.size(34.dp)
                 )
                 Column {
-                    Text("12 Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("${state.currentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(
-                        "Complete one more action today to keep it alive",
+                        "Keep logging workouts and meals to extend your streak.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -387,11 +457,11 @@ private fun StreakCard() {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("M", "T", "W", "T", "F", "S", "S").forEachIndexed { index, day ->
-                    DayIndicator(day = day, active = index < 5, current = index == 5)
+                    DayIndicator(day = day, active = index < state.currentStreak.coerceAtMost(7), current = index == 5)
                 }
             }
             Text(
-                "Best Streak: 21 days",
+                "Best Streak: ${state.bestStreak} days",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -420,7 +490,7 @@ private fun DayIndicator(day: String, active: Boolean, current: Boolean) {
 }
 
 @Composable
-private fun WorkoutTodayCard() {
+private fun WorkoutTodayCard(state: HomeUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionHeader("Today's Workout")
         Card(
@@ -434,9 +504,9 @@ private fun WorkoutTodayCard() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Full Body Strength", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("30 min • Beginner • ~220 kcal", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    AssistChip(onClick = { }, label = { Text("No equipment") })
+                    Text(state.workoutName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(state.workoutMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    AssistChip(onClick = { }, label = { Text(state.equipmentLabel) })
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
                             Text("Start")
@@ -574,6 +644,72 @@ private fun SectionHeader(title: String, action: String? = null) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (action != null) {
             Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+private fun FittyUser.toHomeUiState(): HomeUiState {
+    val resolvedName = displayName.ifBlank {
+        email.substringBefore("@").ifBlank { "Fitty User" }
+    }
+    val durationMinutes = onboarding.workoutDurationMinutes
+    val goalLabel = profile.primaryGoal.toDisplayLabel(defaultValue = "your goal")
+    val fitnessLabel = profile.fitnessLevel.toDisplayLabel(defaultValue = "Beginner")
+    val equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(defaultValue = "No equipment selected")
+    val workoutDays = onboarding.workoutDays.formatWorkoutDays()
+    val workoutMetaParts = buildList {
+        add(durationMinutes?.let { "$it min" } ?: "Duration not set")
+        add(fitnessLabel)
+        add(workoutDays)
+    }
+
+    return HomeUiState(
+        isLoading = false,
+        displayName = resolvedName,
+        avatarInitial = resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "F",
+        greetingTitle = "${greetingForNow()}, ${resolvedName.substringBefore(" ")}",
+        greetingSubtitle = if (guest) "You're browsing in guest mode" else "Let's make today count",
+        focusDescription = buildString {
+            append(durationMinutes?.let { "$it min workout" } ?: "Workout plan")
+            append(" focused on ")
+            append(goalLabel.lowercase(Locale.US))
+        },
+        workoutTarget = if (onboardingCompleted) "1/1" else "0/1",
+        mealsTarget = "${stats.mealsLogged}/3",
+        waterTarget = "0L / 2.5L",
+        workoutName = if (onboardingCompleted) "$goalLabel Session" else "Complete onboarding",
+        workoutMeta = workoutMetaParts.joinToString(" | "),
+        equipmentLabel = equipmentLabel,
+        currentStreak = stats.currentStreak,
+        bestStreak = stats.bestStreak
+    )
+}
+
+private fun greetingForNow(): String {
+    val currentHour = LocalTime.now().hour
+    return when {
+        currentHour < 12 -> "Good Morning"
+        currentHour < 18 -> "Good Afternoon"
+        else -> "Good Evening"
+    }
+}
+
+private fun String.toDisplayLabel(defaultValue: String): String {
+    if (isBlank()) return defaultValue
+    return split('_', ' ')
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part ->
+            part.replaceFirstChar { char ->
+                if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
+            }
+        }
+}
+
+private fun List<String>.formatWorkoutDays(): String {
+    if (isEmpty()) return "Choose workout days"
+    return joinToString(", ") { day ->
+        day.replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
         }
     }
 }

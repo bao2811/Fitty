@@ -22,7 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.fitty.feature_coach.CoachScreen
-import com.example.fitty.feature_home.HomeScreen
+import com.example.fitty.feature_home.HomeRoute
 import com.example.fitty.feature_plan.PlanScreen
 import com.example.fitty.feature_profile.ProfileRoute
 import com.example.fitty.feature_track.TrackScreen
@@ -61,7 +61,7 @@ fun MainScaffold(onLogout: () -> Unit) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(MainRoutes.Home) {
-                HomeScreen()
+                HomeRoute()
             }
             composable(MainRoutes.Plan) {
                 PlanScreen()

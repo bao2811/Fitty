@@ -36,8 +36,8 @@ import com.example.fitty.core.designsystem.component.FittyChoiceCard
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
-import com.example.fitty.data.local.FittyLocalRepository
-import com.example.fitty.data.local.OnboardingAnswers
+import com.example.fitty.data.firebase.FittyFirebaseRepository
+import com.example.fitty.data.firebase.FittyOnboardingAnswers
 import com.example.fitty.data.preferences.AppPreferencesDataSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,7 +45,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-private const val LastStep = 6
+private const val TotalSteps = 9
+private const val LastStep = TotalSteps - 1
 
 data class OnboardingUiState(
     val step: Int = 0,
@@ -68,7 +69,7 @@ data class OnboardingUiState(
 
 class OnboardingViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
-    private val repository = FittyLocalRepository(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState
 
@@ -138,28 +139,29 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         0 -> if (state.goal.isBlank()) "Choose one primary goal" else null
         1 -> when {
             state.age.toIntOrNull() == null -> "Enter your age"
+            state.age.toIntOrNull() !in 13..100 -> "Age must be between 13 and 100"
             state.height.toIntOrNull() == null -> "Enter your height"
+            state.height.toIntOrNull() !in 100..250 -> "Height must be between 100 and 250 cm"
             state.weight.toIntOrNull() == null -> "Enter your weight"
+            state.weight.toIntOrNull() !in 30..300 -> "Weight must be between 30 and 300 kg"
             state.targetWeight.toIntOrNull() == null -> "Enter your target weight"
+            state.targetWeight.toIntOrNull() !in 30..300 -> "Target weight must be between 30 and 300 kg"
             else -> null
         }
         2 -> if (state.fitnessLevel.isBlank()) "Choose your fitness level" else null
-        3 -> when {
-            state.workoutDays.isEmpty() -> "Choose at least one workout day"
-            state.duration.isBlank() -> "Choose workout duration"
-            state.preferredTime.isBlank() -> "Choose preferred time"
-            else -> null
-        }
-        4 -> if (state.equipment.isBlank()) "Choose where you train" else null
-        5 -> if (state.nutrition.isBlank()) "Choose your eating style" else null
+        3 -> if (state.workoutDays.isEmpty()) "Choose at least one workout day" else null
+        4 -> if (state.preferredTime.isBlank()) "Choose preferred time" else null
+        5 -> if (state.duration.isBlank()) "Choose workout duration" else null
+        6 -> if (state.equipment.isBlank()) "Choose where you train" else null
+        7 -> if (state.nutrition.isBlank()) "Choose your eating style" else null
         else -> null
     }
 
     private fun Set<String>.toggle(value: String): Set<String> =
         if (contains(value)) this - value else this + value
 
-    private fun OnboardingUiState.toAnswers(): OnboardingAnswers =
-        OnboardingAnswers(
+    private fun OnboardingUiState.toAnswers(): FittyOnboardingAnswers =
+        FittyOnboardingAnswers(
             goal = goal,
             age = age.toIntOrNull(),
             heightCm = height.toIntOrNull(),
@@ -258,9 +260,9 @@ fun OnboardingScreen(
         }
         item {
             Column {
-                Text("Step ${state.step + 1} of 7", style = MaterialTheme.typography.labelLarge)
+                Text("Step ${state.step + 1} of $TotalSteps", style = MaterialTheme.typography.labelLarge)
                 LinearProgressIndicator(
-                    progress = { (state.step + 1) / 7f },
+                    progress = { (state.step + 1) / TotalSteps.toFloat() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
@@ -287,10 +289,12 @@ fun OnboardingScreen(
                     selected = state.fitnessLevel,
                     onSelected = onFitnessLevelSelected
                 )
-                3 -> ScheduleStep(state, onWorkoutDayToggled, onDurationSelected, onPreferredTimeSelected)
-                4 -> EquipmentStep(state, onEquipmentSelected, onInjuryNoteChanged)
-                5 -> NutritionStep(state, onNutritionSelected, onRestrictionToggled)
-                6 -> ReminderStep(state, onReminderToggled)
+                3 -> WorkoutDaysStep(state, onWorkoutDayToggled)
+                4 -> WorkoutTimeStep(state, onPreferredTimeSelected)
+                5 -> WorkoutDurationStep(state, onDurationSelected)
+                6 -> EquipmentStep(state, onEquipmentSelected, onInjuryNoteChanged)
+                7 -> NutritionStep(state, onNutritionSelected, onRestrictionToggled)
+                8 -> ReminderStep(state, onReminderToggled)
             }
         }
         item {
@@ -299,18 +303,11 @@ fun OnboardingScreen(
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FittySecondaryButton(
-                    text = "Back",
-                    onClick = onBack,
-                    modifier = Modifier.weight(1f)
-                )
-                FittyPrimaryButton(
-                    text = if (state.step == LastStep) "Preview Plan" else "Continue",
-                    onClick = onNext,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            OnboardingActions(
+                step = state.step,
+                onBack = onBack,
+                onNext = onNext
+            )
         }
     }
 }
@@ -332,31 +329,70 @@ private fun BodyMetricsStep(
 }
 
 @Composable
-private fun ScheduleStep(
+private fun WorkoutDaysStep(
     state: OnboardingUiState,
-    onWorkoutDayToggled: (String) -> Unit,
-    onDurationSelected: (String) -> Unit,
-    onPreferredTimeSelected: (String) -> Unit
+    onWorkoutDayToggled: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MultiChoiceList(
-            title = "Days",
+            title = "Training days",
             icon = Icons.Outlined.CalendarMonth,
             values = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
             selected = state.workoutDays,
             onToggle = onWorkoutDayToggled
         )
-        SectionHeader(Icons.Outlined.Schedule, "Workout time")
+    }
+}
+
+@Composable
+private fun WorkoutTimeStep(
+    state: OnboardingUiState,
+    onPreferredTimeSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(Icons.Outlined.Schedule, "Preferred workout time")
         ChoiceList(
             values = listOf("Morning", "Afternoon", "Evening"),
             selected = state.preferredTime,
             onSelected = onPreferredTimeSelected
         )
+    }
+}
+
+@Composable
+private fun WorkoutDurationStep(
+    state: OnboardingUiState,
+    onDurationSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(Icons.Outlined.Timer, "Session duration")
         ChoiceList(
             values = listOf("20 min", "30 min", "45 min", "60 min"),
             selected = state.duration,
             onSelected = onDurationSelected
+        )
+    }
+}
+
+@Composable
+private fun OnboardingActions(
+    step: Int,
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        FittySecondaryButton(
+            text = "Back",
+            onClick = onBack,
+            modifier = Modifier.weight(1f)
+        )
+        FittyPrimaryButton(
+            text = if (step == LastStep) "Preview Plan" else "Continue",
+            onClick = onNext,
+            modifier = Modifier.weight(1f)
         )
     }
 }
@@ -490,9 +526,11 @@ private fun stepTitle(step: Int): String = when (step) {
     0 -> "What is your main goal?"
     1 -> "Tell us about your body"
     2 -> "What is your current fitness level?"
-    3 -> "When can you work out?"
-    4 -> "Where do you usually train?"
-    5 -> "What best matches your eating style?"
+    3 -> "Which days can you train?"
+    4 -> "Which time of day suits you best?"
+    5 -> "How long should each session be?"
+    6 -> "Where do you usually train?"
+    7 -> "What best matches your eating style?"
     else -> "Set your reminders"
 }
 

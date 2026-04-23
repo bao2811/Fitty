@@ -21,11 +21,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fitty.data.firebase.FittyFirebaseRepository
 import com.example.fitty.data.preferences.AppPreferencesDataSource
+import com.example.fitty.notifications.FittyMessagingCoordinator
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -41,6 +42,12 @@ data class SplashUiState(
 
 class SplashViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
+    private val messagingCoordinator = FittyMessagingCoordinator(
+        context = application.applicationContext,
+        repository = repository,
+        preferences = preferences
+    )
     private val _uiState = MutableStateFlow(SplashUiState())
     val uiState: StateFlow<SplashUiState> = _uiState
 
@@ -51,12 +58,17 @@ class SplashViewModel(application: Application) : AndroidViewModel(application) 
     private fun resolveStartupDestination() {
         viewModelScope.launch {
             delay(450)
-            val isGuest = preferences.guestModeEnabled.first()
-            val isSignedIn = preferences.signedIn.first()
-            val onboardingCompleted = preferences.onboardingCompleted.first()
+            val session = repository.getStartupState()
+            preferences.setCurrentUserId(session.uid)
+            preferences.setGuestModeEnabled(session.isGuest)
+            preferences.setSignedIn(session.isSignedIn)
+            preferences.setOnboardingCompleted(session.onboardingCompleted)
+            runCatching {
+                messagingCoordinator.syncTokenAndWelcomeUser(session)
+            }
             val destination = when {
-                (isGuest || isSignedIn) && onboardingCompleted -> StartupDestination.Main
-                isGuest || isSignedIn -> StartupDestination.Onboarding
+                (session.isGuest || session.isSignedIn) && session.onboardingCompleted -> StartupDestination.Main
+                session.isGuest || session.isSignedIn -> StartupDestination.Onboarding
                 else -> StartupDestination.Welcome
             }
             _uiState.update { it.copy(destination = destination) }

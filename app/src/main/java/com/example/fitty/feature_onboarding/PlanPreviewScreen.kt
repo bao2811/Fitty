@@ -21,14 +21,20 @@ import com.example.fitty.core.designsystem.component.FittyInfoCard
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.firebase.FittyFirebaseRepository
 import com.example.fitty.data.preferences.AppPreferencesDataSource
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class PlanPreviewViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
 
     fun startPlan(onComplete: () -> Unit) {
         viewModelScope.launch {
+            preferences.currentUserId.first()?.let { uid ->
+                repository.markOnboardingCompleted(uid)
+            }
             preferences.setOnboardingCompleted(true)
             onComplete()
         }

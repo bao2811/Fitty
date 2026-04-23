@@ -38,7 +38,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
-import com.example.fitty.data.local.FittyLocalRepository
+import com.example.fitty.data.firebase.FittyFirebaseRepository
 import com.example.fitty.data.preferences.AppPreferencesDataSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,19 +51,25 @@ data class WelcomeUiState(
 
 class WelcomeViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
-    private val repository = FittyLocalRepository(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
     private val _uiState = MutableStateFlow(WelcomeUiState())
     val uiState: StateFlow<WelcomeUiState> = _uiState
 
     fun continueAsGuest(onComplete: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isContinuingAsGuest = true) }
-            val guestUser = repository.continueAsGuest()
-            preferences.setCurrentUserId(guestUser.id)
-            preferences.setGuestModeEnabled(true)
-            preferences.setSignedIn(false)
-            _uiState.update { it.copy(isContinuingAsGuest = false) }
-            onComplete()
+            val result = repository.continueAsGuest()
+            val guestUser = result.user
+            if (guestUser != null) {
+                preferences.setCurrentUserId(guestUser.uid)
+                preferences.setGuestModeEnabled(true)
+                preferences.setSignedIn(false)
+                preferences.setOnboardingCompleted(guestUser.onboardingCompleted)
+                _uiState.update { it.copy(isContinuingAsGuest = false) }
+                onComplete()
+            } else {
+                _uiState.update { it.copy(isContinuingAsGuest = false) }
+            }
         }
     }
 }

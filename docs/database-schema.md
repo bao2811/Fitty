@@ -1,5 +1,7 @@
 # Fitty Database Schema
 
+Firestore version: see `docs/firestore-schema.md`.
+
 Fitty uses a local SQLite database named `fitty.db`. The schema is designed around the current product features:
 
 - Authentication and profile

@@ -44,7 +44,10 @@ fun FittyNavHost(navController: NavHostController) {
                 onCreateAccount = { navController.navigate(FittyRoutes.SignUp) },
                 onSignIn = { navController.navigate(FittyRoutes.SignIn) },
                 onContinueAsGuest = {
-                    navController.navigate(FittyRoutes.Onboarding)
+                    navController.navigate(FittyRoutes.Onboarding) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
             )
         }
@@ -52,8 +55,19 @@ fun FittyNavHost(navController: NavHostController) {
             SignInRoute(
                 onBack = { navController.popBackStack() },
                 onCreateAccount = { navController.navigate(FittyRoutes.SignUp) },
-                onSignedIn = {
-                    navController.navigate(FittyRoutes.Onboarding)
+                onSignedIn = { onboardingCompleted ->
+                    navController.navigate(
+                        if (onboardingCompleted) FittyRoutes.Main else FittyRoutes.Onboarding
+                    ) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onContinueAsGuest = {
+                    navController.navigate(FittyRoutes.Onboarding) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
                 }
             )
         }
@@ -61,8 +75,17 @@ fun FittyNavHost(navController: NavHostController) {
             SignUpRoute(
                 onBack = { navController.popBackStack() },
                 onSignedUp = {
-                    navController.navigate(FittyRoutes.Onboarding)
-                }
+                    navController.navigate(FittyRoutes.Onboarding) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onContinueAsGuest = {
+                    navController.navigate(FittyRoutes.Onboarding) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable(FittyRoutes.Onboarding) {

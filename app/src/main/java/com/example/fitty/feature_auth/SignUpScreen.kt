@@ -9,6 +9,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -20,9 +23,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -31,8 +37,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
-import com.example.fitty.data.local.FittyLocalRepository
+import com.example.fitty.data.firebase.FittyFirebaseRepository
 import com.example.fitty.data.preferences.AppPreferencesDataSource
+import com.example.fitty.notifications.FittyMessagingCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -49,7 +56,12 @@ data class SignUpUiState(
 
 class SignUpViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferencesDataSource(application.applicationContext)
-    private val repository = FittyLocalRepository(application.applicationContext)
+    private val repository = FittyFirebaseRepository()
+    private val messagingCoordinator = FittyMessagingCoordinator(
+        context = application.applicationContext,
+        repository = repository,
+        preferences = preferences
+    )
     private val _uiState = MutableStateFlow(SignUpUiState())
     val uiState: StateFlow<SignUpUiState> = _uiState
 
@@ -65,35 +77,52 @@ class SignUpViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true) }
-            val result = repository.createPasswordUser(
-                username = _uiState.value.username,
-                email = _uiState.value.email,
-                password = _uiState.value.password
-            )
-            if (result.user == null) {
-                _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }
-                return@launch
+            try {
+                _uiState.update { it.copy(isSubmitting = true, formError = null) }
+                val result = repository.createPasswordUser(
+                    username = _uiState.value.username,
+                    email = _uiState.value.email,
+                    password = _uiState.value.password
+                )
+                if (result.user == null) {
+                    _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }
+                    return@launch
+                }
+                preferences.setCurrentUserId(result.user.uid)
+                preferences.setSignedIn(true)
+                preferences.setGuestModeEnabled(false)
+                preferences.setOnboardingCompleted(result.user.onboardingCompleted)
+                runCatching {
+                    messagingCoordinator.syncTokenAndWelcomeUser(
+                        user = result.user,
+                        forceNotification = true
+                    )
+                }
+                _uiState.update { it.copy(isSubmitting = false) }
+                onSuccess()
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        formError = error.message ?: "Create account failed"
+                    )
+                }
             }
-            preferences.setCurrentUserId(result.user.id)
-            preferences.setSignedIn(true)
-            preferences.setGuestModeEnabled(false)
-            _uiState.update { it.copy(isSubmitting = false) }
-            onSuccess()
         }
     }
 
-    fun continueWithGoogle(onSuccess: () -> Unit) {
+    fun continueAsGuest(onSuccess: () -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, formError = null) }
-            val result = repository.continueWithGoogleDemo()
+            val result = repository.continueAsGuest()
             if (result.user == null) {
                 _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }
                 return@launch
             }
-            preferences.setCurrentUserId(result.user.id)
-            preferences.setSignedIn(true)
-            preferences.setGuestModeEnabled(false)
+            preferences.setCurrentUserId(result.user.uid)
+            preferences.setSignedIn(false)
+            preferences.setGuestModeEnabled(true)
+            preferences.setOnboardingCompleted(result.user.onboardingCompleted)
             _uiState.update { it.copy(isSubmitting = false) }
             onSuccess()
         }
@@ -113,6 +142,7 @@ class SignUpViewModel(application: Application) : AndroidViewModel(application) 
 fun SignUpRoute(
     onBack: () -> Unit,
     onSignedUp: () -> Unit,
+    onContinueAsGuest: () -> Unit,
     viewModel: SignUpViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -124,7 +154,7 @@ fun SignUpRoute(
         onPasswordChanged = { viewModel.update { copy(password = it) } },
         onConfirmPasswordChanged = { viewModel.update { copy(confirmPassword = it) } },
         onSubmit = { viewModel.submit(onSignedUp) },
-        onGoogleSignUp = { viewModel.continueWithGoogle(onSignedUp) }
+        onGuestSignUp = { viewModel.continueAsGuest(onContinueAsGuest) }
     )
 }
 
@@ -138,7 +168,7 @@ fun SignUpScreen(
     onPasswordChanged: (String) -> Unit,
     onConfirmPasswordChanged: (String) -> Unit,
     onSubmit: () -> Unit,
-    onGoogleSignUp: () -> Unit
+    onGuestSignUp: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -170,16 +200,9 @@ fun SignUpScreen(
             }
             item {
                 FittySecondaryButton(
-                    text = "Sign up with Google",
-                    onClick = onGoogleSignUp,
-                    enabled = !state.isSubmitting,
-                    leadingIcon = {
-                        Text(
-                            text = "G",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    text = "Continue as Guest",
+                    onClick = onGuestSignUp,
+                    enabled = !state.isSubmitting
                 )
             }
         }
@@ -212,6 +235,7 @@ private fun PasswordField(
     value: String,
     onValueChange: (String) -> Unit
 ) {
+    var visible by rememberSaveable { mutableStateOf(false) }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -219,7 +243,15 @@ private fun PasswordField(
         leadingIcon = {
             Icon(imageVector = Icons.Outlined.Lock, contentDescription = null)
         },
-        visualTransformation = PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    contentDescription = if (visible) "Hide password" else "Show password"
+                )
+            }
+        },
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         modifier = Modifier.fillMaxWidth()
     )
