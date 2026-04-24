@@ -55,7 +55,15 @@ fun FittyNavHost(navController: NavHostController) {
             SignInRoute(
                 onBack = { navController.popBackStack() },
                 onCreateAccount = { navController.navigate(FittyRoutes.SignUp) },
-                onSignedIn = {
+                onSignedIn = { onboardingCompleted ->
+                    navController.navigate(
+                        if (onboardingCompleted) FittyRoutes.Main else FittyRoutes.Onboarding
+                    ) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onContinueAsGuest = {
                     navController.navigate(FittyRoutes.Onboarding) {
                         popUpTo(FittyRoutes.Welcome) { inclusive = true }
                         launchSingleTop = true
@@ -71,29 +79,50 @@ fun FittyNavHost(navController: NavHostController) {
                         popUpTo(FittyRoutes.Welcome) { inclusive = true }
                         launchSingleTop = true
                     }
-                }
+                },
+                onContinueAsGuest = {
+                    navController.navigate(FittyRoutes.Onboarding) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable(FittyRoutes.Onboarding) {
             OnboardingRoute(
-                onFinished = {
-                    navController.navigate(FittyRoutes.PlanPreview) {
-                        popUpTo(FittyRoutes.Onboarding) { inclusive = true }
-                        launchSingleTop = true
+                onExit = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(FittyRoutes.Welcome) {
+                            launchSingleTop = true
+                        }
                     }
+                },
+                onFinished = {
+                    navController.navigate(FittyRoutes.PlanPreview)
                 }
             )
         }
         composable(FittyRoutes.PlanPreview) {
             PlanPreviewRoute(
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(FittyRoutes.Onboarding) {
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onStartPlan = {
                     navController.navigate(FittyRoutes.Main) {
-                        popUpTo(FittyRoutes.PlanPreview) { inclusive = true }
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
                         launchSingleTop = true
                     }
                 },
                 onAdjustPreferences = {
-                    navController.navigate(FittyRoutes.Onboarding)
+                    if (!navController.popBackStack()) {
+                        navController.navigate(FittyRoutes.Onboarding) {
+                            launchSingleTop = true
+                        }
+                    }
                 }
             )
         }

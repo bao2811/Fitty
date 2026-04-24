@@ -26,7 +26,7 @@ data class MainTab(
 
 val MainTabs = listOf(
     MainTab(MainRoutes.Home, "Home", "H"),
-    MainTab(MainRoutes.Plan, "Plan", "P"),
+    MainTab(MainRoutes.Plan, "Practice", "P"),
     MainTab(MainRoutes.Track, "Track", "T"),
     MainTab(MainRoutes.Coach, "Coach", "C"),
     MainTab(MainRoutes.Profile, "Profile", "U")

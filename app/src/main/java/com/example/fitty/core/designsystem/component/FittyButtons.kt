@@ -38,7 +38,8 @@ fun FittySecondaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    leadingIcon: (@Composable () -> Unit)? = null
 ) {
     OutlinedButton(
         onClick = onClick,
@@ -46,7 +47,17 @@ fun FittySecondaryButton(
         shape = RoundedCornerShape(8.dp),
         modifier = modifier.fillMaxWidth()
     ) {
-        Text(text = text)
+        if (leadingIcon == null) {
+            Text(text = text)
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                leadingIcon()
+                Text(text = text)
+            }
+        }
     }
 }
 

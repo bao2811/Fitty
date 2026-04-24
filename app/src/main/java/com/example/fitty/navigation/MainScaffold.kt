@@ -1,6 +1,14 @@
 package com.example.fitty.navigation
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Chat
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.FitnessCenter
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -14,7 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.fitty.feature_coach.CoachScreen
-import com.example.fitty.feature_home.HomeScreen
+import com.example.fitty.feature_home.HomeRoute
 import com.example.fitty.feature_plan.PlanScreen
 import com.example.fitty.feature_profile.ProfileRoute
 import com.example.fitty.feature_track.TrackScreen
@@ -40,7 +48,7 @@ fun MainScaffold(onLogout: () -> Unit) {
                                 restoreState = true
                             }
                         },
-                        icon = { Text(tab.iconLabel) },
+                        icon = { MainTabIcon(tab.route) },
                         label = { Text(tab.label) }
                     )
                 }
@@ -53,7 +61,7 @@ fun MainScaffold(onLogout: () -> Unit) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(MainRoutes.Home) {
-                HomeScreen()
+                HomeRoute()
             }
             composable(MainRoutes.Plan) {
                 PlanScreen()
@@ -69,4 +77,16 @@ fun MainScaffold(onLogout: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun MainTabIcon(route: String) {
+    val icon = when (route) {
+        MainRoutes.Home -> Icons.Outlined.Home
+        MainRoutes.Plan -> Icons.Outlined.FitnessCenter
+        MainRoutes.Track -> Icons.Outlined.Restaurant
+        MainRoutes.Coach -> Icons.AutoMirrored.Outlined.Chat
+        else -> Icons.Outlined.Person
+    }
+    Icon(imageVector = icon, contentDescription = null)
 }
