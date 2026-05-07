@@ -1,5 +1,6 @@
 package com.example.fitty.feature_plan
 
+import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -49,10 +50,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,17 +61,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
+import com.example.fitty.R
+import com.example.fitty.core.designsystem.component.FittySectionBlock
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.ui.theme.FittyGradientEnd
+import com.example.fitty.ui.theme.FittyPink
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import javax.inject.Inject
 
-private data class SampleExercise(
+internal data class SampleExercise(
     val id: String,
     val title: String,
     val summary: String,
@@ -89,7 +102,7 @@ private data class SampleExercise(
     val targetMuscles: String
 )
 
-private data class SampleWorkout(
+internal data class SampleWorkout(
     val title: String,
     val summary: String,
     val duration: String,
@@ -98,202 +111,285 @@ private data class SampleWorkout(
     val exercises: List<SampleExercise>
 )
 
-private val beginnerExerciseLibrary = listOf(
-    SampleExercise(
-        id = "bodyweight_squat",
-        title = "Bodyweight Squat",
-        summary = "Legs • Beginner • 12 reps",
-        muscle = "Legs",
-        level = "Beginner",
-        equipment = "No equipment",
-        repsOrDuration = "12 reps",
-        mediaUrl = "https://media.giphy.com/media/1C1ipHPEs4Vjwglwza/giphy.gif",
-        description = "A safe lower-body starter move that helps new users learn squat form and balance.",
-        steps = listOf(
-            "Stand with feet shoulder-width apart and brace your core.",
-            "Push hips back while bending knees.",
-            "Drive through your heels to return to standing."
-        ),
-        mistakes = listOf(
-            "Knees collapse inward.",
-            "Heels lift off the floor.",
-            "Chest drops too far forward."
-        ),
-        tips = listOf(
-            "Keep your chest lifted.",
-            "Move slowly on the way down.",
-            "Use a chair behind you if needed."
-        ),
-        easierVariation = "Chair Squat",
-        harderVariation = "Jump Squat",
-        targetMuscles = "Quadriceps • Glutes • Core"
-    ),
-    SampleExercise(
-        id = "incline_push_up",
-        title = "Incline Push Up",
-        summary = "Chest • Beginner • 10 reps",
-        muscle = "Chest",
-        level = "Beginner",
-        equipment = "Bench or table",
-        repsOrDuration = "10 reps",
-        mediaUrl = "https://media.giphy.com/media/kYvaNlsFBgq3xZ8fRn/giphy.gif",
-        description = "An easier push-up variation that builds pressing strength without overwhelming beginners.",
-        steps = listOf(
-            "Place hands on a sturdy elevated surface.",
-            "Keep a straight line from shoulders to heels.",
-            "Lower chest with control and press back up."
-        ),
-        mistakes = listOf(
-            "Hips sag downward.",
-            "Elbows flare too wide.",
-            "Shoulders shrug up to ears."
-        ),
-        tips = listOf(
-            "Choose a higher surface if needed.",
-            "Keep your core tight throughout.",
-            "Exhale as you press away."
-        ),
-        easierVariation = "Wall Push Up",
-        harderVariation = "Knee Push Up",
-        targetMuscles = "Chest • Shoulders • Triceps"
-    ),
-    SampleExercise(
-        id = "plank",
-        title = "Plank",
-        summary = "Core • Beginner • 30 sec",
-        muscle = "Core",
-        level = "Beginner",
-        equipment = "Mat optional",
-        repsOrDuration = "30 sec",
-        mediaUrl = "https://media.giphy.com/media/vZwHcmIRWzhWbPV7kx/giphy.gif",
-        description = "A full-body hold that teaches posture, bracing, and tension control.",
-        steps = listOf(
-            "Place forearms under shoulders.",
-            "Lift hips so your body forms a straight line.",
-            "Hold while breathing slowly and keeping core engaged."
-        ),
-        mistakes = listOf(
-            "Hips drop too low.",
-            "Hips rise too high.",
-            "Breath is held for too long."
-        ),
-        tips = listOf(
-            "Squeeze glutes to protect your lower back.",
-            "Keep your neck neutral.",
-            "Start with shorter holds if needed."
-        ),
-        easierVariation = "Knee Plank",
-        harderVariation = "Plank Shoulder Tap",
-        targetMuscles = "Core • Shoulders • Glutes"
-    ),
-    SampleExercise(
-        id = "reverse_lunge",
-        title = "Reverse Lunge",
-        summary = "Legs • Beginner • 10 reps/side",
-        muscle = "Legs",
-        level = "Beginner",
-        equipment = "No equipment",
-        repsOrDuration = "10 reps/side",
-        mediaUrl = "https://media.giphy.com/media/jp7eu9mD42asbXVapr/giphy.gif",
-        description = "A balanced beginner lunge variation that improves leg strength and coordination.",
-        steps = listOf(
-            "Stand tall with feet hip-width apart.",
-            "Step one foot backward and lower both knees.",
-            "Push through the front foot to return to standing."
-        ),
-        mistakes = listOf(
-            "Leaning too far forward.",
-            "Front knee turns inward.",
-            "Stride is too narrow."
-        ),
-        tips = listOf(
-            "Take a long enough step back.",
-            "Move under control.",
-            "Use a wall lightly for support if needed."
-        ),
-        easierVariation = "Split Squat Hold",
-        harderVariation = "Walking Lunge",
-        targetMuscles = "Quadriceps • Glutes • Hamstrings"
-    ),
-    SampleExercise(
-        id = "glute_bridge",
-        title = "Glute Bridge",
-        summary = "Glutes • Beginner • 15 reps",
-        muscle = "Glutes",
-        level = "Beginner",
-        equipment = "No equipment",
-        repsOrDuration = "15 reps",
-        mediaUrl = "https://media.giphy.com/media/26FPJIbqE5Rhkah4Q/giphy.gif",
-        description = "A simple floor movement that teaches hip extension and glute activation.",
-        steps = listOf(
-            "Lie on your back with knees bent and feet flat.",
-            "Press through the heels and lift hips up.",
-            "Pause briefly at the top, then lower slowly."
-        ),
-        mistakes = listOf(
-            "Lower back arches too much.",
-            "Toes do most of the pushing.",
-            "Knees drift inward or outward."
-        ),
-        tips = listOf(
-            "Squeeze your glutes at the top.",
-            "Keep ribs down.",
-            "Slow reps help beginners feel the right muscles."
-        ),
-        easierVariation = "Short Range Bridge",
-        harderVariation = "Single-Leg Bridge",
-        targetMuscles = "Glutes • Hamstrings • Core"
-    )
+internal enum class PlanTab(val labelRes: Int) {
+    Today(R.string.plan_tab_today),
+    Programs(R.string.plan_tab_programs),
+    Library(R.string.plan_tab_library)
+}
+
+internal data class PlanUiState(
+    val tabs: List<PlanTab> = PlanTab.entries,
+    val selectedTab: PlanTab = PlanTab.Today,
+    val exerciseLibrary: List<SampleExercise> = emptyList(),
+    val starterWorkout: SampleWorkout? = null,
+    val selectedExercise: SampleExercise? = null
 )
 
-private val beginnerStarterWorkout = SampleWorkout(
-    title = "Full Body Basics",
-    summary = "Full Body • Beginner • ~220 kcal",
-    duration = "30 min",
-    level = "Beginner",
-    equipment = "No equipment",
-    exercises = beginnerExerciseLibrary.take(4)
-)
+@HiltViewModel
+class PlanViewModel @Inject constructor(
+    @ApplicationContext context: Context
+) : ViewModel() {
+    private val exerciseLibrary = buildBeginnerExerciseLibrary(context)
+    private val starterWorkout = buildBeginnerStarterWorkout(context, exerciseLibrary)
+
+    private val _uiState = MutableStateFlow(
+        PlanUiState(
+            exerciseLibrary = exerciseLibrary,
+            starterWorkout = starterWorkout,
+            selectedExercise = exerciseLibrary.firstOrNull()
+        )
+    )
+    internal val uiState: StateFlow<PlanUiState> = _uiState
+
+    internal fun selectTab(tab: PlanTab) {
+        _uiState.update { it.copy(selectedTab = tab) }
+    }
+
+    internal fun selectExercise(exercise: SampleExercise) {
+        _uiState.update { it.copy(selectedExercise = exercise) }
+    }
+}
+
+private fun buildBeginnerExerciseLibrary(context: Context): List<SampleExercise> {
+    val beginner = context.getString(R.string.plan_level_beginner)
+    val noEquipment = context.getString(R.string.plan_equipment_none)
+    val chest = context.getString(R.string.plan_muscle_chest)
+    val core = context.getString(R.string.plan_muscle_core)
+    val glutes = context.getString(R.string.plan_muscle_glutes)
+    val legs = context.getString(R.string.plan_muscle_legs)
+    return listOf(
+        SampleExercise(
+            id = "bodyweight_squat",
+            title = context.getString(R.string.plan_exercise_bodyweight_squat_title),
+            summary = context.getString(R.string.plan_exercise_summary_format, legs, beginner, context.getString(R.string.plan_reps_12)),
+            muscle = legs,
+            level = beginner,
+            equipment = noEquipment,
+            repsOrDuration = context.getString(R.string.plan_reps_12),
+            mediaUrl = "https://media.giphy.com/media/1C1ipHPEs4Vjwglwza/giphy.gif",
+            description = context.getString(R.string.plan_exercise_bodyweight_squat_desc),
+            steps = listOf(
+                context.getString(R.string.plan_exercise_bodyweight_squat_step_1),
+                context.getString(R.string.plan_exercise_bodyweight_squat_step_2),
+                context.getString(R.string.plan_exercise_bodyweight_squat_step_3)
+            ),
+            mistakes = listOf(
+                context.getString(R.string.plan_exercise_bodyweight_squat_mistake_1),
+                context.getString(R.string.plan_exercise_bodyweight_squat_mistake_2),
+                context.getString(R.string.plan_exercise_bodyweight_squat_mistake_3)
+            ),
+            tips = listOf(
+                context.getString(R.string.plan_exercise_bodyweight_squat_tip_1),
+                context.getString(R.string.plan_exercise_bodyweight_squat_tip_2),
+                context.getString(R.string.plan_exercise_bodyweight_squat_tip_3)
+            ),
+            easierVariation = context.getString(R.string.plan_variation_chair_squat),
+            harderVariation = context.getString(R.string.plan_variation_jump_squat),
+            targetMuscles = context.getString(R.string.plan_target_muscles_format, context.getString(R.string.plan_muscle_quadriceps), glutes, core)
+        ),
+        SampleExercise(
+            id = "incline_push_up",
+            title = context.getString(R.string.plan_exercise_incline_push_up_title),
+            summary = context.getString(R.string.plan_exercise_summary_format, chest, beginner, context.getString(R.string.plan_reps_10)),
+            muscle = chest,
+            level = beginner,
+            equipment = context.getString(R.string.plan_equipment_bench_or_table),
+            repsOrDuration = context.getString(R.string.plan_reps_10),
+            mediaUrl = "https://media.giphy.com/media/kYvaNlsFBgq3xZ8fRn/giphy.gif",
+            description = context.getString(R.string.plan_exercise_incline_push_up_desc),
+            steps = listOf(
+                context.getString(R.string.plan_exercise_incline_push_up_step_1),
+                context.getString(R.string.plan_exercise_incline_push_up_step_2),
+                context.getString(R.string.plan_exercise_incline_push_up_step_3)
+            ),
+            mistakes = listOf(
+                context.getString(R.string.plan_exercise_incline_push_up_mistake_1),
+                context.getString(R.string.plan_exercise_incline_push_up_mistake_2),
+                context.getString(R.string.plan_exercise_incline_push_up_mistake_3)
+            ),
+            tips = listOf(
+                context.getString(R.string.plan_exercise_incline_push_up_tip_1),
+                context.getString(R.string.plan_exercise_incline_push_up_tip_2),
+                context.getString(R.string.plan_exercise_incline_push_up_tip_3)
+            ),
+            easierVariation = context.getString(R.string.plan_variation_wall_push_up),
+            harderVariation = context.getString(R.string.plan_variation_knee_push_up),
+            targetMuscles = context.getString(R.string.plan_target_muscles_format, chest, context.getString(R.string.plan_muscle_shoulders), context.getString(R.string.plan_muscle_triceps))
+        ),
+        SampleExercise(
+            id = "plank",
+            title = context.getString(R.string.plan_exercise_plank_title),
+            summary = context.getString(R.string.plan_exercise_summary_format, core, beginner, context.getString(R.string.plan_duration_30_sec)),
+            muscle = core,
+            level = beginner,
+            equipment = context.getString(R.string.plan_equipment_mat_optional),
+            repsOrDuration = context.getString(R.string.plan_duration_30_sec),
+            mediaUrl = "https://media.giphy.com/media/vZwHcmIRWzhWbPV7kx/giphy.gif",
+            description = context.getString(R.string.plan_exercise_plank_desc),
+            steps = listOf(
+                context.getString(R.string.plan_exercise_plank_step_1),
+                context.getString(R.string.plan_exercise_plank_step_2),
+                context.getString(R.string.plan_exercise_plank_step_3)
+            ),
+            mistakes = listOf(
+                context.getString(R.string.plan_exercise_plank_mistake_1),
+                context.getString(R.string.plan_exercise_plank_mistake_2),
+                context.getString(R.string.plan_exercise_plank_mistake_3)
+            ),
+            tips = listOf(
+                context.getString(R.string.plan_exercise_plank_tip_1),
+                context.getString(R.string.plan_exercise_plank_tip_2),
+                context.getString(R.string.plan_exercise_plank_tip_3)
+            ),
+            easierVariation = context.getString(R.string.plan_variation_knee_plank),
+            harderVariation = context.getString(R.string.plan_variation_plank_shoulder_tap),
+            targetMuscles = context.getString(R.string.plan_target_muscles_format, core, context.getString(R.string.plan_muscle_shoulders), glutes)
+        ),
+        SampleExercise(
+            id = "reverse_lunge",
+            title = context.getString(R.string.plan_exercise_reverse_lunge_title),
+            summary = context.getString(R.string.plan_exercise_summary_format, legs, beginner, context.getString(R.string.plan_reps_10_side)),
+            muscle = legs,
+            level = beginner,
+            equipment = noEquipment,
+            repsOrDuration = context.getString(R.string.plan_reps_10_side),
+            mediaUrl = "https://media.giphy.com/media/jp7eu9mD42asbXVapr/giphy.gif",
+            description = context.getString(R.string.plan_exercise_reverse_lunge_desc),
+            steps = listOf(
+                context.getString(R.string.plan_exercise_reverse_lunge_step_1),
+                context.getString(R.string.plan_exercise_reverse_lunge_step_2),
+                context.getString(R.string.plan_exercise_reverse_lunge_step_3)
+            ),
+            mistakes = listOf(
+                context.getString(R.string.plan_exercise_reverse_lunge_mistake_1),
+                context.getString(R.string.plan_exercise_reverse_lunge_mistake_2),
+                context.getString(R.string.plan_exercise_reverse_lunge_mistake_3)
+            ),
+            tips = listOf(
+                context.getString(R.string.plan_exercise_reverse_lunge_tip_1),
+                context.getString(R.string.plan_exercise_reverse_lunge_tip_2),
+                context.getString(R.string.plan_exercise_reverse_lunge_tip_3)
+            ),
+            easierVariation = context.getString(R.string.plan_variation_split_squat_hold),
+            harderVariation = context.getString(R.string.plan_variation_walking_lunge),
+            targetMuscles = context.getString(R.string.plan_target_muscles_format, context.getString(R.string.plan_muscle_quadriceps), glutes, context.getString(R.string.plan_muscle_hamstrings))
+        ),
+        SampleExercise(
+            id = "glute_bridge",
+            title = context.getString(R.string.plan_exercise_glute_bridge_title),
+            summary = context.getString(R.string.plan_exercise_summary_format, glutes, beginner, context.getString(R.string.plan_reps_15)),
+            muscle = glutes,
+            level = beginner,
+            equipment = noEquipment,
+            repsOrDuration = context.getString(R.string.plan_reps_15),
+            mediaUrl = "https://media.giphy.com/media/26FPJIbqE5Rhkah4Q/giphy.gif",
+            description = context.getString(R.string.plan_exercise_glute_bridge_desc),
+            steps = listOf(
+                context.getString(R.string.plan_exercise_glute_bridge_step_1),
+                context.getString(R.string.plan_exercise_glute_bridge_step_2),
+                context.getString(R.string.plan_exercise_glute_bridge_step_3)
+            ),
+            mistakes = listOf(
+                context.getString(R.string.plan_exercise_glute_bridge_mistake_1),
+                context.getString(R.string.plan_exercise_glute_bridge_mistake_2),
+                context.getString(R.string.plan_exercise_glute_bridge_mistake_3)
+            ),
+            tips = listOf(
+                context.getString(R.string.plan_exercise_glute_bridge_tip_1),
+                context.getString(R.string.plan_exercise_glute_bridge_tip_2),
+                context.getString(R.string.plan_exercise_glute_bridge_tip_3)
+            ),
+            easierVariation = context.getString(R.string.plan_variation_short_range_bridge),
+            harderVariation = context.getString(R.string.plan_variation_single_leg_bridge),
+            targetMuscles = context.getString(R.string.plan_target_muscles_format, glutes, context.getString(R.string.plan_muscle_hamstrings), core)
+        )
+    )
+}
+
+private fun buildBeginnerStarterWorkout(context: Context, exercises: List<SampleExercise>): SampleWorkout {
+    return SampleWorkout(
+        title = context.getString(R.string.plan_workout_full_body_basics_title),
+        summary = context.getString(
+            R.string.plan_workout_summary_format,
+            context.getString(R.string.plan_focus_full_body),
+            context.getString(R.string.plan_level_beginner),
+            context.getString(R.string.plan_calories_220)
+        ),
+        duration = context.getString(R.string.plan_duration_30_min),
+        level = context.getString(R.string.plan_level_beginner),
+        equipment = context.getString(R.string.plan_equipment_none),
+        exercises = exercises.take(4)
+    )
+}
 
 @Composable
-fun PlanScreen() {
-    var selectedTab by remember { mutableStateOf("Today") }
-    var selectedExercise by remember { mutableStateOf(beginnerExerciseLibrary.first()) }
-    val tabs = listOf("Today", "Programs", "Library")
+fun PlanRoute(viewModel: PlanViewModel = hiltViewModel()) {
+    val state by viewModel.uiState.collectAsState()
+    PlanScreen(
+        state = state,
+        onTabSelected = viewModel::selectTab,
+        onExerciseSelected = viewModel::selectExercise
+    )
+}
+
+@Composable
+private fun PlanScreen(
+    state: PlanUiState,
+    onTabSelected: (PlanTab) -> Unit,
+    onExerciseSelected: (SampleExercise) -> Unit
+) {
+    val starterWorkout = state.starterWorkout
+    val selectedExercise = state.selectedExercise
 
     FittyLazyScreen {
-        item { PracticeTopBar(title = if (selectedTab == "Programs") "Programs" else "Practice") }
-        item { PracticeTabs(tabs = tabs, selectedTab = selectedTab, onSelected = { selectedTab = it }) }
-        when (selectedTab) {
-            "Today" -> {
-                item { TodayPracticeSection(beginnerStarterWorkout) }
-                item {
-                    WorkoutSessionDetailPreview(
-                        workout = beginnerStarterWorkout,
-                        onExerciseSelected = { selectedExercise = it }
-                    )
+        item {
+            PracticeTopBar(
+                title = stringResource(
+                    if (state.selectedTab == PlanTab.Programs) R.string.plan_topbar_programs else R.string.plan_topbar_practice
+                )
+            )
+        }
+        item {
+            PracticeTabs(
+                tabs = state.tabs,
+                selectedTab = state.selectedTab,
+                onSelected = onTabSelected
+            )
+        }
+        when (state.selectedTab) {
+            PlanTab.Today -> {
+                starterWorkout?.let { workout ->
+                    item { TodayPracticeSection(workout) }
+                    item {
+                        WorkoutSessionDetailPreview(
+                            workout = workout,
+                            onExerciseSelected = onExerciseSelected
+                        )
+                    }
                 }
                 item { CreatePlanSection() }
                 item { CustomWeeklyPlannerPreview() }
             }
 
-            "Programs" -> {
+            PlanTab.Programs -> {
                 item { ProgramsBannerCard() }
                 item { ProgramFilterChips() }
                 item { ProgramListSection() }
                 item { ProgramDetailPreview() }
             }
 
-            else -> {
-                item {
-                    ExerciseLibrarySection(
-                        exercises = beginnerExerciseLibrary,
-                        selectedExerciseId = selectedExercise.id,
-                        onExerciseSelected = { selectedExercise = it }
-                    )
+            PlanTab.Library -> {
+                if (selectedExercise != null) {
+                    item {
+                        ExerciseLibrarySection(
+                            exercises = state.exerciseLibrary,
+                            selectedExerciseId = selectedExercise.id,
+                            onExerciseSelected = onExerciseSelected
+                        )
+                    }
+                    item { ExerciseDetailPreview(selectedExercise) }
                 }
-                item { ExerciseDetailPreview(selectedExercise) }
-                item { BuildWorkoutSection() }
+                item { BuildWorkoutSection(previewExercises = state.exerciseLibrary.take(3)) }
                 item { MyCustomPlansSection() }
             }
         }
@@ -308,14 +404,7 @@ private fun PracticeTopBar(title: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(
-                text = "Guided programs, exercise library, and custom workout builder",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Row {
             IconButton(onClick = { }) {
                 Icon(Icons.Outlined.Search, contentDescription = null)
@@ -329,9 +418,9 @@ private fun PracticeTopBar(title: String) {
 
 @Composable
 private fun PracticeTabs(
-    tabs: List<String>,
-    selectedTab: String,
-    onSelected: (String) -> Unit
+    tabs: List<PlanTab>,
+    selectedTab: PlanTab,
+    onSelected: (PlanTab) -> Unit
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -341,7 +430,7 @@ private fun PracticeTabs(
             FilterChip(
                 selected = selectedTab == tab,
                 onClick = { onSelected(tab) },
-                label = { Text(tab) }
+                label = { Text(stringResource(tab.labelRes)) }
             )
         }
     }
@@ -349,13 +438,10 @@ private fun PracticeTabs(
 
 @Composable
 private fun TodayPracticeSection(workout: SampleWorkout) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Today's Practice")
+    FittySectionBlock(title = stringResource(R.string.plan_section_todays_practice)) {
         Card(
-            shape = RoundedCornerShape(8.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
             Column(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -367,20 +453,14 @@ private fun TodayPracticeSection(workout: SampleWorkout) {
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(workout.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(workout.summary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = FittyPink)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PracticeStat(Icons.Outlined.Timer, workout.duration, Modifier.weight(1f))
                     PracticeStat(Icons.Outlined.Speed, workout.level, Modifier.weight(1f))
                     PracticeStat(Icons.Outlined.Home, workout.equipment, Modifier.weight(1f))
                 }
-                Text(
-                    text = "Each exercise includes a looping GIF demo so beginners can copy the movement before training.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     workout.exercises.take(3).forEach { exercise ->
                         ExerciseMediaPreview(
@@ -392,11 +472,11 @@ private fun TodayPracticeSection(workout: SampleWorkout) {
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                        Text("Start Workout")
+                    Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.plan_action_start_workout))
                     }
-                    OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                        Text("Edit Session")
+                    OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.plan_action_edit_session))
                     }
                 }
             }
@@ -409,12 +489,11 @@ private fun WorkoutSessionDetailPreview(
     workout: SampleWorkout,
     onExerciseSelected: (SampleExercise) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Workout Session Detail")
+    FittySectionBlock(title = stringResource(R.string.plan_section_session)) {
         InfoCard(
             icon = Icons.Outlined.PlayArrow,
-            title = "How this workout works",
-            body = "${workout.exercises.size} exercises • 3 rounds • beginner pace • tap any move to preview its GIF"
+            title = stringResource(R.string.plan_section_session),
+            body = stringResource(R.string.plan_session_summary, workout.exercises.size)
         )
         workout.exercises.forEachIndexed { index, exercise ->
             ExerciseSessionItem(
@@ -423,20 +502,12 @@ private fun WorkoutSessionDetailPreview(
                 onClick = { onExerciseSelected(exercise) }
             )
         }
-        NotesCard(
-            title = "Coach Notes",
-            notes = listOf(
-                "Preview each GIF first if the move is new to you.",
-                "Slow down if you lose balance.",
-                "Rest longer if needed."
-            )
-        )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                Text("Start")
+            Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.plan_action_start))
             }
-            OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                Text("Replace")
+            OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.plan_action_replace))
             }
         }
     }
@@ -449,9 +520,8 @@ private fun ExerciseSessionItem(
     onClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         onClick = onClick
     ) {
         Row(
@@ -464,12 +534,12 @@ private fun ExerciseSessionItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(exercise.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Text(
-                    "${exercise.repsOrDuration} • ${exercise.muscle} • ${exercise.level}",
+                    stringResource(R.string.plan_exercise_item_meta, exercise.repsOrDuration, exercise.muscle, exercise.level),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Icon(Icons.Outlined.Info, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            Icon(Icons.Outlined.Info, contentDescription = null, tint = FittyPink)
         }
     }
 }
@@ -477,7 +547,7 @@ private fun ExerciseSessionItem(
 @Composable
 private fun ProgramsBannerCard() {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         shadowElevation = 2.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -486,8 +556,7 @@ private fun ProgramsBannerCard() {
                 .background(
                     Brush.horizontalGradient(
                         listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.secondary
+                            FittyPink, FittyGradientEnd
                         )
                     )
                 )
@@ -495,18 +564,18 @@ private fun ProgramsBannerCard() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Start with guided fitness programs",
+                stringResource(R.string.plan_banner_title),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = Color.White
             )
             Text(
-                "Choose a ready-made training plan based on your goal, level, and available time.",
+                stringResource(R.string.plan_banner_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )
-            Button(onClick = { }, shape = RoundedCornerShape(8.dp)) {
-                Text("Find My Best Program")
+            Button(onClick = { }, shape = RoundedCornerShape(20.dp)) {
+                Text(stringResource(R.string.plan_banner_cta))
             }
         }
     }
@@ -518,7 +587,17 @@ private fun ProgramFilterChips() {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.horizontalScroll(rememberScrollState())
     ) {
-        listOf("All", "Fat Loss", "Muscle Gain", "Beginner", "Home", "Gym", "Short Workouts", "Mobility", "Strength")
+        listOf(
+            stringResource(R.string.plan_filter_all),
+            stringResource(R.string.plan_filter_fat_loss),
+            stringResource(R.string.plan_filter_muscle_gain),
+            stringResource(R.string.plan_filter_beginner),
+            stringResource(R.string.plan_filter_home),
+            stringResource(R.string.plan_filter_gym),
+            stringResource(R.string.plan_filter_short_workouts),
+            stringResource(R.string.plan_filter_mobility),
+            stringResource(R.string.plan_filter_strength)
+        )
             .forEachIndexed { index, label ->
                 FilterChip(selected = index == 0, onClick = { }, label = { Text(label) })
             }
@@ -527,25 +606,24 @@ private fun ProgramFilterChips() {
 
 @Composable
 private fun ProgramListSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Ready-made Programs")
+    FittySectionBlock(title = stringResource(R.string.plan_section_ready_made_programs)) {
         ProgramCard(
-            title = "Beginner Fat Loss Starter",
-            goal = "Fat Loss",
-            meta = "4 weeks • 4 workouts/week • 20-30 min/session",
-            tags = listOf("Beginner", "Home", "No equipment")
+            title = stringResource(R.string.plan_program_beginner_fat_loss_title),
+            goal = stringResource(R.string.plan_filter_fat_loss),
+            meta = stringResource(R.string.plan_program_beginner_fat_loss_meta),
+            tags = listOf(stringResource(R.string.plan_filter_beginner), stringResource(R.string.plan_filter_home), stringResource(R.string.plan_tag_no_equipment))
         )
         ProgramCard(
-            title = "Home Strength Foundation",
-            goal = "Strength",
-            meta = "6 weeks • 3 workouts/week • 30-40 min/session",
-            tags = listOf("Beginner", "Dumbbells", "Full body")
+            title = stringResource(R.string.plan_program_home_strength_title),
+            goal = stringResource(R.string.plan_filter_strength),
+            meta = stringResource(R.string.plan_program_home_strength_meta),
+            tags = listOf(stringResource(R.string.plan_filter_beginner), stringResource(R.string.plan_tag_dumbbells), stringResource(R.string.plan_tag_full_body))
         )
         ProgramCard(
-            title = "Mobility Reset",
-            goal = "Mobility",
-            meta = "2 weeks • 5 sessions/week • 15-20 min/session",
-            tags = listOf("Recovery", "Home", "Stretching")
+            title = stringResource(R.string.plan_program_mobility_reset_title),
+            goal = stringResource(R.string.plan_filter_mobility),
+            meta = stringResource(R.string.plan_program_mobility_reset_meta),
+            tags = listOf(stringResource(R.string.plan_tag_recovery), stringResource(R.string.plan_filter_home), stringResource(R.string.plan_tag_stretching))
         )
     }
 }
@@ -558,26 +636,24 @@ private fun ProgramCard(
     tags: List<String>
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 ThumbnailBox(icon = Icons.Outlined.FitnessCenter, modifier = Modifier.size(70.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(goal, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text(goal, style = MaterialTheme.typography.labelLarge, color = FittyPink)
                     Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             ChipRow(tags)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                    Text("View Program")
+                OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.plan_action_view_program))
                 }
-                Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                    Text("Start Plan")
+                Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.plan_action_start_plan))
                 }
             }
         }
@@ -586,27 +662,26 @@ private fun ProgramCard(
 
 @Composable
 private fun ProgramDetailPreview() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Program Detail Preview")
+    FittySectionBlock(title = stringResource(R.string.plan_section_program_detail_preview)) {
         HeaderImageCard(
-            title = "Beginner Full Body Reset",
-            subtitle = "A beginner-friendly 4-week program designed to improve stamina, build consistency, and reduce body fat.",
+            title = stringResource(R.string.plan_program_detail_title),
+            subtitle = stringResource(R.string.plan_program_detail_subtitle),
             icon = Icons.Outlined.FitnessCenter
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PracticeStat(Icons.Outlined.CalendarMonth, "4 weeks", Modifier.weight(1f))
-            PracticeStat(Icons.Outlined.FitnessCenter, "4 days/week", Modifier.weight(1f))
+            PracticeStat(Icons.Outlined.CalendarMonth, stringResource(R.string.plan_stat_4_weeks), Modifier.weight(1f))
+            PracticeStat(Icons.Outlined.FitnessCenter, stringResource(R.string.plan_stat_4_days_week), Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            PracticeStat(Icons.Outlined.Timer, "20-30 min", Modifier.weight(1f))
-            PracticeStat(Icons.Outlined.Home, "No equipment", Modifier.weight(1f))
+            PracticeStat(Icons.Outlined.Timer, stringResource(R.string.plan_stat_20_30_min), Modifier.weight(1f))
+            PracticeStat(Icons.Outlined.Home, stringResource(R.string.plan_tag_no_equipment), Modifier.weight(1f))
         }
         NotesCard(
-            title = "Why this program",
+            title = stringResource(R.string.plan_section_why_this_program),
             notes = listOf(
-                "Suitable for beginners.",
-                "No equipment required.",
-                "Short sessions, easy to follow at home."
+                stringResource(R.string.plan_program_detail_note_1),
+                stringResource(R.string.plan_program_detail_note_2),
+                stringResource(R.string.plan_program_detail_note_3)
             )
         )
     }
@@ -618,12 +693,11 @@ private fun ExerciseLibrarySection(
     selectedExerciseId: String,
     onExerciseSelected: (SampleExercise) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Exercise Library")
+    FittySectionBlock(title = stringResource(R.string.plan_section_exercise_library)) {
         OutlinedTextField(
             value = "",
             onValueChange = { },
-            label = { Text("Search exercises") },
+            label = { Text(stringResource(R.string.plan_search_exercises)) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
@@ -632,13 +706,22 @@ private fun ExerciseLibrarySection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState())
         ) {
-            listOf("Muscle Group", "Equipment", "Difficulty", "GIF Demo", "Legs", "Core", "Beginner", "No equipment")
+            listOf(
+                stringResource(R.string.plan_filter_muscle_group),
+                stringResource(R.string.plan_filter_equipment),
+                stringResource(R.string.plan_filter_difficulty),
+                stringResource(R.string.plan_label_gif_demo),
+                stringResource(R.string.plan_muscle_legs),
+                stringResource(R.string.plan_muscle_core),
+                stringResource(R.string.plan_filter_beginner),
+                stringResource(R.string.plan_tag_no_equipment)
+            )
                 .forEachIndexed { index, label ->
                     FilterChip(selected = index == 6, onClick = { }, label = { Text(label) })
                 }
         }
         Text(
-            text = "These sample exercises live in the exercise library and show a GIF preview so beginners can follow along visually.",
+            text = stringResource(R.string.plan_exercise_library_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -659,14 +742,10 @@ private fun ExerciseLibraryItem(
     onClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             else MaterialTheme.colorScheme.surface
-        ),
-        border = BorderStroke(
-            1.dp,
-            if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
         ),
         onClick = onClick
     ) {
@@ -680,54 +759,53 @@ private fun ExerciseLibraryItem(
                 Text(exercise.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Text(exercise.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    "GIF demo • ${exercise.equipment}",
+                    stringResource(R.string.plan_gif_demo_with_equipment, exercise.equipment),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = FittyPink
                 )
             }
-            Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = FittyPink)
         }
     }
 }
 
 @Composable
 private fun ExerciseDetailPreview(exercise: SampleExercise) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Exercise Detail")
+    FittySectionBlock(title = stringResource(R.string.plan_section_exercise_detail)) {
         ExerciseHeroCard(exercise)
         InfoCard(
             icon = Icons.Outlined.PlayArrow,
-            title = "Why beginners use this",
+            title = stringResource(R.string.plan_section_why_beginners_use_this),
             body = exercise.description
         )
-        NotesCard(title = "How to do it", notes = exercise.steps)
-        NotesCard(title = "Common mistakes", notes = exercise.mistakes, icon = Icons.Outlined.WarningAmber)
-        NotesCard(title = "Trainer tips", notes = exercise.tips)
+        NotesCard(title = stringResource(R.string.plan_section_how_to_do_it), notes = exercise.steps)
+        NotesCard(title = stringResource(R.string.plan_section_common_mistakes), notes = exercise.mistakes, icon = Icons.Outlined.WarningAmber)
+        NotesCard(title = stringResource(R.string.plan_section_trainer_tips), notes = exercise.tips)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InfoCard(
                 icon = Icons.Outlined.Home,
-                title = "Easier",
+                title = stringResource(R.string.plan_section_easier),
                 body = exercise.easierVariation,
                 modifier = Modifier.weight(1f)
             )
             InfoCard(
                 icon = Icons.Outlined.Speed,
-                title = "Harder",
+                title = stringResource(R.string.plan_section_harder),
                 body = exercise.harderVariation,
                 modifier = Modifier.weight(1f)
             )
         }
         InfoCard(
             icon = Icons.Outlined.AccessibilityNew,
-            title = "Target muscles",
+            title = stringResource(R.string.plan_section_target_muscles),
             body = exercise.targetMuscles
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                Text("Add")
+            Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.plan_action_add))
             }
-            OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                Text("Save")
+            OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.plan_action_save))
             }
         }
     }
@@ -736,10 +814,8 @@ private fun ExerciseDetailPreview(exercise: SampleExercise) {
 @Composable
 private fun ExerciseHeroCard(exercise: SampleExercise) {
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ExerciseMediaPreview(
                 exercise = exercise,
@@ -753,12 +829,12 @@ private fun ExerciseHeroCard(exercise: SampleExercise) {
             ) {
                 Text(exercise.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(
-                    "${exercise.level} • ${exercise.muscle} • ${exercise.equipment}",
+                    stringResource(R.string.plan_exercise_hero_meta, exercise.level, exercise.muscle, exercise.equipment),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            ChipRow(listOf("GIF Demo", exercise.repsOrDuration, exercise.muscle, exercise.level))
+            ChipRow(listOf(stringResource(R.string.plan_label_gif_demo), exercise.repsOrDuration, exercise.muscle, exercise.level))
             Spacer(modifier = Modifier.height(2.dp))
         }
     }
@@ -766,31 +842,25 @@ private fun ExerciseHeroCard(exercise: SampleExercise) {
 
 @Composable
 private fun CreatePlanSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Create Your Own Plan")
-        InfoCard(
-            icon = Icons.Outlined.Add,
-            title = "Build a workout plan that fits your goal",
-            body = "Choose goal, schedule, equipment, training style, then generate a base plan or build manually."
-        )
+    FittySectionBlock(title = stringResource(R.string.plan_section_create_plan)) {
         OutlinedTextField(
-            value = "My Home Fat Loss Plan",
+            value = stringResource(R.string.plan_default_plan_name),
             onValueChange = { },
-            label = { Text("Plan Name") },
+            label = { Text(stringResource(R.string.plan_field_plan_name)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
-        ChipRow(listOf("Fat Loss", "Muscle Gain", "General Fitness", "Mobility", "Strength"))
+        ChipRow(listOf(stringResource(R.string.plan_filter_fat_loss), stringResource(R.string.plan_filter_muscle_gain), stringResource(R.string.plan_tag_general_fitness), stringResource(R.string.plan_filter_mobility), stringResource(R.string.plan_filter_strength)))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SelectorBox("Weeks", "4", Modifier.weight(1f))
-            SelectorBox("Workouts/week", "4", Modifier.weight(1f))
+            SelectorBox(stringResource(R.string.plan_field_weeks), "4", Modifier.weight(1f))
+            SelectorBox(stringResource(R.string.plan_field_workouts_per_week), "4", Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                Text("Generate")
+            Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.plan_action_generate))
             }
-            OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                Text("Build Manually")
+            OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.plan_action_build_manually))
             }
         }
     }
@@ -798,18 +868,17 @@ private fun CreatePlanSection() {
 
 @Composable
 private fun CustomWeeklyPlannerPreview() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Custom Weekly Planner")
+    FittySectionBlock(title = stringResource(R.string.plan_section_custom_weekly_planner)) {
         listOf(
-            "Monday" to "Full Body Beginner • 30 min • 6 exercises",
-            "Tuesday" to "Add Workout",
-            "Wednesday" to "Core + Cardio • 25 min • 5 exercises",
-            "Thursday" to "Rest Day"
+            stringResource(R.string.plan_day_monday) to stringResource(R.string.plan_planner_monday_detail),
+            stringResource(R.string.plan_day_tuesday) to stringResource(R.string.plan_planner_tuesday_detail),
+            stringResource(R.string.plan_day_wednesday) to stringResource(R.string.plan_planner_wednesday_detail),
+            stringResource(R.string.plan_day_thursday) to stringResource(R.string.plan_planner_thursday_detail)
         ).forEach { (day, detail) ->
             PlannerDayCard(day, detail)
         }
-        Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Text("Save Weekly Plan")
+        Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.plan_action_save_weekly_plan))
         }
     }
 }
@@ -817,19 +886,17 @@ private fun CustomWeeklyPlannerPreview() {
 @Composable
 private fun PlannerDayCard(day: String, detail: String) {
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
         Row(
             modifier = Modifier.padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (detail == "Add Workout") Icons.Outlined.Add else Icons.Outlined.CalendarMonth,
+                imageVector = if (detail == stringResource(R.string.plan_planner_tuesday_detail)) Icons.Outlined.Add else Icons.Outlined.CalendarMonth,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary
+                tint = FittyPink
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(day, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -840,26 +907,25 @@ private fun PlannerDayCard(day: String, detail: String) {
 }
 
 @Composable
-private fun BuildWorkoutSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("Build Workout")
+private fun BuildWorkoutSection(previewExercises: List<SampleExercise>) {
+    FittySectionBlock(title = stringResource(R.string.plan_section_build_workout)) {
         OutlinedTextField(
-            value = "Home Strength Session",
+            value = stringResource(R.string.plan_default_workout_name),
             onValueChange = { },
-            label = { Text("Workout Name") },
+            label = { Text(stringResource(R.string.plan_field_workout_name)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SelectorBox("Focus Area", "Full Body", Modifier.weight(1f))
-            SelectorBox("Difficulty", "Beginner", Modifier.weight(1f))
+            SelectorBox(stringResource(R.string.plan_field_focus_area), stringResource(R.string.plan_tag_full_body), Modifier.weight(1f))
+            SelectorBox(stringResource(R.string.plan_filter_difficulty), stringResource(R.string.plan_filter_beginner), Modifier.weight(1f))
         }
-        beginnerExerciseLibrary.take(3).forEach { exercise ->
+        previewExercises.forEach { exercise ->
             BuilderExerciseItem(exercise.title, exercise.repsOrDuration)
         }
-        OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.Add, contentDescription = null)
-            Text("Add Exercise", modifier = Modifier.padding(start = 8.dp))
+            Text(stringResource(R.string.plan_action_add_exercise), modifier = Modifier.padding(start = 8.dp))
         }
     }
 }
@@ -867,16 +933,14 @@ private fun BuildWorkoutSection() {
 @Composable
 private fun BuilderExerciseItem(title: String, detail: String) {
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
         Row(
             modifier = Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = FittyPink)
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -887,37 +951,34 @@ private fun BuilderExerciseItem(title: String, detail: String) {
 
 @Composable
 private fun MyCustomPlansSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader("My Custom Plans")
+    FittySectionBlock(title = stringResource(R.string.plan_section_my_custom_plans)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState())
         ) {
-            listOf("Active", "Drafts", "Completed", "Saved Templates").forEachIndexed { index, label ->
+            listOf(stringResource(R.string.plan_filter_active), stringResource(R.string.plan_filter_drafts), stringResource(R.string.plan_filter_completed), stringResource(R.string.plan_filter_saved_templates)).forEachIndexed { index, label ->
                 FilterChip(selected = index == 0, onClick = { }, label = { Text(label) })
             }
         }
-        CustomPlanCard("My Home Strength Plan", "Strength • 4 weeks • 4 days/week • Updated 2 days ago")
-        CustomPlanCard("Weekend Mobility", "Mobility • 2 weeks • 2 days/week • Draft")
+        CustomPlanCard(stringResource(R.string.plan_custom_plan_home_strength_title), stringResource(R.string.plan_custom_plan_home_strength_body))
+        CustomPlanCard(stringResource(R.string.plan_custom_plan_weekend_mobility_title), stringResource(R.string.plan_custom_plan_weekend_mobility_body))
     }
 }
 
 @Composable
 private fun CustomPlanCard(title: String, body: String) {
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                    Text("Start")
+                Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.plan_action_start))
                 }
-                OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                    Text("Edit")
+                OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.plan_action_edit))
                 }
             }
         }
@@ -933,7 +994,7 @@ private fun ExerciseMediaPreview(
     val imageLoader = rememberGifImageLoader()
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.TopEnd
     ) {
@@ -949,7 +1010,7 @@ private fun ExerciseMediaPreview(
         )
         AssistChip(
             onClick = { },
-            label = { Text("GIF") },
+            label = { Text(stringResource(R.string.plan_label_gif)) },
             leadingIcon = {
                 Icon(
                     Icons.Outlined.PlayArrow,
@@ -981,7 +1042,7 @@ private fun rememberGifImageLoader(): ImageLoader {
 @Composable
 private fun HeaderImageCard(title: String, subtitle: String, icon: ImageVector) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.primaryContainer,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1007,9 +1068,8 @@ private fun InfoCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
     ) {
         Row(
@@ -1017,7 +1077,7 @@ private fun InfoCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+            Icon(icon, contentDescription = null, tint = FittyPink)
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1033,17 +1093,15 @@ private fun NotesCard(
     icon: ImageVector = Icons.Outlined.CheckCircle
 ) {
     Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    ) {
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                Icon(icon, contentDescription = null, tint = FittyPink)
                 Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             }
             notes.forEach {
-                Text("• $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.plan_bullet_note, it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -1052,7 +1110,7 @@ private fun NotesCard(
 @Composable
 private fun PracticeStat(icon: ImageVector, label: String, modifier: Modifier = Modifier) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         modifier = modifier
     ) {
@@ -1061,7 +1119,7 @@ private fun PracticeStat(icon: ImageVector, label: String, modifier: Modifier = 
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
             Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -1070,9 +1128,8 @@ private fun PracticeStat(icon: ImageVector, label: String, modifier: Modifier = 
 @Composable
 private fun SelectorBox(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1119,14 +1176,12 @@ private fun NumberCircle(number: String) {
 @Composable
 private fun ThumbnailBox(icon: ImageVector, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)),
+        modifier = modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp)),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
     }
 }
 
-@Composable
-private fun SectionHeader(title: String) {
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-}
+
+

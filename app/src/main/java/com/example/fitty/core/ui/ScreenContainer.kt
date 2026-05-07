@@ -23,8 +23,8 @@ fun FittyScreen(content: @Composable () -> Unit) {
 fun FittyLazyScreen(content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         content = content
     )
 }

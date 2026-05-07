@@ -1,7 +1,16 @@
 package com.example.fitty.data.firebase
 
+import com.example.fitty.domain.model.FittyAuthResult
+import com.example.fitty.domain.model.FittyOnboarding
+import com.example.fitty.domain.model.FittyOnboardingAnswers
+import com.example.fitty.domain.model.FittyProfile
+import com.example.fitty.domain.model.FittySettings
+import com.example.fitty.domain.model.FittyStartupState
+import com.example.fitty.domain.model.FittyStats
+import com.example.fitty.domain.model.FittyUser
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -10,10 +19,13 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class FittyFirebaseRepository(
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
-    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
+@Singleton
+class FirebaseUserRemoteDataSource @Inject constructor(
+    private val auth: FirebaseAuth,
+    private val firestore: FirebaseFirestore
 ) {
     suspend fun createPasswordUser(
         username: String,
@@ -29,7 +41,8 @@ class FittyFirebaseRepository(
 
         return try {
             val authResult = auth.createUserWithEmailAndPassword(normalizedEmail, password).await()
-            val firebaseUser = authResult.user ?: return FittyAuthResult(errorMessage = "Account could not be created")
+            val firebaseUser = authResult.user
+                ?: return FittyAuthResult(errorMessage = "Account could not be created")
             val userDoc = buildBaseUserDocument(
                 user = firebaseUser,
                 username = normalizedUsername,
@@ -128,9 +141,7 @@ class FittyFirebaseRepository(
         val payload = mapOf(
             "onboardingCompleted" to true,
             "updatedAt" to FieldValue.serverTimestamp(),
-            "stats" to mapOf(
-                "activePlanId" to STARTER_PLAN_ID
-            )
+            "stats" to mapOf("activePlanId" to STARTER_PLAN_ID)
         )
         userDocument(uid).set(payload, SetOptions.merge()).await()
         userDocument(uid)
@@ -452,7 +463,7 @@ class FittyFirebaseRepository(
 
     private fun userDocument(uid: String) = firestore.collection(COLLECTION_USERS).document(uid)
 
-    private fun com.google.firebase.firestore.DocumentSnapshot.toFittyUser(): FittyUser {
+    private fun DocumentSnapshot.toFittyUser(): FittyUser {
         val profileMap = get("profile") as? Map<*, *> ?: emptyMap<String, Any?>()
         val onboardingMap = get("onboarding") as? Map<*, *> ?: emptyMap<String, Any?>()
         val statsMap = get("stats") as? Map<*, *> ?: emptyMap<String, Any?>()

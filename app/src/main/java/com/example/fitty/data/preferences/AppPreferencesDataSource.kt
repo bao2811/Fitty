@@ -86,6 +86,8 @@ class AppPreferencesDataSource(
         return lastShownAt == null || nowMillis - lastShownAt >= cooldownMillis
     }
 
+    suspend fun currentUserId(): String? = currentUserId.first()
+
     private companion object {
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val GUEST_MODE_ENABLED = booleanPreferencesKey("guest_mode_enabled")

@@ -1,4 +1,4 @@
-package com.example.fitty.data.firebase
+package com.example.fitty.domain.model
 
 data class FittyUser(
     val uid: String,

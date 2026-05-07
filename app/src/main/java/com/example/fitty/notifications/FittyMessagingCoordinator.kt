@@ -1,17 +1,20 @@
 package com.example.fitty.notifications
 
-import android.content.Context
-import com.example.fitty.data.firebase.FittyUser
-import com.example.fitty.data.firebase.FittyFirebaseRepository
-import com.example.fitty.data.firebase.FittyStartupState
-import com.example.fitty.data.preferences.AppPreferencesDataSource
+import com.example.fitty.domain.model.FittyStartupState
+import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.repository.NotificationTokenRepository
+import com.example.fitty.domain.repository.SessionRepository
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class FittyMessagingCoordinator(
-    private val context: Context,
-    private val repository: FittyFirebaseRepository,
-    private val preferences: AppPreferencesDataSource
+@Singleton
+class FittyMessagingCoordinator @Inject constructor(
+    private val firebaseMessaging: FirebaseMessaging,
+    private val notificationTokenRepository: NotificationTokenRepository,
+    private val sessionRepository: SessionRepository,
+    private val notificationDispatcher: FittyNotificationDispatcher
 ) {
     suspend fun syncTokenAndWelcomeUser(session: FittyStartupState) {
         if (!session.isSignedIn || session.isGuest) return
@@ -34,8 +37,8 @@ class FittyMessagingCoordinator(
     }
 
     private suspend fun syncNotificationToken() {
-        val token = FirebaseMessaging.getInstance().token.await()
-        repository.syncNotificationToken(token)
+        val token = firebaseMessaging.token.await()
+        notificationTokenRepository.syncNotificationToken(token)
     }
 
     private suspend fun maybeShowWelcomeBackNotification(
@@ -43,12 +46,9 @@ class FittyMessagingCoordinator(
         forceNotification: Boolean = false
     ) {
         val now = System.currentTimeMillis()
-        if (!forceNotification && !preferences.shouldShowWelcomeNotification(now, WELCOME_BACK_COOLDOWN_MS)) return
-        FittyNotificationManager.showWelcomeBackNotification(
-            context = context,
-            displayName = displayName
-        )
-        preferences.setLastWelcomeNotificationAt(now)
+        if (!forceNotification && !sessionRepository.shouldShowWelcomeNotification(now, WELCOME_BACK_COOLDOWN_MS)) return
+        notificationDispatcher.showWelcomeBackNotification(displayName)
+        sessionRepository.setLastWelcomeNotificationAt(now)
     }
 
     private companion object {

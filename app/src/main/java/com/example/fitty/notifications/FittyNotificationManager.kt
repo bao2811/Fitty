@@ -43,13 +43,13 @@ object FittyNotificationManager {
 
     fun showWelcomeBackNotification(
         context: Context,
-        displayName: String
+        displayName: String,
+        onForegroundMessage: ((title: String, message: String) -> Unit)? = null
     ) {
+        val title = "Chao mung ${displayName.ifBlank { "ban" }} da quay lai"
+        val message = welcomeMessageFor(displayName)
         if (isAppInForeground()) {
-            FittyInAppBannerManager.show(
-                title = "Chao mung ${displayName.ifBlank { "ban" }} da quay lai",
-                message = welcomeMessageFor(displayName)
-            )
+            onForegroundMessage?.invoke(title, message)
             return
         }
         if (!canPostNotifications(context)) return
@@ -67,11 +67,11 @@ object FittyNotificationManager {
 
         val notification = NotificationCompat.Builder(context, WELCOME_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher_round)
-            .setContentTitle("Chao mung ${displayName.ifBlank { "ban" }} da quay lai")
-            .setContentText(welcomeMessageFor(displayName))
+            .setContentTitle(title)
+            .setContentText(message)
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    welcomeMessageFor(displayName)
+                    message
                 )
             )
             .setContentIntent(pendingIntent)
@@ -85,10 +85,11 @@ object FittyNotificationManager {
     fun showRemoteNotification(
         context: Context,
         title: String,
-        body: String
+        body: String,
+        onForegroundMessage: ((title: String, message: String) -> Unit)? = null
     ) {
         if (isAppInForeground()) {
-            FittyInAppBannerManager.show(title = title, message = body)
+            onForegroundMessage?.invoke(title, body)
             return
         }
         if (!canPostNotifications(context)) return

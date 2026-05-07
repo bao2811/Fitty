@@ -1,7 +1,6 @@
 package com.example.fitty.feature_home
 
-import android.app.Application
-import androidx.compose.foundation.BorderStroke
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FitnessCenter
@@ -38,54 +36,162 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.AndroidViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.fitty.R
+import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.ui.FittyLazyScreen
-import com.example.fitty.data.firebase.FittyFirebaseRepository
-import com.example.fitty.data.firebase.FittyUser
+import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
+import com.example.fitty.ui.theme.FittyGradientEnd
+import com.example.fitty.ui.theme.FittyGradientStart
+import com.example.fitty.ui.theme.FittyPink
+import com.example.fitty.ui.theme.FittyPinkLight
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.util.Locale
+import javax.inject.Inject
+
+enum class HomeQuickActionType {
+    LogMeal,
+    Workout,
+    BodyScan,
+    Coach
+}
+
+enum class HomeTaskType {
+    Workout,
+    Meal,
+    Water,
+    Done
+}
+
+data class HomeFocusMetricUi(
+    val label: String,
+    val value: String
+)
+
+data class HomeQuickActionUi(
+    val label: String,
+    val type: HomeQuickActionType
+)
+
+data class HomeTaskUi(
+    val type: HomeTaskType,
+    val title: String,
+    val description: String,
+    val time: String,
+    val status: String,
+    val highlighted: Boolean = false,
+    val done: Boolean = false
+)
+
+data class HomeMacroProgressUi(
+    val label: String,
+    val progress: Float
+)
+
+data class HomeMealUi(
+    val label: String,
+    val calories: String
+)
+
+data class HomeInsightUi(
+    val title: String,
+    val message: String,
+    val actions: List<String>
+)
+
+data class HomeAchievementUi(
+    val title: String,
+    val subtitle: String,
+    val actionLabel: String
+)
+
+data class HomeWorkoutUi(
+    val sectionTitle: String,
+    val name: String,
+    val meta: String,
+    val equipmentLabel: String,
+    val primaryActionLabel: String,
+    val secondaryActionLabel: String
+)
+
+data class HomeNutritionUi(
+    val sectionTitle: String,
+    val summary: String,
+    val macros: List<HomeMacroProgressUi>,
+    val meals: List<HomeMealUi>,
+    val primaryActionLabel: String,
+    val secondaryActionLabel: String
+)
+
+data class HomeStreakUi(
+    val sectionTitle: String,
+    val currentLabel: String,
+    val subtitle: String,
+    val bestLabel: String,
+    val dayLabels: List<String>,
+    val activeDayCount: Int,
+    val currentDayIndex: Int
+)
+
+data class HomeAchievementPreviewUi(
+    val sectionTitle: String,
+    val itemLabel: String,
+    val subtitle: String,
+    val actionLabel: String
+)
 
 data class HomeUiState(
     val isLoading: Boolean = true,
-    val displayName: String = "Fitty User",
+    val displayName: String = "",
     val avatarInitial: String = "F",
-    val greetingTitle: String = "Welcome back",
-    val greetingSubtitle: String = "Let's make today count",
-    val focusDescription: String = "Finish onboarding to generate your daily workout focus.",
-    val workoutTarget: String = "0/1",
-    val mealsTarget: String = "0/3",
-    val waterTarget: String = "0L / 2.5L",
-    val workoutName: String = "Starter Workout",
-    val workoutMeta: String = "Set up your plan to see today's session",
-    val equipmentLabel: String = "No equipment selected",
-    val currentStreak: Int = 0,
-    val bestStreak: Int = 0
+    val greetingTitle: String = "",
+    val greetingSubtitle: String = "",
+    val focusTitle: String = "",
+    val focusDescription: String = "",
+    val focusMetrics: List<HomeFocusMetricUi> = emptyList(),
+    val focusPrimaryActionLabel: String = "",
+    val focusSecondaryActionLabel: String = "",
+    val quickActions: List<HomeQuickActionUi> = emptyList(),
+    val tasksSectionTitle: String = "",
+    val tasksSectionActionLabel: String = "",
+    val tasks: List<HomeTaskUi> = emptyList(),
+    val streak: HomeStreakUi = HomeStreakUi("", "", "", "", emptyList(), 0, 5),
+    val workout: HomeWorkoutUi = HomeWorkoutUi("", "", "", "", "", ""),
+    val nutrition: HomeNutritionUi = HomeNutritionUi("", "", emptyList(), emptyList(), "", ""),
+    val insight: HomeInsightUi = HomeInsightUi("", "", emptyList()),
+    val achievement: HomeAchievementPreviewUi = HomeAchievementPreviewUi("", "", "", "")
 )
 
-class HomeViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = FittyFirebaseRepository()
-    private val _uiState = MutableStateFlow(HomeUiState())
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val getCurrentUserUseCase: GetCurrentUserUseCase,
+    @ApplicationContext private val context: Context
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(initialHomeUiState(context))
     val uiState: StateFlow<HomeUiState> = _uiState
 
     init {
@@ -94,26 +200,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshUser() {
         viewModelScope.launch {
-            val user = repository.getCurrentUser()
+            val user = getCurrentUserUseCase()
             _uiState.update { current ->
-                if (user == null) {
-                    current.copy(isLoading = false)
-                } else {
-                    user.toHomeUiState()
-                }
+                if (user == null) current.copy(isLoading = false) else user.toHomeUiState(context)
             }
         }
     }
 }
 
 @Composable
-fun HomeRoute(viewModel: HomeViewModel = viewModel()) {
+fun HomeRoute(viewModel: HomeViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
-
-    LaunchedEffect(Unit) {
-        viewModel.refreshUser()
-    }
-
     HomeScreen(state = state)
 }
 
@@ -122,13 +219,13 @@ fun HomeScreen(state: HomeUiState) {
     FittyLazyScreen {
         item { HomeTopBar(state = state) }
         item { TodaySummaryCard(state = state) }
-        item { QuickActionsRow() }
-        item { TodayTasksSection() }
-        item { StreakCard(state = state) }
-        item { WorkoutTodayCard(state = state) }
-        item { NutritionSummaryCard() }
-        item { AIInsightCard() }
-        item { AchievementPreviewCard() }
+        item { QuickActionsRow(actions = state.quickActions) }
+        item { TodayTasksSection(state = state) }
+        item { StreakCard(state = state.streak) }
+        item { WorkoutTodayCard(workout = state.workout) }
+        item { NutritionSummaryCard(nutrition = state.nutrition) }
+        item { AIInsightCard(insight = state.insight) }
+        item { AchievementPreviewCard(achievement = state.achievement) }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
@@ -148,14 +245,16 @@ private fun HomeTopBar(state: HomeUiState) {
             Box(
                 modifier = Modifier
                     .size(48.dp)
+                    .shadow(6.dp, CircleShape)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(Brush.linearGradient(listOf(FittyGradientStart, FittyGradientEnd))),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = state.avatarInitial,
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
             }
             Column {
@@ -168,57 +267,37 @@ private fun HomeTopBar(state: HomeUiState) {
                 )
                 Text(
                     text = state.greetingSubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
-        Row {
-            BadgedIconButton(icon = Icons.Outlined.Notifications, hasBadge = true)
-            IconButton(onClick = { }) {
-                Icon(imageVector = Icons.Outlined.CalendarMonth, contentDescription = null)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BadgedIconButton(icon: ImageVector, hasBadge: Boolean) {
-    Box {
         IconButton(onClick = { }) {
-            Icon(imageVector = icon, contentDescription = null)
-        }
-        if (hasBadge) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 10.dp, end = 10.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.error)
-            )
+            Box {
+                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = null)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(FittyPink)
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun TodaySummaryCard(state: HomeUiState) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        shadowElevation = 2.dp,
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.secondary
-                        )
-                    )
-                )
-                .padding(18.dp),
+                .background(Brush.horizontalGradient(listOf(FittyGradientStart, FittyGradientEnd)))
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Row(
@@ -228,50 +307,55 @@ private fun TodaySummaryCard(state: HomeUiState) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Today's Focus",
+                        state.focusTitle,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
-                        text = state.focusDescription,
+                        state.focusDescription,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.9f),
+                        color = Color.White.copy(alpha = 0.85f),
                         modifier = Modifier.padding(top = 6.dp)
                     )
                 }
-                Icon(
-                    imageVector = Icons.Outlined.SelfImprovement,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(30.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.SelfImprovement,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FocusMetric("Workout", state.workoutTarget)
-                FocusMetric("Meals Logged", state.mealsTarget)
-                FocusMetric("Water", state.waterTarget)
+                state.focusMetrics.forEach { metric ->
+                    FocusMetric(label = metric.label, value = metric.value)
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = { },
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = MaterialTheme.colorScheme.primary
-                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FittyPink),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("Start Today")
+                    Text(state.focusPrimaryActionLabel, fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(
                     onClick = { },
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("View My Plan")
+                    Text(state.focusSecondaryActionLabel)
                 }
             }
         }
@@ -280,191 +364,146 @@ private fun TodaySummaryCard(state: HomeUiState) {
 
 @Composable
 private fun FocusMetric(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.86f))
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
         Text(value, style = MaterialTheme.typography.bodyMedium, color = Color.White, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-private fun QuickActionsRow() {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        QuickAction("Log Meal", Icons.Outlined.CameraAlt, MaterialTheme.colorScheme.tertiaryContainer, Modifier.weight(1f))
-        QuickAction("Start Workout", Icons.Outlined.FitnessCenter, MaterialTheme.colorScheme.primaryContainer, Modifier.weight(1f))
-        QuickAction("Body Scan", Icons.Outlined.AccessibilityNew, MaterialTheme.colorScheme.secondaryContainer, Modifier.weight(1f))
-        QuickAction("Ask Coach", Icons.Outlined.Psychology, MaterialTheme.colorScheme.surfaceVariant, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun QuickAction(
-    label: String,
-    icon: ImageVector,
-    containerColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.clickable { }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(containerColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+private fun QuickActionsRow(actions: List<HomeQuickActionUi>) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        actions.forEach { action ->
+            QuickAction(action = action, modifier = Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun TodayTasksSection() {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionHeader(title = "Today's Tasks", action = "See All")
-        TaskCard(
-            icon = Icons.Outlined.FitnessCenter,
-            title = "Complete your 30-minute workout",
-            description = "Full Body Strength",
-            time = "Before 7:00 PM",
-            status = "In Progress",
-            highlighted = true
-        )
-        TaskCard(
-            icon = Icons.Outlined.Restaurant,
-            title = "Log lunch before 1:30 PM",
-            description = "Scan or enter your meal",
-            time = "1:30 PM",
-            status = "To Do"
-        )
-        TaskCard(
-            icon = Icons.Outlined.WaterDrop,
-            title = "Drink 2 more glasses of water",
-            description = "1.2L logged so far",
-            time = "Next hour",
-            status = "To Do"
-        )
-        TaskCard(
-            icon = Icons.Outlined.CheckCircle,
-            title = "Morning stretch",
-            description = "10 minutes completed",
-            time = "Done",
-            status = "Done",
-            done = true
-        )
+private fun QuickAction(action: HomeQuickActionUi, modifier: Modifier = Modifier) {
+    val icon = when (action.type) {
+        HomeQuickActionType.LogMeal -> Icons.Outlined.CameraAlt
+        HomeQuickActionType.Workout -> Icons.Outlined.FitnessCenter
+        HomeQuickActionType.BodyScan -> Icons.Outlined.AccessibilityNew
+        HomeQuickActionType.Coach -> Icons.Outlined.Psychology
+    }
+    val containerColor = when (action.type) {
+        HomeQuickActionType.LogMeal -> FittyPink.copy(alpha = 0.1f)
+        HomeQuickActionType.Workout -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+        HomeQuickActionType.BodyScan -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f)
+        HomeQuickActionType.Coach -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = modifier.clickable { }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(containerColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
+            }
+            Text(action.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
 @Composable
-private fun TaskCard(
-    icon: ImageVector,
-    title: String,
-    description: String,
-    time: String,
-    status: String,
-    highlighted: Boolean = false,
-    done: Boolean = false
-) {
-    val borderColor = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-    val container = if (done) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface
+private fun TodayTasksSection(state: HomeUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FittySectionHeader(title = state.tasksSectionTitle, action = state.tasksSectionActionLabel)
+        state.tasks.forEach { task ->
+            TaskCard(task = task)
+        }
+    }
+}
+
+@Composable
+private fun TaskCard(task: HomeTaskUi) {
+    val icon = when (task.type) {
+        HomeTaskType.Workout -> Icons.Outlined.FitnessCenter
+        HomeTaskType.Meal -> Icons.Outlined.Restaurant
+        HomeTaskType.Water -> Icons.Outlined.WaterDrop
+        HomeTaskType.Done -> Icons.Outlined.CheckCircle
+    }
     Card(
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(if (highlighted) 2.dp else 1.dp, borderColor),
-        colors = CardDefaults.cardColors(containerColor = container),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { }
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = if (task.done) FittyPink.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (task.highlighted) 6.dp else 2.dp),
+        modifier = Modifier.fillMaxWidth().clickable { }
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = if (done) Icons.Outlined.CheckCircle else icon,
-                contentDescription = null,
-                tint = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (task.done) FittyPink.copy(alpha = 0.12f) else MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (task.done) Icons.Outlined.CheckCircle else icon,
+                    contentDescription = null,
+                    tint = if (task.done) FittyPink else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-            AssistChip(onClick = { }, label = { Text(status) })
+            Column(modifier = Modifier.weight(1f)) {
+                Text(task.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(task.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(task.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            AssistChip(onClick = { }, label = { Text(task.status, style = MaterialTheme.typography.labelSmall) })
         }
     }
 }
 
 @Composable
-private fun StreakCard(state: HomeUiState) {
+private fun StreakCard(state: HomeStreakUi) {
     Card(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier.clickable { }
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            SectionHeader("Your Streak")
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.LocalFireDepartment,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                    modifier = Modifier.size(34.dp)
-                )
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FittySectionHeader(state.sectionTitle)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.tertiaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.LocalFireDepartment, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(28.dp))
+                }
                 Column {
-                    Text("${state.currentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(
-                        "Keep logging workouts and meals to extend your streak.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text(state.currentLabel, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(state.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("M", "T", "W", "T", "F", "S", "S").forEachIndexed { index, day ->
-                    DayIndicator(day = day, active = index < state.currentStreak.coerceAtMost(7), current = index == 5)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                state.dayLabels.forEachIndexed { index, day ->
+                    DayIndicator(day, active = index < state.activeDayCount.coerceAtMost(state.dayLabels.size), current = index == state.currentDayIndex)
                 }
             }
-            Text(
-                "Best Streak: ${state.bestStreak} days",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(state.bestLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -472,63 +511,47 @@ private fun StreakCard(state: HomeUiState) {
 @Composable
 private fun DayIndicator(day: String, active: Boolean, current: Boolean) {
     val color = when {
-        current -> MaterialTheme.colorScheme.secondary
-        active -> MaterialTheme.colorScheme.primary
+        current -> FittyPink
+        active -> FittyPinkLight
         else -> MaterialTheme.colorScheme.outlineVariant
     }
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(color),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(day, style = MaterialTheme.typography.labelSmall, color = Color.White)
-        }
+    Box(modifier = Modifier.size(30.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+        Text(day, style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-private fun WorkoutTodayCard(state: HomeUiState) {
+private fun WorkoutTodayCard(workout: HomeWorkoutUi) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionHeader("Today's Workout")
+        FittySectionHeader(workout.sectionTitle)
         Card(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(state.workoutName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(state.workoutMeta, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    AssistChip(onClick = { }, label = { Text(state.equipmentLabel) })
+                    Text(workout.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(workout.meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    AssistChip(onClick = { }, label = { Text(workout.equipmentLabel) })
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                            Text("Start")
+                        Button(onClick = { }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
+                            Text(workout.primaryActionLabel)
                         }
-                        OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                            Text("Details")
+                        OutlinedButton(onClick = { }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
+                            Text(workout.secondaryActionLabel)
                         }
                     }
                 }
                 Box(
                     modifier = Modifier
                         .size(78.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
+                        .shadow(6.dp, RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(FittyPink.copy(alpha = 0.1f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.FitnessCenter,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(42.dp)
-                    )
+                    Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = FittyPink, modifier = Modifier.size(38.dp))
                 }
             }
         }
@@ -536,31 +559,28 @@ private fun WorkoutTodayCard(state: HomeUiState) {
 }
 
 @Composable
-private fun NutritionSummaryCard() {
+private fun NutritionSummaryCard(nutrition: HomeNutritionUi) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionHeader("Today's Nutrition")
+        FittySectionHeader(nutrition.sectionTitle)
         Card(
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text("1,240 / 2,100 kcal", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                MacroProgress("Protein", 0.46f)
-                MacroProgress("Carbs", 0.58f)
-                MacroProgress("Fat", 0.38f)
-                MealRow("Breakfast", "420 kcal")
-                MealRow("Lunch", "610 kcal")
-                MealRow("Snack", "210 kcal")
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(nutrition.summary, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                nutrition.macros.forEach { macro ->
+                    MacroProgress(label = macro.label, progress = macro.progress)
+                }
+                nutrition.meals.forEach { meal ->
+                    MealRow(label = meal.label, calories = meal.calories)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                        Text("Log Meal")
+                    Button(onClick = { }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
+                        Text(nutrition.primaryActionLabel)
                     }
-                    OutlinedButton(onClick = { }, shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)) {
-                        Text("Details")
+                    OutlinedButton(onClick = { }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
+                        Text(nutrition.secondaryActionLabel)
                     }
                 }
             }
@@ -575,7 +595,7 @@ private fun MacroProgress(label: String, progress: Float) {
             Text(label, style = MaterialTheme.typography.labelMedium)
             Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelMedium)
         }
-        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
     }
 }
 
@@ -588,77 +608,101 @@ private fun MealRow(label: String, calories: String) {
 }
 
 @Composable
-private fun AIInsightCard() {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+private fun AIInsightCard(insight: HomeInsightUi) {
+    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = FittyPink.copy(alpha = 0.08f)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Psychology, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                Text("AI Insight", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.Psychology, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
+                }
+                Text(insight.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
-            Text(
-                "Your protein intake is lower than usual today. Add a high-protein dinner to stay on track.",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Text(insight.message, style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = { }, label = { Text("Apply") })
-                AssistChip(onClick = { }, label = { Text("Ask Why") })
-                AssistChip(onClick = { }, label = { Text("Dismiss") })
+                insight.actions.forEach { actionLabel ->
+                    AssistChip(onClick = { }, label = { Text(actionLabel) })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AchievementPreviewCard() {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Outlined.LocalDining, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+private fun AchievementPreviewCard(achievement: HomeAchievementPreviewUi) {
+    Card(shape = RoundedCornerShape(20.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.LocalDining, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(22.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
-                Text("Recent Achievement", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text("First 10 Meals Logged", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(achievement.itemLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(achievement.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
-            Text("View All", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            Text(achievement.actionLabel, color = FittyPink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
         }
     }
 }
 
-@Composable
-private fun SectionHeader(title: String, action: String? = null) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        if (action != null) {
-            Text(action, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        }
-    }
+private fun initialHomeUiState(context: Context): HomeUiState {
+    return HomeUiState(
+        isLoading = true,
+        displayName = context.getString(R.string.home_display_name_default),
+        greetingTitle = context.getString(R.string.home_greeting_default),
+        greetingSubtitle = context.getString(R.string.home_subtitle_default),
+        focusTitle = context.getString(R.string.home_focus_title),
+        focusDescription = context.getString(R.string.home_focus_description_default),
+        focusMetrics = listOf(
+            HomeFocusMetricUi(context.getString(R.string.home_metric_workout), "0/1"),
+            HomeFocusMetricUi(context.getString(R.string.home_metric_meals_logged), "0/3"),
+            HomeFocusMetricUi(context.getString(R.string.home_metric_water), context.getString(R.string.home_water_target))
+        ),
+        focusPrimaryActionLabel = context.getString(R.string.home_action_start_today),
+        focusSecondaryActionLabel = context.getString(R.string.home_action_view_plan),
+        quickActions = defaultQuickActions(context),
+        tasksSectionTitle = context.getString(R.string.home_tasks_title),
+        tasksSectionActionLabel = context.getString(R.string.home_action_view_all),
+        tasks = defaultTasks(context),
+        streak = HomeStreakUi(
+            sectionTitle = context.getString(R.string.home_streak_title),
+            currentLabel = context.getString(R.string.home_streak_current, 0),
+            subtitle = context.getString(R.string.home_streak_subtitle),
+            bestLabel = context.getString(R.string.home_streak_best, 0),
+            dayLabels = defaultDayLabels(context),
+            activeDayCount = 0,
+            currentDayIndex = 5
+        ),
+        workout = HomeWorkoutUi(
+            sectionTitle = context.getString(R.string.home_workout_section_title),
+            name = context.getString(R.string.home_workout_complete_onboarding),
+            meta = context.getString(R.string.home_focus_description_default),
+            equipmentLabel = context.getString(R.string.home_equipment_default),
+            primaryActionLabel = context.getString(R.string.home_action_start),
+            secondaryActionLabel = context.getString(R.string.home_action_details)
+        ),
+        nutrition = defaultNutrition(context),
+        insight = HomeInsightUi(
+            title = context.getString(R.string.home_insight_title),
+            message = context.getString(R.string.home_insight_default, context.getString(R.string.home_goal_default)),
+            actions = defaultInsightActions(context)
+        ),
+        achievement = HomeAchievementPreviewUi(
+            sectionTitle = context.getString(R.string.home_achievement_item_label),
+            itemLabel = context.getString(R.string.home_achievement_item_label),
+            subtitle = context.getString(R.string.home_achievement_locked),
+            actionLabel = context.getString(R.string.home_action_view_all)
+        )
+    )
 }
 
-private fun FittyUser.toHomeUiState(): HomeUiState {
-    val resolvedName = displayName.ifBlank {
-        email.substringBefore("@").ifBlank { "Fitty User" }
-    }
+private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
+    val resolvedName = displayName.ifBlank { email.substringBefore("@").ifBlank { context.getString(R.string.home_display_name_default) } }
     val durationMinutes = onboarding.workoutDurationMinutes
-    val goalLabel = profile.primaryGoal.toDisplayLabel(defaultValue = "your goal")
-    val fitnessLabel = profile.fitnessLevel.toDisplayLabel(defaultValue = "Beginner")
-    val equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(defaultValue = "No equipment selected")
-    val workoutDays = onboarding.workoutDays.formatWorkoutDays()
+    val goalLabel = profile.primaryGoal.toDisplayLabel(defaultValue = context.getString(R.string.home_goal_default))
+    val fitnessLabel = profile.fitnessLevel.toDisplayLabel(defaultValue = context.getString(R.string.home_fitness_default))
+    val equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(defaultValue = context.getString(R.string.home_equipment_default))
+    val workoutDays = onboarding.workoutDays.formatWorkoutDays(context)
     val workoutMetaParts = buildList {
-        add(durationMinutes?.let { "$it min" } ?: "Duration not set")
+        add(durationMinutes?.let { "$it min" } ?: context.getString(R.string.home_duration_not_set))
         add(fitnessLabel)
         add(workoutDays)
     }
@@ -667,30 +711,182 @@ private fun FittyUser.toHomeUiState(): HomeUiState {
         isLoading = false,
         displayName = resolvedName,
         avatarInitial = resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "F",
-        greetingTitle = "${greetingForNow()}, ${resolvedName.substringBefore(" ")}",
-        greetingSubtitle = if (guest) "You're browsing in guest mode" else "Let's make today count",
-        focusDescription = buildString {
-            append(durationMinutes?.let { "$it min workout" } ?: "Workout plan")
-            append(" focused on ")
-            append(goalLabel.lowercase(Locale.US))
-        },
-        workoutTarget = if (onboardingCompleted) "1/1" else "0/1",
-        mealsTarget = "${stats.mealsLogged}/3",
-        waterTarget = "0L / 2.5L",
-        workoutName = if (onboardingCompleted) "$goalLabel Session" else "Complete onboarding",
-        workoutMeta = workoutMetaParts.joinToString(" | "),
-        equipmentLabel = equipmentLabel,
-        currentStreak = stats.currentStreak,
-        bestStreak = stats.bestStreak
+        greetingTitle = context.getString(
+            R.string.home_greeting_title_with_name,
+            greetingForNow(context),
+            resolvedName.substringBefore(" ")
+        ),
+        greetingSubtitle = if (guest) context.getString(R.string.home_guest_subtitle) else context.getString(R.string.home_subtitle_default),
+        focusTitle = context.getString(R.string.home_focus_title),
+        focusDescription = durationMinutes?.let {
+            context.getString(R.string.home_focus_with_duration, it, goalLabel.lowercase(Locale.US))
+        } ?: context.getString(R.string.home_focus_without_duration, goalLabel.lowercase(Locale.US)),
+        focusMetrics = listOf(
+            HomeFocusMetricUi(label = context.getString(R.string.home_metric_workout), value = if (onboardingCompleted) "1/1" else "0/1"),
+            HomeFocusMetricUi(label = context.getString(R.string.home_metric_meals_logged), value = "${stats.mealsLogged}/3"),
+            HomeFocusMetricUi(label = context.getString(R.string.home_metric_water), value = context.getString(R.string.home_water_target))
+        ),
+        focusPrimaryActionLabel = context.getString(R.string.home_action_start_today),
+        focusSecondaryActionLabel = context.getString(R.string.home_action_view_plan),
+        quickActions = defaultQuickActions(context),
+        tasksSectionTitle = context.getString(R.string.home_tasks_title),
+        tasksSectionActionLabel = context.getString(R.string.home_action_view_all),
+        tasks = buildTasks(context = context, goalLabel = goalLabel),
+        streak = HomeStreakUi(
+            sectionTitle = context.getString(R.string.home_streak_title),
+            currentLabel = context.getString(R.string.home_streak_current, stats.currentStreak),
+            subtitle = context.getString(R.string.home_streak_subtitle),
+            bestLabel = context.getString(R.string.home_streak_best, stats.bestStreak),
+            dayLabels = defaultDayLabels(context),
+            activeDayCount = stats.currentStreak,
+            currentDayIndex = 5
+        ),
+        workout = HomeWorkoutUi(
+            sectionTitle = context.getString(R.string.home_workout_section_title),
+            name = if (onboardingCompleted) {
+                context.getString(R.string.home_workout_session_name, goalLabel)
+            } else {
+                context.getString(R.string.home_workout_complete_onboarding)
+            },
+            meta = context.getString(
+                R.string.home_workout_meta_format,
+                workoutMetaParts[0],
+                workoutMetaParts[1],
+                workoutMetaParts[2]
+            ),
+            equipmentLabel = equipmentLabel,
+            primaryActionLabel = context.getString(R.string.home_action_start),
+            secondaryActionLabel = context.getString(R.string.home_action_details)
+        ),
+        nutrition = defaultNutrition(
+            context = context,
+            summary = context.getString(
+                R.string.home_nutrition_summary,
+                estimateCaloriesLogged(),
+                estimateCaloriesTarget(profile.weightKg, profile.primaryGoal)
+            )
+        ),
+        insight = HomeInsightUi(
+            title = context.getString(R.string.home_insight_title),
+            message = insightMessageFor(context = context, goalLabel = goalLabel, mealsLogged = stats.mealsLogged),
+            actions = defaultInsightActions(context)
+        ),
+        achievement = HomeAchievementPreviewUi(
+            sectionTitle = context.getString(R.string.home_achievement_item_label),
+            itemLabel = context.getString(R.string.home_achievement_item_label),
+            subtitle = if (stats.mealsLogged >= 10) context.getString(R.string.home_achievement_unlocked) else context.getString(R.string.home_achievement_locked),
+            actionLabel = context.getString(R.string.home_action_view_all)
+        )
     )
 }
 
-private fun greetingForNow(): String {
-    val currentHour = LocalTime.now().hour
+private fun buildTasks(context: Context, goalLabel: String): List<HomeTaskUi> {
+    return listOf(
+        HomeTaskUi(
+            type = HomeTaskType.Workout,
+            title = context.getString(R.string.home_task_workout_title),
+            description = "$goalLabel session",
+            time = context.getString(R.string.home_task_workout_time),
+            status = context.getString(R.string.home_task_in_progress),
+            highlighted = true
+        ),
+        HomeTaskUi(
+            type = HomeTaskType.Meal,
+            title = context.getString(R.string.home_task_log_lunch_title),
+            description = context.getString(R.string.home_task_log_lunch_desc),
+            time = context.getString(R.string.home_task_log_lunch_time),
+            status = context.getString(R.string.home_task_todo)
+        ),
+        HomeTaskUi(
+            type = HomeTaskType.Water,
+            title = context.getString(R.string.home_task_drink_water_title),
+            description = context.getString(R.string.home_task_drink_water_desc),
+            time = context.getString(R.string.home_task_drink_water_time),
+            status = context.getString(R.string.home_task_todo)
+        ),
+        HomeTaskUi(
+            type = HomeTaskType.Done,
+            title = context.getString(R.string.home_task_stretch_title),
+            description = context.getString(R.string.home_task_stretch_desc),
+            time = context.getString(R.string.home_task_done),
+            status = context.getString(R.string.home_task_done),
+            done = true
+        )
+    )
+}
+
+private fun defaultQuickActions(context: Context): List<HomeQuickActionUi> = listOf(
+    HomeQuickActionUi(label = context.getString(R.string.home_action_log_meal), type = HomeQuickActionType.LogMeal),
+    HomeQuickActionUi(label = context.getString(R.string.home_quick_action_workout), type = HomeQuickActionType.Workout),
+    HomeQuickActionUi(label = context.getString(R.string.home_quick_action_body_scan), type = HomeQuickActionType.BodyScan),
+    HomeQuickActionUi(label = context.getString(R.string.home_quick_action_coach), type = HomeQuickActionType.Coach)
+)
+
+private fun defaultTasks(context: Context): List<HomeTaskUi> = buildTasks(
+    context = context,
+    goalLabel = context.getString(R.string.home_default_task_goal)
+)
+
+private fun defaultNutrition(context: Context, summary: String = context.getString(R.string.home_nutrition_summary, 1240, 2100)): HomeNutritionUi {
+    return HomeNutritionUi(
+        sectionTitle = context.getString(R.string.home_nutrition_section_title),
+        summary = summary,
+        macros = listOf(
+            HomeMacroProgressUi(context.getString(R.string.home_macro_protein), 0.46f),
+            HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), 0.58f),
+            HomeMacroProgressUi(context.getString(R.string.home_macro_fat), 0.38f)
+        ),
+        meals = listOf(
+            HomeMealUi(context.getString(R.string.home_meal_breakfast), context.getString(R.string.home_calories_420)),
+            HomeMealUi(context.getString(R.string.home_meal_lunch), context.getString(R.string.home_calories_610)),
+            HomeMealUi(context.getString(R.string.home_meal_snack), context.getString(R.string.home_calories_210))
+        ),
+        primaryActionLabel = context.getString(R.string.home_action_log_meal),
+        secondaryActionLabel = context.getString(R.string.home_action_details)
+    )
+}
+
+private fun defaultInsightActions(context: Context): List<String> = listOf(
+    context.getString(R.string.home_action_apply),
+    context.getString(R.string.home_action_ask_why),
+    context.getString(R.string.home_action_dismiss)
+)
+
+private fun defaultDayLabels(context: Context): List<String> = listOf(
+    context.getString(R.string.home_day_mon),
+    context.getString(R.string.home_day_tue),
+    context.getString(R.string.home_day_wed),
+    context.getString(R.string.home_day_thu),
+    context.getString(R.string.home_day_fri),
+    context.getString(R.string.home_day_sat),
+    context.getString(R.string.home_day_sun)
+)
+
+private fun insightMessageFor(context: Context, goalLabel: String, mealsLogged: Int): String {
     return when {
-        currentHour < 12 -> "Good Morning"
-        currentHour < 18 -> "Good Afternoon"
-        else -> "Good Evening"
+        mealsLogged == 0 -> context.getString(R.string.home_insight_no_meals)
+        goalLabel.contains("Muscle", ignoreCase = true) -> context.getString(R.string.home_insight_gain_muscle, goalLabel)
+        else -> context.getString(R.string.home_insight_default, goalLabel)
+    }
+}
+
+private fun estimateCaloriesLogged(): Int = 1240
+
+private fun estimateCaloriesTarget(weightKg: Int?, goal: String): Int {
+    return when {
+        weightKg == null -> 2100
+        goal == "gain_muscle" -> weightKg * 34
+        goal == "lose_weight" -> weightKg * 28
+        else -> weightKg * 30
+    }
+}
+
+private fun greetingForNow(context: Context): String {
+    val h = LocalTime.now().hour
+    return when {
+        h < 12 -> context.getString(R.string.home_good_morning)
+        h < 18 -> context.getString(R.string.home_good_afternoon)
+        else -> context.getString(R.string.home_good_evening)
     }
 }
 
@@ -705,10 +901,10 @@ private fun String.toDisplayLabel(defaultValue: String): String {
         }
 }
 
-private fun List<String>.formatWorkoutDays(): String {
-    if (isEmpty()) return "Choose workout days"
-    return joinToString(", ") { day ->
-        day.replaceFirstChar { char ->
+private fun List<String>.formatWorkoutDays(context: Context): String {
+    if (isEmpty()) return context.getString(R.string.home_choose_workout_days)
+    return joinToString(", ") { value ->
+        value.replaceFirstChar { char ->
             if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
         }
     }

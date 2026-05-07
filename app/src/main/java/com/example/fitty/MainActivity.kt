@@ -11,7 +11,9 @@ import androidx.core.content.ContextCompat
 import com.example.fitty.navigation.FittyApp
 import com.example.fitty.notifications.FittyNotificationManager
 import com.example.fitty.ui.theme.FittyTheme
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

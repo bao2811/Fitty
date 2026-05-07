@@ -1,19 +1,24 @@
 package com.example.fitty.notifications
 
-import com.example.fitty.data.firebase.FittyFirebaseRepository
+import com.example.fitty.domain.repository.NotificationTokenRepository
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class FittyFirebaseMessagingService : FirebaseMessagingService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Inject lateinit var notificationTokenRepository: NotificationTokenRepository
+    @Inject lateinit var notificationDispatcher: FittyNotificationDispatcher
 
     override fun onNewToken(token: String) {
         serviceScope.launch {
-            FittyFirebaseRepository().syncNotificationToken(token)
+            notificationTokenRepository.syncNotificationToken(token)
         }
     }
 
@@ -21,10 +26,6 @@ class FittyFirebaseMessagingService : FirebaseMessagingService() {
         val notification = message.notification
         val title = notification?.title ?: message.data["title"] ?: "Fitty"
         val body = notification?.body ?: message.data["body"] ?: "Den luc quay lai va tap luyen roi."
-        FittyNotificationManager.showRemoteNotification(
-            context = applicationContext,
-            title = title,
-            body = body
-        )
+        notificationDispatcher.showRemoteNotification(title = title, body = body)
     }
 }
