@@ -111,7 +111,17 @@ class ProfileViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(initialProfileUiState(context))
     val uiState: StateFlow<ProfileUiState> = _uiState
     init { refreshUser() }
-    fun refreshUser() { viewModelScope.launch { val user = getCurrentUserUseCase(); _uiState.update { if (user == null) it.copy(isLoading = false) else user.toProfileUiState(context) } } }
+    fun refreshUser() {
+        viewModelScope.launch {
+            runCatching { getCurrentUserUseCase() }
+                .onSuccess { user ->
+                    _uiState.update { if (user == null) it.copy(isLoading = false) else user.toProfileUiState(context) }
+                }
+                .onFailure {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+        }
+    }
     fun logout(onComplete: () -> Unit) { viewModelScope.launch { logoutUseCase(); onComplete() } }
 }
 

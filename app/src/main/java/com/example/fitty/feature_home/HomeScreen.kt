@@ -205,11 +205,30 @@ class HomeViewModel @Inject constructor(
 
     fun refreshUser() {
         viewModelScope.launch {
-            val user = getCurrentUserUseCase()
-            _uiState.update { current ->
-                if (user == null) current.copy(isLoading = false) else user.toHomeUiState(context)
+            runCatching { getCurrentUserUseCase() }
+                .onSuccess { user ->
+                    _uiState.update { current ->
+                        if (user == null) current.copy(
+                            isLoading = false,
+                            greetingTitle = context.getString(
+                                R.string.home_greeting_default,
+                                context.getString(R.string.home_display_name_default)
+                            )
+                        ) else user.toHomeUiState(context)
+                    }
+                }
+                .onFailure {
+                    _uiState.update { current ->
+                        current.copy(
+                            isLoading = false,
+                            greetingTitle = context.getString(
+                                R.string.home_greeting_default,
+                                context.getString(R.string.home_display_name_default)
+                            )
+                        )
+                    }
+                }
             }
-        }
     }
 }
 
@@ -678,10 +697,7 @@ private fun initialHomeUiState(context: Context): HomeUiState {
         isLoading = true,
         displayName = context.getString(R.string.home_display_name_default),
         avatarUrl = null,
-        greetingTitle = context.getString(
-            R.string.home_greeting_default,
-            context.getString(R.string.home_display_name_default)
-        ),
+        greetingTitle = context.getString(R.string.home_loading_profile),
         greetingSubtitle = context.getString(R.string.home_subtitle_default),
         focusTitle = context.getString(R.string.home_focus_title),
         focusDescription = context.getString(R.string.home_focus_description_default),

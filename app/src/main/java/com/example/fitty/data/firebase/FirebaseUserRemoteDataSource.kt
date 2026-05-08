@@ -12,6 +12,7 @@ import com.example.fitty.domain.model.preferredDisplayName
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -45,6 +46,11 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             val authResult = auth.createUserWithEmailAndPassword(normalizedEmail, password).await()
             val firebaseUser = authResult.user
                 ?: return FittyAuthResult(errorMessage = "Account could not be created")
+            firebaseUser.updateProfile(
+                UserProfileChangeRequest.Builder()
+                    .setDisplayName(normalizedUsername)
+                    .build()
+            ).await()
             val userDoc = buildBaseUserDocument(
                 user = firebaseUser,
                 username = normalizedUsername,
@@ -192,8 +198,12 @@ class FirebaseUserRemoteDataSource @Inject constructor(
 
     suspend fun getCurrentUser(uid: String? = auth.currentUser?.uid): FittyUser? {
         val resolvedUid = uid ?: return null
+        val firebaseUser = auth.currentUser?.takeIf { it.uid == resolvedUid }
+        if (firebaseUser != null) {
+            ensureUserDocument(firebaseUser)
+        }
         val snapshot = userDocument(resolvedUid).get().await()
-        return if (snapshot.exists()) snapshot.toFittyUser() else null
+        return if (snapshot.exists()) snapshot.toFittyUser(firebaseUser) else null
     }
 
     fun signOut() {
@@ -240,6 +250,8 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         }
         if (snapshot.exists()) {
             val resolvedUsername = snapshot.getString("username")
+                .orEmpty()
+                .takeUnless { it.isPlaceholderUserName() }
                 .orEmpty()
                 .ifBlank { defaultUsername }
             val resolvedUsernameKey = if (user.isAnonymous) "" else resolvedUsername.lowercase(Locale.US)
@@ -504,18 +516,27 @@ class FirebaseUserRemoteDataSource @Inject constructor(
 
     private fun userDocument(uid: String) = firestore.collection(COLLECTION_USERS).document(uid)
 
-    private fun DocumentSnapshot.toFittyUser(): FittyUser {
+    private fun DocumentSnapshot.toFittyUser(authUser: FirebaseUser? = null): FittyUser {
         val profileMap = get("profile") as? Map<*, *> ?: emptyMap<String, Any?>()
         val onboardingMap = get("onboarding") as? Map<*, *> ?: emptyMap<String, Any?>()
         val statsMap = get("stats") as? Map<*, *> ?: emptyMap<String, Any?>()
         val settingsMap = get("settings") as? Map<*, *> ?: emptyMap<String, Any?>()
+        val resolvedEmail = getString("email").orEmpty().ifBlank { authUser?.email.orEmpty() }
+        val resolvedDisplayName = getString("displayName").orEmpty().ifBlank { authUser?.displayName.orEmpty() }
+        val resolvedUsername = getString("username")
+            .orEmpty()
+            .takeUnless { it.isPlaceholderUserName() }
+            .orEmpty()
+            .ifBlank { resolvedDisplayName }
+            .ifBlank { resolvedEmail.substringBefore("@") }
+        val resolvedPhotoUrl = getString("photoUrl") ?: authUser?.photoUrl?.toString()
 
         return FittyUser(
             uid = id,
-            email = getString("email").orEmpty(),
-            displayName = getString("displayName").orEmpty(),
-            username = getString("username").orEmpty(),
-            photoUrl = getString("photoUrl"),
+            email = resolvedEmail,
+            displayName = resolvedDisplayName,
+            username = resolvedUsername,
+            photoUrl = resolvedPhotoUrl,
             authProvider = getString("authProvider").orEmpty(),
             guest = getBoolean("guest") ?: false,
             onboardingCompleted = getBoolean("onboardingCompleted") ?: false,
@@ -580,6 +601,10 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             .trim('_')
     }
 
+    private fun String.isPlaceholderUserName(): Boolean {
+        return trim().lowercase(Locale.US) in PLACEHOLDER_USER_NAMES
+    }
+
     private companion object {
         const val COLLECTION_USERS = "users"
         const val COLLECTION_REMINDERS = "reminders"
@@ -592,6 +617,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         const val PLAN_STATUS_ACTIVE = "active"
         const val PLAN_STATUS_DRAFT = "draft"
         const val STARTER_PLAN_ID = "starter_plan"
+        val PLACEHOLDER_USER_NAMES = setOf("fitty_user", "fitty user", "fittyuser")
         val DAY_ORDER = listOf("sun", "mon", "tue", "wed", "thu", "fri", "sat")
         val DATE_KEY_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
     }

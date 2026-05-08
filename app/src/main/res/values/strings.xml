@@ -170,6 +170,7 @@
     <string name="onboarding_reminder_water">Water reminder</string>
     <string name="onboarding_reminder_sleep">Sleep reminder</string>
     <string name="home_display_name_default">Fitty User</string>
+    <string name="home_loading_profile">Loading profile...</string>
     <string name="home_greeting_default">Welcome %1$s</string>
     <string name="home_subtitle_default">Let\'s make today count</string>
     <string name="home_focus_title">Today\'s Focus</string>
