@@ -29,6 +29,11 @@
     <string name="auth_sign_in_subtitle">Sign in to continue your fitness journey</string>
     <string name="auth_forgot_password">Forgot password?</string>
     <string name="auth_continue_as_guest">Continue as Guest</string>
+    <string name="auth_continue_with_google">Continue with Google</string>
+    <string name="auth_google_not_configured">Google sign-in is not configured. Add a Firebase Web client ID.</string>
+    <string name="auth_google_failed">Google sign-in failed</string>
+    <string name="auth_google_cancelled">Google sign-in was cancelled</string>
+    <string name="google_web_client_id"></string>
     <string name="auth_no_account">Don\'t have an account? </string>
     <string name="auth_create_one">Create one</string>
     <string name="auth_sign_in_failed">Sign in failed</string>
@@ -165,7 +170,7 @@
     <string name="onboarding_reminder_water">Water reminder</string>
     <string name="onboarding_reminder_sleep">Sleep reminder</string>
     <string name="home_display_name_default">Fitty User</string>
-    <string name="home_greeting_default">Welcome back</string>
+    <string name="home_greeting_default">Welcome %1$s</string>
     <string name="home_subtitle_default">Let\'s make today count</string>
     <string name="home_focus_title">Today\'s Focus</string>
     <string name="home_focus_description_default">Finish onboarding to generate your daily workout focus.</string>
@@ -222,7 +227,7 @@
     <string name="home_achievement_locked">Keep logging meals to unlock your next milestone</string>
     <string name="home_achievement_unlocked">First 10 Meals Logged</string>
     <string name="home_nutrition_summary">%1$d / %2$d kcal</string>
-    <string name="home_greeting_title_with_name">%1$s, %2$s</string>
+    <string name="home_greeting_title_with_name">Welcome %1$s</string>
     <string name="home_workout_session_name">%1$s Session</string>
     <string name="home_workout_meta_format">%1$s • %2$s • %3$s</string>
     <string name="home_default_task_goal">Full Body Strength</string>

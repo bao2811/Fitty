@@ -84,3 +84,10 @@ data class FittyStartupState(
     val isSignedIn: Boolean = false,
     val onboardingCompleted: Boolean = false
 )
+
+fun FittyUser.preferredDisplayName(defaultValue: String = "Fitty User"): String {
+    return username.trim()
+        .ifBlank { displayName.trim() }
+        .ifBlank { email.substringBefore("@").trim() }
+        .ifBlank { defaultValue }
+}

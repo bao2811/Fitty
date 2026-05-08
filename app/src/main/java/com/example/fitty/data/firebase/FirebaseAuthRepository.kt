@@ -20,6 +20,9 @@ class FirebaseAuthRepository @Inject constructor(
         password: String
     ): FittyAuthResult = remoteDataSource.signInWithPassword(identifier, password)
 
+    override suspend fun signInWithGoogle(idToken: String): FittyAuthResult =
+        remoteDataSource.signInWithGoogle(idToken)
+
     override suspend fun continueAsGuest(): FittyAuthResult = remoteDataSource.continueAsGuest()
 
     override fun signOut() {

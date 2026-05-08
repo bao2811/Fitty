@@ -8,8 +8,10 @@ import com.example.fitty.domain.model.FittySettings
 import com.example.fitty.domain.model.FittyStartupState
 import com.example.fitty.domain.model.FittyStats
 import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.model.preferredDisplayName
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -73,6 +75,24 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             FittyAuthResult(user = getCurrentUser())
         } catch (error: Exception) {
             FittyAuthResult(errorMessage = error.message ?: "Username/email or password is incorrect")
+        }
+    }
+
+    suspend fun signInWithGoogle(idToken: String): FittyAuthResult {
+        val normalizedToken = idToken.trim()
+        if (normalizedToken.isBlank()) {
+            return FittyAuthResult(errorMessage = "Google sign-in token is missing")
+        }
+
+        return try {
+            val credential = GoogleAuthProvider.getCredential(normalizedToken, null)
+            val authResult = auth.signInWithCredential(credential).await()
+            val firebaseUser = authResult.user
+                ?: return FittyAuthResult(errorMessage = "Could not sign in with Google")
+            ensureUserDocument(firebaseUser, authProvider = AUTH_PROVIDER_GOOGLE)
+            FittyAuthResult(user = getCurrentUser())
+        } catch (error: Exception) {
+            FittyAuthResult(errorMessage = error.message ?: "Google sign-in failed")
         }
     }
 
@@ -163,7 +183,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         val user = getCurrentUser(uid = firebaseUser.uid)
         return FittyStartupState(
             uid = user?.uid ?: firebaseUser.uid,
-            displayName = user?.displayName.orEmpty(),
+            displayName = user?.preferredDisplayName().orEmpty(),
             isGuest = user?.guest ?: firebaseUser.isAnonymous,
             isSignedIn = !(user?.guest ?: firebaseUser.isAnonymous),
             onboardingCompleted = user?.onboardingCompleted ?: false
@@ -199,18 +219,44 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             .await()
     }
 
-    private suspend fun ensureUserDocument(user: FirebaseUser) {
+    private suspend fun ensureUserDocument(
+        user: FirebaseUser,
+        authProvider: String? = null
+    ) {
         val docRef = userDocument(user.uid)
         val snapshot = docRef.get().await()
+        val emailLocalPart = user.email
+            ?.substringBefore("@")
+            ?.replace(Regex("[^A-Za-z0-9_]"), "_")
+            ?.takeIf { it.isNotBlank() }
+            ?: if (user.isAnonymous) "guest" else "fitty_user"
+        val defaultUsername = if (user.isAnonymous) {
+            "guest"
+        } else {
+            user.displayName
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: emailLocalPart
+        }
         if (snapshot.exists()) {
+            val resolvedUsername = snapshot.getString("username")
+                .orEmpty()
+                .ifBlank { defaultUsername }
+            val resolvedUsernameKey = if (user.isAnonymous) "" else resolvedUsername.lowercase(Locale.US)
             docRef.set(
                 mapOf(
                     "email" to (user.email ?: snapshot.getString("email").orEmpty()),
-                    "displayName" to displayNameFor(user, snapshot.getString("displayName")),
+                    "displayName" to displayNameFor(
+                        user,
+                        snapshot.getString("displayName").orEmpty().ifBlank { resolvedUsername }
+                    ),
+                    "username" to resolvedUsername,
+                    "usernameNormalized" to resolvedUsernameKey,
+                    "photoUrl" to (user.photoUrl?.toString() ?: snapshot.getString("photoUrl")),
                     "guest" to user.isAnonymous,
-                    "authProvider" to snapshot.getString("authProvider").orEmpty().ifBlank {
+                    "authProvider" to (authProvider ?: snapshot.getString("authProvider").orEmpty().ifBlank {
                         if (user.isAnonymous) AUTH_PROVIDER_GUEST else AUTH_PROVIDER_PASSWORD
-                    },
+                    }),
                     "lastLoginAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 ),
@@ -219,17 +265,12 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             return
         }
 
-        val emailLocalPart = user.email
-            ?.substringBefore("@")
-            ?.replace(Regex("[^A-Za-z0-9_]"), "_")
-            ?.takeIf { it.isNotBlank() }
-            ?: if (user.isAnonymous) "guest" else "fitty_user"
         docRef.set(
             buildBaseUserDocument(
                 user = user,
-                username = emailLocalPart,
-                usernameKey = if (user.isAnonymous) "" else emailLocalPart.lowercase(Locale.US),
-                authProvider = if (user.isAnonymous) AUTH_PROVIDER_GUEST else AUTH_PROVIDER_PASSWORD,
+                username = defaultUsername,
+                usernameKey = if (user.isAnonymous) "" else defaultUsername.lowercase(Locale.US),
+                authProvider = authProvider ?: if (user.isAnonymous) AUTH_PROVIDER_GUEST else AUTH_PROVIDER_PASSWORD,
                 guest = user.isAnonymous
             ),
             SetOptions.merge()
@@ -472,7 +513,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         return FittyUser(
             uid = id,
             email = getString("email").orEmpty(),
-            displayName = getString("displayName").orEmpty().ifBlank { "Fitty User" },
+            displayName = getString("displayName").orEmpty(),
             username = getString("username").orEmpty(),
             photoUrl = getString("photoUrl"),
             authProvider = getString("authProvider").orEmpty(),
@@ -546,6 +587,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         const val COLLECTION_SCHEDULED_WORKOUTS = "scheduled_workouts"
         const val COLLECTION_NOTIFICATION_TOKENS = "notification_tokens"
         const val AUTH_PROVIDER_PASSWORD = "password"
+        const val AUTH_PROVIDER_GOOGLE = "google"
         const val AUTH_PROVIDER_GUEST = "guest"
         const val PLAN_STATUS_ACTIVE = "active"
         const val PLAN_STATUS_DRAFT = "draft"

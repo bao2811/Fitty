@@ -74,8 +74,10 @@ fun FittyNavHost(navController: NavHostController) {
         composable(FittyRoutes.SignUp) {
             SignUpRoute(
                 onBack = { navController.popBackStack() },
-                onSignedUp = {
-                    navController.navigate(FittyRoutes.Onboarding) {
+                onSignedUp = { onboardingCompleted ->
+                    navController.navigate(
+                        if (onboardingCompleted) FittyRoutes.Main else FittyRoutes.Onboarding
+                    ) {
                         popUpTo(FittyRoutes.Welcome) { inclusive = true }
                         launchSingleTop = true
                     }

@@ -2,6 +2,7 @@ package com.example.fitty.notifications
 
 import com.example.fitty.domain.model.FittyStartupState
 import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.model.preferredDisplayName
 import com.example.fitty.domain.repository.NotificationTokenRepository
 import com.example.fitty.domain.repository.SessionRepository
 import com.google.firebase.messaging.FirebaseMessaging
@@ -31,7 +32,7 @@ class FittyMessagingCoordinator @Inject constructor(
 
         runCatching { syncNotificationToken() }
         maybeShowWelcomeBackNotification(
-            displayName = user.displayName,
+            displayName = user.preferredDisplayName(),
             forceNotification = forceNotification
         )
     }

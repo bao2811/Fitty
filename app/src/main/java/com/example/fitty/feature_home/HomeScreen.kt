@@ -1,6 +1,7 @@
 package com.example.fitty.feature_home
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -47,17 +48,20 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import coil.compose.AsyncImage
 import androidx.lifecycle.viewModelScope
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.model.preferredDisplayName
 import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
 import com.example.fitty.ui.theme.FittyGradientStart
@@ -168,6 +172,7 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val displayName: String = "",
     val avatarInitial: String = "F",
+    val avatarUrl: String? = null,
     val greetingTitle: String = "",
     val greetingSubtitle: String = "",
     val focusTitle: String = "",
@@ -250,12 +255,23 @@ private fun HomeTopBar(state: HomeUiState) {
                     .background(Brush.linearGradient(listOf(FittyGradientStart, FittyGradientEnd))),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = state.avatarInitial,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+                if (state.avatarUrl.isNullOrBlank()) {
+                    Text(
+                        text = state.avatarInitial,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                } else {
+                    AsyncImage(
+                        model = state.avatarUrl,
+                        contentDescription = state.displayName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                    )
+                }
             }
             Column {
                 Text(
@@ -439,28 +455,32 @@ private fun TaskCard(task: HomeTaskUi) {
         HomeTaskType.Done -> Icons.Outlined.CheckCircle
     }
     Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = if (task.done) FittyPink.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (task.highlighted) 6.dp else 2.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (task.highlighted) 3.dp else 1.dp),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (task.done) FittyPink.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+        ),
         modifier = Modifier.fillMaxWidth().clickable { }
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (task.done) FittyPink.copy(alpha = 0.12f) else MaterialTheme.colorScheme.primaryContainer),
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (task.done) FittyPink.copy(alpha = 0.10f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     if (task.done) Icons.Outlined.CheckCircle else icon,
                     contentDescription = null,
                     tint = if (task.done) FittyPink else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -468,7 +488,11 @@ private fun TaskCard(task: HomeTaskUi) {
                 Text(task.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(task.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            AssistChip(onClick = { }, label = { Text(task.status, style = MaterialTheme.typography.labelSmall) })
+            AssistChip(
+                onClick = { },
+                label = { Text(task.status, style = MaterialTheme.typography.labelSmall) },
+                shape = RoundedCornerShape(12.dp)
+            )
         }
     }
 }
@@ -525,11 +549,12 @@ private fun WorkoutTodayCard(workout: HomeWorkoutUi) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         FittySectionHeader(workout.sectionTitle)
         Card(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
         ) {
-            Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(workout.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(workout.meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -545,13 +570,12 @@ private fun WorkoutTodayCard(workout: HomeWorkoutUi) {
                 }
                 Box(
                     modifier = Modifier
-                        .size(78.dp)
-                        .shadow(6.dp, RoundedCornerShape(18.dp))
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(FittyPink.copy(alpha = 0.1f)),
+                        .size(58.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(FittyPink.copy(alpha = 0.10f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = FittyPink, modifier = Modifier.size(38.dp))
+                    Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = FittyPink, modifier = Modifier.size(30.dp))
                 }
             }
         }
@@ -609,10 +633,16 @@ private fun MealRow(label: String, calories: String) {
 
 @Composable
 private fun AIInsightCard(insight: HomeInsightUi) {
-    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = FittyPink.copy(alpha = 0.08f)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.Psychology, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
                 }
                 Text(insight.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -647,7 +677,11 @@ private fun initialHomeUiState(context: Context): HomeUiState {
     return HomeUiState(
         isLoading = true,
         displayName = context.getString(R.string.home_display_name_default),
-        greetingTitle = context.getString(R.string.home_greeting_default),
+        avatarUrl = null,
+        greetingTitle = context.getString(
+            R.string.home_greeting_default,
+            context.getString(R.string.home_display_name_default)
+        ),
         greetingSubtitle = context.getString(R.string.home_subtitle_default),
         focusTitle = context.getString(R.string.home_focus_title),
         focusDescription = context.getString(R.string.home_focus_description_default),
@@ -695,7 +729,9 @@ private fun initialHomeUiState(context: Context): HomeUiState {
 }
 
 private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
-    val resolvedName = displayName.ifBlank { email.substringBefore("@").ifBlank { context.getString(R.string.home_display_name_default) } }
+    val resolvedName = preferredDisplayName(
+        defaultValue = context.getString(R.string.home_display_name_default)
+    )
     val durationMinutes = onboarding.workoutDurationMinutes
     val goalLabel = profile.primaryGoal.toDisplayLabel(defaultValue = context.getString(R.string.home_goal_default))
     val fitnessLabel = profile.fitnessLevel.toDisplayLabel(defaultValue = context.getString(R.string.home_fitness_default))
@@ -711,10 +747,10 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
         isLoading = false,
         displayName = resolvedName,
         avatarInitial = resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "F",
+        avatarUrl = photoUrl,
         greetingTitle = context.getString(
             R.string.home_greeting_title_with_name,
-            greetingForNow(context),
-            resolvedName.substringBefore(" ")
+            resolvedName
         ),
         greetingSubtitle = if (guest) context.getString(R.string.home_guest_subtitle) else context.getString(R.string.home_subtitle_default),
         focusTitle = context.getString(R.string.home_focus_title),

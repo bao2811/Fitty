@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil.compose.AsyncImage
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittyMetricTile
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
@@ -68,6 +70,7 @@ import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.designsystem.component.FittySettingsRow
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.model.preferredDisplayName
 import com.example.fitty.domain.usecase.auth.LogoutUseCase
 import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
@@ -85,7 +88,7 @@ import javax.inject.Inject
 
 data class ProfileUiState(
     val isLoading: Boolean = true, val displayName: String = "", val email: String = "",
-    val avatarInitial: String = "F", val profileLabel: String = "",
+    val avatarInitial: String = "F", val avatarUrl: String? = null, val profileLabel: String = "",
     val currentGoal: String = "", val targetWeightLabel: String = "",
     val goalProgress: Float = 0f, val goalProgressLabel: String = "",
     val heightLabel: String = "", val weightLabel: String = "", val bmiLabel: String = "",
@@ -142,7 +145,16 @@ private fun ProfileHeader(state: ProfileUiState) {
                     modifier = Modifier.size(68.dp).shadow(8.dp, CircleShape).clip(CircleShape).background(Color.White),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(state.avatarInitial, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = FittyPink)
+                    if (state.avatarUrl.isNullOrBlank()) {
+                        Text(state.avatarInitial, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = FittyPink)
+                    } else {
+                        AsyncImage(
+                            model = state.avatarUrl,
+                            contentDescription = state.displayName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(68.dp).clip(CircleShape)
+                        )
+                    }
                 }
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(state.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -163,16 +175,21 @@ private fun ProfileHeader(state: ProfileUiState) {
 
 @Composable
 private fun GoalSummaryCard(state: ProfileUiState) {
-    Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = FittyPink.copy(alpha = 0.08f)), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)) {
-        Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(FittyPink.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.TrackChanges, null, tint = FittyPink, modifier = Modifier.size(24.dp))
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f))
+    ) {
+        Row(modifier = Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.TrackChanges, null, tint = FittyPink, modifier = Modifier.size(22.dp))
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.profile_current_goal), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Text(state.currentGoal, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(state.targetWeightLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                LinearProgressIndicator(progress = { state.goalProgress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+                LinearProgressIndicator(progress = { state.goalProgress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.10f))
                 Text(state.goalProgressLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(onClick = { }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink)) { Text(stringResource(R.string.profile_update)) }
@@ -240,12 +257,15 @@ private fun initialProfileUiState(context: Context): ProfileUiState {
 }
 
 private fun FittyUser.toProfileUiState(context: Context): ProfileUiState {
-    val resolvedName = displayName.ifBlank { email.substringBefore("@").ifBlank { context.getString(R.string.profile_display_name_default) } }
+    val resolvedName = preferredDisplayName(
+        defaultValue = context.getString(R.string.profile_display_name_default)
+    )
     val goal = profile.primaryGoal.toDisplayLabel(context.getString(R.string.profile_set_goal)); val fitness = profile.fitnessLevel.toDisplayLabel(context.getString(R.string.home_fitness_default))
     val preferredTime = onboarding.preferredTime.toDisplayLabel(context.getString(R.string.profile_any_time)); val trainingDays = onboarding.workoutDays.formatWorkoutDays(context)
     val progress = profileCompletionProgress()
     return ProfileUiState(isLoading = false, displayName = resolvedName, email = email,
         avatarInitial = resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "F",
+        avatarUrl = photoUrl,
         profileLabel = context.getString(R.string.profile_level_label, fitness), currentGoal = goal,
         targetWeightLabel = profile.targetWeightKg?.let { context.getString(R.string.profile_target_weight_value, it, settings.weightUnit) } ?: context.getString(R.string.profile_target_weight_not_set),
         goalProgress = progress, goalProgressLabel = context.getString(R.string.profile_setup_complete, (progress * 100).roundToInt()),

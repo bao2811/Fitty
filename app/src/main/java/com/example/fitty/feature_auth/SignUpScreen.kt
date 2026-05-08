@@ -50,6 +50,7 @@ import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.usecase.auth.ContinueAsGuestUseCase
+import com.example.fitty.domain.usecase.auth.SignInWithGoogleUseCase
 import com.example.fitty.domain.usecase.auth.SignUpUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
 import com.example.fitty.ui.theme.FittyGradientStart
@@ -70,6 +71,7 @@ data class SignUpUiState(
 @HiltViewModel
 class SignUpViewModel @Inject constructor(
     private val signUpUseCase: SignUpUseCase,
+    private val signInWithGoogleUseCase: SignInWithGoogleUseCase,
     private val continueAsGuestUseCase: ContinueAsGuestUseCase,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -104,6 +106,24 @@ class SignUpViewModel @Inject constructor(
         }
     }
 
+    fun submitGoogle(idToken: String, onSuccess: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, formError = null) }
+            val result = signInWithGoogleUseCase(idToken)
+            val user = result.user
+            if (user == null) {
+                _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage ?: context.getString(R.string.auth_google_failed)) }
+                return@launch
+            }
+            _uiState.update { it.copy(isSubmitting = false) }
+            onSuccess(user.onboardingCompleted)
+        }
+    }
+
+    fun showGoogleError(message: String) {
+        _uiState.update { it.copy(formError = message) }
+    }
+
     private fun validate(state: SignUpUiState): String? = when {
         state.username.isBlank() -> context.getString(R.string.auth_username_required)
         state.username.length < 3 -> context.getString(R.string.auth_username_min)
@@ -115,18 +135,30 @@ class SignUpViewModel @Inject constructor(
 }
 
 @Composable
-fun SignUpRoute(onBack: () -> Unit, onSignedUp: () -> Unit, onContinueAsGuest: () -> Unit, viewModel: SignUpViewModel = hiltViewModel()) {
+fun SignUpRoute(onBack: () -> Unit, onSignedUp: (Boolean) -> Unit, onContinueAsGuest: () -> Unit, viewModel: SignUpViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     SignUpScreen(state = state, onBack = onBack, onUsernameChanged = { viewModel.update { copy(username = it) } },
         onEmailChanged = { viewModel.update { copy(email = it) } }, onPasswordChanged = { viewModel.update { copy(password = it) } },
         onConfirmPasswordChanged = { viewModel.update { copy(confirmPassword = it) } },
-        onSubmit = { viewModel.submit(onSignedUp) }, onGuestSignUp = { viewModel.continueAsGuest(onContinueAsGuest) })
+        onSubmit = { viewModel.submit { onSignedUp(false) } }, onGuestSignUp = { viewModel.continueAsGuest(onContinueAsGuest) },
+        onGoogleToken = { viewModel.submitGoogle(it, onSignedUp) },
+        onGoogleError = viewModel::showGoogleError)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SignUpScreen(state: SignUpUiState, onBack: () -> Unit, onUsernameChanged: (String) -> Unit, onEmailChanged: (String) -> Unit,
-    onPasswordChanged: (String) -> Unit, onConfirmPasswordChanged: (String) -> Unit, onSubmit: () -> Unit, onGuestSignUp: () -> Unit) {
+fun SignUpScreen(
+    state: SignUpUiState,
+    onBack: () -> Unit,
+    onUsernameChanged: (String) -> Unit,
+    onEmailChanged: (String) -> Unit,
+    onPasswordChanged: (String) -> Unit,
+    onConfirmPasswordChanged: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onGuestSignUp: () -> Unit,
+    onGoogleToken: (String) -> Unit,
+    onGoogleError: (String) -> Unit
+) {
     val fc = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink)
     Scaffold(
         topBar = {
@@ -153,6 +185,15 @@ fun SignUpScreen(state: SignUpUiState, onBack: () -> Unit, onUsernameChanged: (S
             item { PasswordField(stringResource(R.string.auth_confirm_password), state.confirmPassword, onConfirmPasswordChanged) }
             item { state.formError?.let { Text(text = it, color = MaterialTheme.colorScheme.error) } }
             item { FittyPrimaryButton(text = stringResource(R.string.auth_create_account_title), onClick = onSubmit, loading = state.isSubmitting) }
+            item {
+                GoogleAuthButton(
+                    loading = state.isSubmitting,
+                    enabled = !state.isSubmitting,
+                    onIdToken = onGoogleToken,
+                    onError = onGoogleError,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             item { FittySecondaryButton(text = stringResource(R.string.auth_continue_as_guest), onClick = onGuestSignUp, enabled = !state.isSubmitting) }
         }
     }

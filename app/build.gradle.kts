@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
+    implementation(libs.play.services.auth)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
     implementation(platform(libs.androidx.compose.bom))
