@@ -2,14 +2,18 @@ package com.example.fitty.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
+import com.example.fitty.feature_auth.ForgotPasswordRoute
 import com.example.fitty.feature_auth.SignInRoute
 import com.example.fitty.feature_auth.SignUpRoute
 import com.example.fitty.feature_entry.SplashRoute
 import com.example.fitty.feature_entry.WelcomeRoute
 import com.example.fitty.feature_onboarding.OnboardingRoute
 import com.example.fitty.feature_onboarding.PlanPreviewRoute
+import com.example.fitty.feature_workout.WorkoutSessionRoute
 
 @Composable
 fun FittyNavHost(navController: NavHostController) {
@@ -68,7 +72,15 @@ fun FittyNavHost(navController: NavHostController) {
                         popUpTo(FittyRoutes.Welcome) { inclusive = true }
                         launchSingleTop = true
                     }
+                },
+                onForgotPassword = {
+                    navController.navigate(FittyRoutes.ForgotPassword)
                 }
+            )
+        }
+        composable(FittyRoutes.ForgotPassword) {
+            ForgotPasswordRoute(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(FittyRoutes.SignUp) {
@@ -136,6 +148,16 @@ fun FittyNavHost(navController: NavHostController) {
                         launchSingleTop = true
                     }
                 }
+            )
+        }
+        composable(
+            route = FittyRoutes.WorkoutSession,
+            arguments = listOf(navArgument("sessionId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+            WorkoutSessionRoute(
+                sessionId = sessionId,
+                onBack = { navController.popBackStack() }
             )
         }
     }

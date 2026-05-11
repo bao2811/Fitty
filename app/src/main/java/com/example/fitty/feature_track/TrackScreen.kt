@@ -7,7 +7,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +17,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CameraAlt
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.MonitorWeight
@@ -33,8 +34,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +64,7 @@ import coil.compose.AsyncImage
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.ui.theme.FittyPink
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -92,12 +91,25 @@ internal data class TrackAnalysisResult(
 )
 
 internal data class TrackUiState(
-    val selectedTab: TrackTab = TrackTab.Meals,
-    val tabs: List<TrackTab> = TrackTab.entries,
+    val selectedTab: TrackTab? = null,
+    val tabs: List<TrackTab> = listOf(TrackTab.Meals, TrackTab.Body, TrackTab.Progress, TrackTab.Stats),
     val capturedImageUri: String? = null,
     val isSubmittingImage: Boolean = false,
     val analysisResult: TrackAnalysisResult? = null,
-    val captureError: String? = null
+    val captureError: String? = null,
+    val mealConfirmed: Boolean = false,
+    val bodyScanSaved: Boolean = false,
+    val progressWeight: String = "--",
+    val progressWeightPercent: Float = 0f,
+    val progressWorkouts: String = "0 / 0",
+    val progressWorkoutPercent: Float = 0f,
+    val progressMeals: String = "0 meals logged",
+    val progressMealPercent: Float = 0f,
+    val statWorkouts: String = "0",
+    val statMeals: String = "0",
+    val statStreak: String = "0 days",
+    val statActiveMin: String = "0",
+    val mealHistory: List<Pair<String, String>> = emptyList()
 )
 
 @Composable
@@ -106,61 +118,161 @@ fun TrackRoute(viewModel: TrackViewModel = hiltViewModel()) {
     TrackScreen(
         state = state,
         onTabSelected = viewModel::selectTab,
+        onBackToPicker = viewModel::backToPicker,
         onImageCaptured = viewModel::setCapturedImage,
         onCaptureError = viewModel::setCaptureError,
-        onSubmitImage = viewModel::submitCapturedImage
+        onSubmitImage = viewModel::submitCapturedImage,
+        onConfirmMeal = viewModel::confirmMeal,
+        onSaveBodyScan = viewModel::saveBodyScan
     )
 }
 
 @HiltViewModel
-class TrackViewModel @Inject constructor() : ViewModel() {
+class TrackViewModel @Inject constructor(
+    private val analyzeMealImageUseCase: com.example.fitty.domain.usecase.track.AnalyzeMealImageUseCase,
+    private val confirmMealLogUseCase: com.example.fitty.domain.usecase.track.ConfirmMealLogUseCase,
+    private val analyzeBodyScanUseCase: com.example.fitty.domain.usecase.track.AnalyzeBodyScanUseCase,
+    private val saveBodyScanUseCase: com.example.fitty.domain.usecase.track.SaveBodyScanUseCase,
+    private val getProgressStatsUseCase: com.example.fitty.domain.usecase.track.GetProgressStatsUseCase,
+    private val getMealLogsUseCase: com.example.fitty.domain.usecase.track.GetMealLogsUseCase,
+    private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase
+) : ViewModel() {
     private val _uiState = MutableStateFlow(TrackUiState())
     internal val uiState: StateFlow<TrackUiState> = _uiState
 
+    private var lastMealResult: com.example.fitty.domain.model.MealAnalysisResult? = null
+    private var lastBodyResult: com.example.fitty.domain.model.BodyScanAnalysisResult? = null
+
+    init { loadStats() }
+
+    private fun loadStats() {
+        viewModelScope.launch {
+            runCatching { getProgressStatsUseCase() }.onSuccess { stats ->
+                _uiState.update {
+                    it.copy(
+                        statWorkouts = stats.totalWorkouts.toString(),
+                        statMeals = stats.totalMealsLogged.toString(),
+                        statStreak = "${stats.bestStreak} days",
+                        statActiveMin = "${stats.totalWorkouts * 30}",
+                        progressWeight = stats.latestWeight?.let { w -> "%.1f kg".format(w) } ?: "--",
+                        progressWeightPercent = stats.latestWeight?.let { 0.42f } ?: 0f,
+                        progressWorkouts = "${stats.dailySummaries.sumOf { s -> s.progress.workoutsCompleted }} total",
+                        progressWorkoutPercent = if (stats.totalWorkouts > 0) 0.5f else 0f,
+                        progressMeals = "${stats.totalMealsLogged} meals logged",
+                        progressMealPercent = if (stats.totalMealsLogged > 0) 0.58f else 0f
+                    )
+                }
+            }
+            runCatching { getMealLogsUseCase() }.onSuccess { logs ->
+                _uiState.update {
+                    it.copy(mealHistory = logs.map { m -> m.mealType.replaceFirstChar { c -> c.uppercase() } to "${m.totalCalories} kcal" })
+                }
+            }
+        }
+    }
+
     internal fun selectTab(tab: TrackTab) {
         _uiState.update {
-            it.copy(
-                selectedTab = tab,
-                capturedImageUri = null,
-                isSubmittingImage = false,
-                analysisResult = null,
-                captureError = null
-            )
+            it.copy(selectedTab = tab, capturedImageUri = null, isSubmittingImage = false,
+                analysisResult = null, captureError = null, mealConfirmed = false, bodyScanSaved = false)
         }
+    }
+
+    internal fun backToPicker() {
+        _uiState.update {
+            it.copy(selectedTab = null, capturedImageUri = null, isSubmittingImage = false,
+                analysisResult = null, captureError = null, mealConfirmed = false, bodyScanSaved = false)
+        }
+        loadStats()
     }
 
     internal fun setCapturedImage(uri: String) {
-        _uiState.update {
-            it.copy(
-                capturedImageUri = uri,
-                analysisResult = null,
-                captureError = null
-            )
-        }
+        _uiState.update { it.copy(capturedImageUri = uri, analysisResult = null, captureError = null) }
     }
 
     internal fun setCaptureError(message: String) {
-        _uiState.update {
-            it.copy(captureError = message, isSubmittingImage = false)
-        }
+        _uiState.update { it.copy(captureError = message, isSubmittingImage = false) }
     }
 
     internal fun submitCapturedImage() {
         val current = _uiState.value
-        if (current.capturedImageUri.isNullOrBlank()) {
-            setCaptureError("Take a photo before sending it to the API.")
-            return
-        }
+        val selectedTab = current.selectedTab
+        if (selectedTab == null) { setCaptureError("Choose Track Meal or Body first."); return }
+        if (current.capturedImageUri.isNullOrBlank()) { setCaptureError("Take a photo first."); return }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmittingImage = true, captureError = null) }
-            delay(700)
-            _uiState.update {
-                it.copy(
-                    isSubmittingImage = false,
-                    analysisResult = fakeAnalysisFor(it.selectedTab)
-                )
+            when (selectedTab) {
+                TrackTab.Meals -> {
+                    analyzeMealImageUseCase(current.capturedImageUri)
+                        .onSuccess { result ->
+                            lastMealResult = result
+                            _uiState.update { it.copy(isSubmittingImage = false, analysisResult = result.toUi()) }
+                        }
+                        .onFailure { e -> _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) } }
+                }
+                TrackTab.Body -> {
+                    analyzeBodyScanUseCase(current.capturedImageUri)
+                        .onSuccess { result ->
+                            lastBodyResult = result
+                            _uiState.update { it.copy(isSubmittingImage = false, analysisResult = result.toUi()) }
+                        }
+                        .onFailure { e -> _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) } }
+                }
+                else -> _uiState.update { it.copy(isSubmittingImage = false) }
             }
+        }
+    }
+
+    private fun com.example.fitty.domain.model.MealAnalysisResult.toUi() = TrackAnalysisResult(
+        title = "Meal Analysis",
+        summary = "Detected ${mealLog.foodItems.size} food items (${(confidence * 100).toInt()}% confidence)",
+        rows = listOf(
+            TrackAnalysisRow("Calories", "${mealLog.totalCalories} kcal"),
+            TrackAnalysisRow("Protein", "${mealLog.totalProtein} g"),
+            TrackAnalysisRow("Carbs", "${mealLog.totalCarbs} g"),
+            TrackAnalysisRow("Fat", "${mealLog.totalFat} g")
+        ) + mealLog.foodItems.map { TrackAnalysisRow(it.name, "${it.calories} kcal") }
+    )
+
+    private fun com.example.fitty.domain.model.BodyScanAnalysisResult.toUi() = TrackAnalysisResult(
+        title = "Body Scan Analysis",
+        summary = bodyScan.summary.ifBlank { "Analysis complete" } + " (${(confidence * 100).toInt()}% confidence)",
+        rows = listOfNotNull(
+            bodyScan.estimatedBodyFatPercent?.let { TrackAnalysisRow("Body fat", "%.1f%%".format(it)) },
+            bodyScan.postureScore?.let { TrackAnalysisRow("Posture score", "$it / 100") },
+            TrackAnalysisRow("Status", bodyScan.status)
+        )
+    )
+
+    internal fun confirmMeal() {
+        val meal = lastMealResult?.mealLog ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmittingImage = true) }
+            confirmMealLogUseCase(meal)
+                .onSuccess {
+                    _uiState.update { it.copy(isSubmittingImage = false, mealConfirmed = true) }
+                    runCatching { updateStreakUseCase("meal") }
+                    loadStats()
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) }
+                }
+        }
+    }
+
+    internal fun saveBodyScan() {
+        val scan = lastBodyResult?.bodyScan ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmittingImage = true) }
+            saveBodyScanUseCase(scan)
+                .onSuccess {
+                    _uiState.update { it.copy(isSubmittingImage = false, bodyScanSaved = true) }
+                    runCatching { updateStreakUseCase("body_scan") }
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) }
+                }
         }
     }
 }
@@ -169,9 +281,12 @@ class TrackViewModel @Inject constructor() : ViewModel() {
 private fun TrackScreen(
     state: TrackUiState,
     onTabSelected: (TrackTab) -> Unit,
+    onBackToPicker: () -> Unit,
     onImageCaptured: (String) -> Unit,
     onCaptureError: (String) -> Unit,
-    onSubmitImage: () -> Unit
+    onSubmitImage: () -> Unit,
+    onConfirmMeal: () -> Unit,
+    onSaveBodyScan: () -> Unit
 ) {
     val context = LocalContext.current
     var pendingCaptureUri by rememberSaveable { mutableStateOf<String?>(null) }
@@ -212,45 +327,124 @@ private fun TrackScreen(
         item {
             Text("Track", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         }
-        item {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState())
-            ) {
-                state.tabs.forEach { tab ->
-                    FilterChip(
-                        selected = state.selectedTab == tab,
-                        onClick = { onTabSelected(tab) },
-                        label = {
-                            Text(
-                                trackTabLabel(tab),
-                                fontWeight = if (state.selectedTab == tab) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = FittyPink.copy(alpha = 0.12f),
-                            selectedLabelColor = FittyPink
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    )
-                }
+        val selectedTab = state.selectedTab
+        if (selectedTab == null) {
+            item {
+                TrackFeaturePicker(
+                    tabs = state.tabs,
+                    onTabSelected = onTabSelected
+                )
             }
-        }
-        when (state.selectedTab) {
-            TrackTab.Meals -> { item { MealsTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage) } }
-            TrackTab.Body -> { item { BodyTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage) } }
-            TrackTab.Progress -> { item { ProgressTab() } }
-            else -> { item { StatsTab() } }
+        } else {
+            item {
+                TrackDetailHeader(
+                    tab = selectedTab,
+                    onBackToPicker = onBackToPicker
+                )
+            }
+            when (selectedTab) {
+                TrackTab.Meals -> { item { MealsTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onConfirmMeal = onConfirmMeal) } }
+                TrackTab.Body -> { item { BodyTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onSaveBodyScan = onSaveBodyScan) } }
+                TrackTab.Progress -> { item { ProgressTab(state) } }
+                TrackTab.Stats -> { item { StatsTab(state) } }
+            }
         }
     }
 }
 
 private fun trackTabLabel(tab: TrackTab): String {
     return when (tab) {
-        TrackTab.Meals -> "Meals"
+        TrackTab.Meals -> "Track Meal"
         TrackTab.Body -> "Body"
         TrackTab.Progress -> "Progress"
         TrackTab.Stats -> "Stats"
+    }
+}
+
+private fun trackTabDescription(tab: TrackTab): String {
+    return when (tab) {
+        TrackTab.Meals -> "Chụp ảnh bữa ăn, xem ảnh vừa chụp và gửi tới API phân tích dinh dưỡng."
+        TrackTab.Body -> "Chụp ảnh body progress, xem ảnh và gửi tới API phân tích hình thể."
+        TrackTab.Progress -> "Xem tiến độ cân nặng, tập luyện và lượng calo đã theo dõi."
+        TrackTab.Stats -> "Xem thống kê tổng hợp."
+    }
+}
+
+private fun trackTabIcon(tab: TrackTab): ImageVector {
+    return when (tab) {
+        TrackTab.Meals -> Icons.Outlined.Restaurant
+        TrackTab.Body -> Icons.Outlined.AccessibilityNew
+        TrackTab.Progress -> Icons.Outlined.Timeline
+        TrackTab.Stats -> Icons.Outlined.BarChart
+    }
+}
+
+@Composable
+private fun TrackFeaturePicker(
+    tabs: List<TrackTab>,
+    onTabSelected: (TrackTab) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            "Choose what you want to track",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        tabs.forEach { tab ->
+            TrackFeatureCard(
+                tab = tab,
+                onClick = { onTabSelected(tab) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrackFeatureCard(
+    tab: TrackTab,
+    onClick: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(FittyPink.copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(trackTabIcon(tab), contentDescription = null, tint = FittyPink, modifier = Modifier.size(24.dp))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(trackTabLabel(tab), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(trackTabDescription(tab), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackDetailHeader(
+    tab: TrackTab,
+    onBackToPicker: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedButton(onClick = onBackToPicker, shape = RoundedCornerShape(16.dp)) {
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text("Choose another", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
+        }
+        Text(trackTabLabel(tab), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -258,7 +452,8 @@ private fun trackTabLabel(tab: TrackTab): String {
 private fun MealsTab(
     state: TrackUiState,
     onOpenCamera: () -> Unit,
-    onSubmitImage: () -> Unit
+    onSubmitImage: () -> Unit,
+    onConfirmMeal: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CameraAnalysisCard(
@@ -270,14 +465,57 @@ private fun MealsTab(
             onOpenCamera = onOpenCamera,
             onSubmitImage = onSubmitImage
         )
-        SummaryCard(Icons.Outlined.Restaurant, "Daily calories", "1,240 / 2,100 kcal") {
-            MacroProgress("Protein", 0.46f)
-            MacroProgress("Carbs", 0.58f)
-            MacroProgress("Fat", 0.38f)
+        // Confirm & Log button after analysis
+        if (state.analysisResult != null && state.selectedTab == TrackTab.Meals) {
+            if (state.mealConfirmed) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                        Text(
+                            "Meal logged successfully!",
+                            modifier = Modifier.padding(start = 8.dp),
+                            color = Color(0xFF2E7D32),
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onConfirmMeal,
+                    enabled = !state.isSubmittingImage,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (state.isSubmittingImage) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
+                        Text("Confirm & Log Meal", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
-        InfoRowCard("Breakfast", "Greek yogurt, banana • 420 kcal", Icons.Outlined.Restaurant)
-        InfoRowCard("Lunch", "Chicken rice bowl • 610 kcal", Icons.Outlined.Restaurant)
-        InfoRowCard("Snack", "Protein bar • 210 kcal", Icons.Outlined.Restaurant)
+        SummaryCard(Icons.Outlined.Restaurant, "Daily calories", "${state.progressMeals}") {
+            MacroProgress("Protein", state.progressMealPercent)
+            MacroProgress("Carbs", state.progressWorkoutPercent)
+            MacroProgress("Fat", state.progressWeightPercent)
+        }
+        if (state.mealHistory.isNotEmpty()) {
+            state.mealHistory.forEach { (label, cal) ->
+                InfoRowCard(label, cal, Icons.Outlined.Restaurant)
+            }
+        } else {
+            InfoRowCard("Meals", "No meals logged yet", Icons.Outlined.Restaurant)
+        }
     }
 }
 
@@ -285,7 +523,8 @@ private fun MealsTab(
 private fun BodyTab(
     state: TrackUiState,
     onOpenCamera: () -> Unit,
-    onSubmitImage: () -> Unit
+    onSubmitImage: () -> Unit,
+    onSaveBodyScan: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CameraAnalysisCard(
@@ -297,6 +536,45 @@ private fun BodyTab(
             onOpenCamera = onOpenCamera,
             onSubmitImage = onSubmitImage
         )
+        // Save Scan button after analysis
+        if (state.analysisResult != null && state.selectedTab == TrackTab.Body) {
+            if (state.bodyScanSaved) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                        Text(
+                            "Body scan saved!",
+                            modifier = Modifier.padding(start = 8.dp),
+                            color = Color(0xFF2E7D32),
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onSaveBodyScan,
+                    enabled = !state.isSubmittingImage,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (state.isSubmittingImage) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
+                        Text("Save Body Scan", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
         SummaryCard(Icons.Outlined.AccessibilityNew, "Latest AI analysis", "Posture and body metrics will appear after your first scan") {
             Text("Capture front, side, and back photos in good lighting.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
@@ -305,31 +583,31 @@ private fun BodyTab(
 }
 
 @Composable
-private fun ProgressTab() {
+private fun ProgressTab(state: TrackUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SummaryCard(Icons.Outlined.MonitorWeight, "Weight trend", "61.5 kg today") {
-            LinearProgressIndicator(progress = { 0.42f }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
-            Text("42% toward target weight", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SummaryCard(Icons.Outlined.MonitorWeight, "Weight trend", state.progressWeight) {
+            LinearProgressIndicator(progress = { state.progressWeightPercent }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+            Text("${(state.progressWeightPercent * 100).toInt()}% toward target weight", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        SummaryCard(Icons.Outlined.BarChart, "Weekly workouts", "2 / 4 completed") {
-            LinearProgressIndicator(progress = { 0.5f }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+        SummaryCard(Icons.Outlined.BarChart, "Workouts", state.progressWorkouts) {
+            LinearProgressIndicator(progress = { state.progressWorkoutPercent }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
         }
-        SummaryCard(Icons.Outlined.Restaurant, "Calories tracked", "3 meals logged today") {
-            LinearProgressIndicator(progress = { 0.58f }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+        SummaryCard(Icons.Outlined.Restaurant, "Calories tracked", state.progressMeals) {
+            LinearProgressIndicator(progress = { state.progressMealPercent }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
         }
     }
 }
 
 @Composable
-private fun StatsTab() {
+private fun StatsTab(state: TrackUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile("18", "Workouts", Icons.Outlined.FitnessCenter, Modifier.weight(1f))
-            StatTile("42", "Meals", Icons.Outlined.Restaurant, Modifier.weight(1f))
+            StatTile(state.statWorkouts, "Workouts", Icons.Outlined.FitnessCenter, Modifier.weight(1f))
+            StatTile(state.statMeals, "Meals", Icons.Outlined.Restaurant, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile("12 days", "Best streak", Icons.Outlined.LocalFireDepartment, Modifier.weight(1f))
-            StatTile("520", "Active min", Icons.Outlined.BarChart, Modifier.weight(1f))
+            StatTile(state.statStreak, "Best streak", Icons.Outlined.LocalFireDepartment, Modifier.weight(1f))
+            StatTile(state.statActiveMin, "Active min", Icons.Outlined.BarChart, Modifier.weight(1f))
         }
     }
 }
@@ -516,41 +794,7 @@ private fun StatTile(value: String, label: String, icon: ImageVector, modifier: 
     }
 }
 
-private fun fakeAnalysisFor(tab: TrackTab): TrackAnalysisResult {
-    return when (tab) {
-        TrackTab.Meals -> TrackAnalysisResult(
-            title = "Mock meal API response",
-            summary = "This is placeholder data. Replace this mapper when the real meal analysis API is available.",
-            rows = listOf(
-                TrackAnalysisRow("Detected meal", "Chicken rice bowl"),
-                TrackAnalysisRow("Calories", "~610 kcal"),
-                TrackAnalysisRow("Protein", "42 g"),
-                TrackAnalysisRow("Carbs", "68 g"),
-                TrackAnalysisRow("Fat", "18 g"),
-                TrackAnalysisRow("Confidence", "86%")
-            )
-        )
 
-        TrackTab.Body -> TrackAnalysisResult(
-            title = "Mock body scan API response",
-            summary = "This is placeholder data. Replace this mapper when the real body analysis API is available.",
-            rows = listOf(
-                TrackAnalysisRow("Photo quality", "Good lighting"),
-                TrackAnalysisRow("Posture", "Neutral"),
-                TrackAnalysisRow("Shoulder balance", "Slight right tilt"),
-                TrackAnalysisRow("Progress note", "Use same angle next scan"),
-                TrackAnalysisRow("Confidence", "78%")
-            )
-        )
-
-        TrackTab.Progress,
-        TrackTab.Stats -> TrackAnalysisResult(
-            title = "No scan result",
-            summary = "Photo analysis is only available for Meals and Body tabs.",
-            rows = emptyList()
-        )
-    }
-}
 
 private fun createTrackImageUri(context: Context): Uri {
     val imagesDir = File(context.cacheDir, "track_images").apply { mkdirs() }

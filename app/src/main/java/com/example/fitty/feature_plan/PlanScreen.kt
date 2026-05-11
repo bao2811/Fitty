@@ -406,10 +406,10 @@ private fun PracticeTopBar(title: String) {
     ) {
         Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Row {
-            IconButton(onClick = { }) {
+            IconButton(onClick = { }, enabled = false) {
                 Icon(Icons.Outlined.Search, contentDescription = null)
             }
-            IconButton(onClick = { }) {
+            IconButton(onClick = { }, enabled = false) {
                 Icon(Icons.Outlined.Tune, contentDescription = null)
             }
         }
@@ -472,10 +472,10 @@ private fun TodayPracticeSection(workout: SampleWorkout) {
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                    Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                         Text(stringResource(R.string.plan_action_start_workout))
                     }
-                    OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                         Text(stringResource(R.string.plan_action_edit_session))
                     }
                 }
@@ -503,10 +503,10 @@ private fun WorkoutSessionDetailPreview(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+            Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.plan_action_start))
             }
-            OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.plan_action_replace))
             }
         }
@@ -574,7 +574,7 @@ private fun ProgramsBannerCard() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.9f)
             )
-            Button(onClick = { }, shape = RoundedCornerShape(20.dp)) {
+            Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp)) {
                 Text(stringResource(R.string.plan_banner_cta))
             }
         }
@@ -599,7 +599,7 @@ private fun ProgramFilterChips() {
             stringResource(R.string.plan_filter_strength)
         )
             .forEachIndexed { index, label ->
-                FilterChip(selected = index == 0, onClick = { }, label = { Text(label) })
+                FilterChip(selected = index == 0, onClick = { }, enabled = false, label = { Text(label) })
             }
     }
 }
@@ -649,10 +649,10 @@ private fun ProgramCard(
             }
             ChipRow(tags)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.plan_action_view_program))
                 }
-                Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.plan_action_start_plan))
                 }
             }
@@ -697,6 +697,7 @@ private fun ExerciseLibrarySection(
         OutlinedTextField(
             value = "",
             onValueChange = { },
+            enabled = false,
             label = { Text(stringResource(R.string.plan_search_exercises)) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             modifier = Modifier.fillMaxWidth(),
@@ -717,7 +718,7 @@ private fun ExerciseLibrarySection(
                 stringResource(R.string.plan_tag_no_equipment)
             )
                 .forEachIndexed { index, label ->
-                    FilterChip(selected = index == 6, onClick = { }, label = { Text(label) })
+                    FilterChip(selected = index == 6, onClick = { }, enabled = false, label = { Text(label) })
                 }
         }
         Text(
@@ -801,10 +802,10 @@ private fun ExerciseDetailPreview(exercise: SampleExercise) {
             body = exercise.targetMuscles
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+            Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.plan_action_add))
             }
-            OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.plan_action_save))
             }
         }
@@ -846,6 +847,7 @@ private fun CreatePlanSection() {
         OutlinedTextField(
             value = stringResource(R.string.plan_default_plan_name),
             onValueChange = { },
+            enabled = false,
             label = { Text(stringResource(R.string.plan_field_plan_name)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
@@ -856,10 +858,10 @@ private fun CreatePlanSection() {
             SelectorBox(stringResource(R.string.plan_field_workouts_per_week), "4", Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+            Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.plan_action_generate))
             }
-            OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.plan_action_build_manually))
             }
         }
@@ -877,7 +879,7 @@ private fun CustomWeeklyPlannerPreview() {
         ).forEach { (day, detail) ->
             PlannerDayCard(day, detail)
         }
-        Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.plan_action_save_weekly_plan))
         }
     }
@@ -912,6 +914,7 @@ private fun BuildWorkoutSection(previewExercises: List<SampleExercise>) {
         OutlinedTextField(
             value = stringResource(R.string.plan_default_workout_name),
             onValueChange = { },
+            enabled = false,
             label = { Text(stringResource(R.string.plan_field_workout_name)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
@@ -923,7 +926,7 @@ private fun BuildWorkoutSection(previewExercises: List<SampleExercise>) {
         previewExercises.forEach { exercise ->
             BuilderExerciseItem(exercise.title, exercise.repsOrDuration)
         }
-        OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.Add, contentDescription = null)
             Text(stringResource(R.string.plan_action_add_exercise), modifier = Modifier.padding(start = 8.dp))
         }
@@ -957,7 +960,7 @@ private fun MyCustomPlansSection() {
             modifier = Modifier.horizontalScroll(rememberScrollState())
         ) {
             listOf(stringResource(R.string.plan_filter_active), stringResource(R.string.plan_filter_drafts), stringResource(R.string.plan_filter_completed), stringResource(R.string.plan_filter_saved_templates)).forEachIndexed { index, label ->
-                FilterChip(selected = index == 0, onClick = { }, label = { Text(label) })
+                FilterChip(selected = index == 0, onClick = { }, enabled = false, label = { Text(label) })
             }
         }
         CustomPlanCard(stringResource(R.string.plan_custom_plan_home_strength_title), stringResource(R.string.plan_custom_plan_home_strength_body))
@@ -974,10 +977,10 @@ private fun CustomPlanCard(title: String, body: String) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                Button(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.plan_action_start))
                 }
-                OutlinedButton(onClick = { }, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(20.dp), modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.plan_action_edit))
                 }
             }
@@ -1010,6 +1013,7 @@ private fun ExerciseMediaPreview(
         )
         AssistChip(
             onClick = { },
+            enabled = false,
             label = { Text(stringResource(R.string.plan_label_gif)) },
             leadingIcon = {
                 Icon(
@@ -1150,6 +1154,7 @@ private fun ChipRow(labels: List<String>) {
         labels.forEachIndexed { index, label ->
             AssistChip(
                 onClick = { },
+                enabled = false,
                 label = { Text(label) },
                 leadingIcon = if (index == 0) {
                     { Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp)) }

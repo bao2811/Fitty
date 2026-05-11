@@ -5,9 +5,13 @@ object FittyRoutes {
     const val Welcome = "welcome"
     const val SignIn = "sign_in"
     const val SignUp = "sign_up"
+    const val ForgotPassword = "forgot_password"
     const val Onboarding = "onboarding"
     const val PlanPreview = "plan_preview"
     const val Main = "main"
+    const val WorkoutSession = "workout_session/{sessionId}"
+
+    fun workoutSession(sessionId: String) = "workout_session/$sessionId"
 }
 
 object MainRoutes {

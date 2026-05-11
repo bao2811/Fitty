@@ -421,7 +421,9 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 "bestStreak" to 0,
                 "totalWorkouts" to 0,
                 "mealsLogged" to 0,
-                "achievementsUnlocked" to 0
+                "achievementsUnlocked" to 0,
+                "lastActiveDate" to "",
+                "streakActiveDates" to emptyList<String>()
             ),
             "createdAt" to FieldValue.serverTimestamp(),
             "updatedAt" to FieldValue.serverTimestamp(),
@@ -565,7 +567,9 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 bestStreak = statsMap.intValue("bestStreak") ?: 0,
                 totalWorkouts = statsMap.intValue("totalWorkouts") ?: 0,
                 mealsLogged = statsMap.intValue("mealsLogged") ?: 0,
-                achievementsUnlocked = statsMap.intValue("achievementsUnlocked") ?: 0
+                achievementsUnlocked = statsMap.intValue("achievementsUnlocked") ?: 0,
+                lastActiveDate = statsMap.stringValue("lastActiveDate"),
+                streakActiveDates = statsMap.stringListValue("streakActiveDates")
             ),
             settings = FittySettings(
                 language = settingsMap.stringValue("language").ifBlank { "en" },

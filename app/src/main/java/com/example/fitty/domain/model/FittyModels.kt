@@ -42,7 +42,9 @@ data class FittyStats(
     val bestStreak: Int = 0,
     val totalWorkouts: Int = 0,
     val mealsLogged: Int = 0,
-    val achievementsUnlocked: Int = 0
+    val achievementsUnlocked: Int = 0,
+    val lastActiveDate: String = "",       // ISO date "2026-05-11"
+    val streakActiveDates: List<String> = emptyList()  // last 7 active dates
 )
 
 data class FittySettings(

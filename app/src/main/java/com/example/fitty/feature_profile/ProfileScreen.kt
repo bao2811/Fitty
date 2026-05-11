@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material.icons.outlined.Watch
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -48,6 +49,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,6 +110,8 @@ data class ProfileUiState(
 class ProfileViewModel @Inject constructor(
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
     private val logoutUseCase: LogoutUseCase,
+    private val deleteAccountUseCase: com.example.fitty.domain.usecase.auth.DeleteAccountUseCase,
+    private val updateGoalUseCase: com.example.fitty.domain.usecase.user.UpdateGoalUseCase,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialProfileUiState(context))
@@ -123,20 +129,62 @@ class ProfileViewModel @Inject constructor(
         }
     }
     fun logout(onComplete: () -> Unit) { viewModelScope.launch { logoutUseCase(); onComplete() } }
+    fun deleteAccount(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            deleteAccountUseCase()
+                .onSuccess { onComplete() }
+                .onFailure { /* Could show error snackbar */ }
+        }
+    }
 }
 
 @Composable
 fun ProfileRoute(onLogout: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
-    ProfileScreen(state = state, onLogout = { viewModel.logout(onLogout) })
+    ProfileScreen(
+        state = state,
+        onLogout = { viewModel.logout(onLogout) },
+        onDeleteAccount = { viewModel.deleteAccount(onLogout) }
+    )
 }
 
 @Composable
-fun ProfileScreen(state: ProfileUiState, onLogout: () -> Unit) {
+fun ProfileScreen(state: ProfileUiState, onLogout: () -> Unit, onDeleteAccount: () -> Unit = {}) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(stringResource(R.string.profile_delete_account)) },
+            text = {
+                Text(
+                    "This action is irreversible. All your workout data, meal logs, and profile information will be permanently deleted.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteAccount()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete Forever")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     FittyLazyScreen {
         item { ProfileHeader(state) }; item { GoalSummaryCard(state) }
         item { BodyMetricsSection(state) }; item { PreferenceSection(state) }
-        item { AppSettingsSection(state) }; item { LogoutSection(onLogout) }
+        item { AppSettingsSection(state) }; item { LogoutSection(onLogout, onDeleteAccount = { showDeleteDialog = true }) }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
@@ -176,8 +224,8 @@ private fun ProfileHeader(state: ProfileUiState) {
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = { }, label = { Text(stringResource(R.string.profile_streak_days, state.currentStreak), color = Color.White) }, shape = RoundedCornerShape(12.dp))
-                OutlinedButton(onClick = { }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text(stringResource(R.string.profile_edit_profile)) }
+                AssistChip(onClick = { }, enabled = false, label = { Text(stringResource(R.string.profile_streak_days, state.currentStreak), color = Color.White) }, shape = RoundedCornerShape(12.dp))
+                OutlinedButton(onClick = { }, enabled = false, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White.copy(alpha = 0.5f))) { Text(stringResource(R.string.profile_edit_profile)) }
             }
         }
     }
@@ -202,7 +250,7 @@ private fun GoalSummaryCard(state: ProfileUiState) {
                 LinearProgressIndicator(progress = { state.goalProgress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.10f))
                 Text(state.goalProgressLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Button(onClick = { }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink)) { Text(stringResource(R.string.profile_update)) }
+            Button(onClick = { }, enabled = false, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink)) { Text(stringResource(R.string.profile_update)) }
         }
     }
 }
@@ -229,10 +277,10 @@ private fun BodyMetricsSection(state: ProfileUiState) {
 }
 
 @Composable
-private fun LogoutSection(onLogout: () -> Unit) {
+private fun LogoutSection(onLogout: () -> Unit, onDeleteAccount: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         FittyPrimaryButton(text = stringResource(R.string.profile_log_out), onClick = onLogout)
-        OutlinedButton(onClick = { }, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)), modifier = Modifier.fillMaxWidth().height(52.dp)) {
+        OutlinedButton(onClick = onDeleteAccount, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)), modifier = Modifier.fillMaxWidth().height(52.dp)) {
             Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error); Text(stringResource(R.string.profile_delete_account), color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
         }
     }

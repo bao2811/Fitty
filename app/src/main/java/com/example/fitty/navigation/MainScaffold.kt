@@ -41,6 +41,14 @@ fun MainScaffold(onLogout: () -> Unit) {
     val backStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
+    val navigateToTab: (String) -> Unit = { route ->
+        tabNavController.navigate(route) {
+            popUpTo(tabNavController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
     Scaffold(
         bottomBar = {
             NavigationBar(
@@ -59,15 +67,7 @@ fun MainScaffold(onLogout: () -> Unit) {
                     val selected = currentRoute == tab.route
                     NavigationBarItem(
                         selected = selected,
-                        onClick = {
-                            tabNavController.navigate(tab.route) {
-                                popUpTo(tabNavController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
+                        onClick = { navigateToTab(tab.route) },
                         icon = { MainTabIcon(tab.route) },
                         label = {
                             Text(
@@ -94,7 +94,11 @@ fun MainScaffold(onLogout: () -> Unit) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(MainRoutes.Home) {
-                HomeRoute()
+                HomeRoute(
+                    onNavigateToPlan = { navigateToTab(MainRoutes.Plan) },
+                    onNavigateToTrack = { navigateToTab(MainRoutes.Track) },
+                    onNavigateToCoach = { navigateToTab(MainRoutes.Coach) }
+                )
             }
             composable(MainRoutes.Plan) {
                 PlanRoute()

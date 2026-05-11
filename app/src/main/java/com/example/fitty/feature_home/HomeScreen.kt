@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.FitnessCenter
@@ -53,6 +54,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import coil.compose.AsyncImage
@@ -74,6 +76,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalTime
+import java.time.LocalDate
+import java.time.DayOfWeek
+import java.time.format.TextStyle
 import java.util.Locale
 import javax.inject.Inject
 
@@ -157,7 +162,7 @@ data class HomeStreakUi(
     val subtitle: String,
     val bestLabel: String,
     val dayLabels: List<String>,
-    val activeDayCount: Int,
+    val activeDayFlags: List<Boolean>,   // which days are active
     val currentDayIndex: Int
 )
 
@@ -184,16 +189,26 @@ data class HomeUiState(
     val tasksSectionTitle: String = "",
     val tasksSectionActionLabel: String = "",
     val tasks: List<HomeTaskUi> = emptyList(),
-    val streak: HomeStreakUi = HomeStreakUi("", "", "", "", emptyList(), 0, 5),
+    val streak: HomeStreakUi = HomeStreakUi("", "", "", "", emptyList(), emptyList(), 0),
     val workout: HomeWorkoutUi = HomeWorkoutUi("", "", "", "", "", ""),
     val nutrition: HomeNutritionUi = HomeNutritionUi("", "", emptyList(), emptyList(), "", ""),
     val insight: HomeInsightUi = HomeInsightUi("", "", emptyList()),
-    val achievement: HomeAchievementPreviewUi = HomeAchievementPreviewUi("", "", "", "")
+    val achievement: HomeAchievementPreviewUi = HomeAchievementPreviewUi("", "", "", ""),
+    val showNotifications: Boolean = false,
+    val notifications: List<HomeNotificationUi> = emptyList()
+)
+
+data class HomeNotificationUi(
+    val title: String,
+    val message: String,
+    val time: String,
+    val icon: ImageVector
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
+    private val getHomeDashboardUseCase: com.example.fitty.domain.usecase.home.GetHomeDashboardUseCase,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialHomeUiState(context))
@@ -205,6 +220,7 @@ class HomeViewModel @Inject constructor(
 
     fun refreshUser() {
         viewModelScope.launch {
+            // Load user for profile display
             runCatching { getCurrentUserUseCase() }
                 .onSuccess { user ->
                     _uiState.update { current ->
@@ -228,34 +244,135 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 }
-            }
+
+            // Load dashboard data (daily summary, today workout, active plan)
+            runCatching { getHomeDashboardUseCase() }
+                .onSuccess { dashboard ->
+                    if (dashboard == null) return@onSuccess
+                    _uiState.update { current ->
+                        val summary = dashboard.dailySummary
+                        val workout = dashboard.todayWorkout
+                        current.copy(
+                            focusMetrics = listOf(
+                                HomeFocusMetricUi(
+                                    context.getString(R.string.home_metric_workout),
+                                    "${summary?.progress?.workoutsCompleted ?: 0}/1"
+                                ),
+                                HomeFocusMetricUi(
+                                    context.getString(R.string.home_metric_meals_logged),
+                                    "${summary?.mealsLoggedCount ?: 0}/3"
+                                ),
+                                HomeFocusMetricUi(
+                                    context.getString(R.string.home_metric_water),
+                                    "${summary?.progress?.waterMl ?: 0} / ${summary?.targets?.waterMl ?: 2500} ml"
+                                )
+                            ),
+                            workout = if (workout != null) HomeWorkoutUi(
+                                sectionTitle = context.getString(R.string.home_workout_section_title),
+                                name = workout.title.ifBlank { dashboard.activePlanName ?: "" },
+                                meta = "${workout.durationMinutes} min • ${workout.difficulty}",
+                                equipmentLabel = workout.equipment.ifBlank { context.getString(R.string.home_equipment_default) },
+                                primaryActionLabel = context.getString(R.string.home_action_start),
+                                secondaryActionLabel = context.getString(R.string.home_action_details)
+                            ) else current.workout,
+                            nutrition = if (summary != null) defaultNutrition(
+                                context = context,
+                                summary = context.getString(
+                                    R.string.home_nutrition_summary,
+                                    summary.progress.caloriesConsumed,
+                                    summary.targets.calories
+                                )
+                            ) else current.nutrition,
+                            streak = buildStreakUi(
+                                context = context,
+                                currentStreak = summary?.currentStreak ?: current.streak.currentDayIndex,
+                                bestStreak = 0, // from user stats
+                                activeDates = emptyList()
+                            ),
+                            insight = if (summary?.insightText?.isNotBlank() == true) HomeInsightUi(
+                                title = context.getString(R.string.home_insight_title),
+                                message = summary.insightText,
+                                actions = defaultInsightActions(context)
+                            ) else current.insight
+                        )
+                    }
+                }
+        }
+    }
+
+    internal fun toggleNotifications() {
+        _uiState.update { it.copy(showNotifications = !it.showNotifications) }
+    }
+
+    internal fun dismissNotifications() {
+        _uiState.update { it.copy(showNotifications = false) }
     }
 }
 
 @Composable
-fun HomeRoute(viewModel: HomeViewModel = hiltViewModel()) {
+fun HomeRoute(
+    onNavigateToPlan: () -> Unit = {},
+    onNavigateToTrack: () -> Unit = {},
+    onNavigateToCoach: () -> Unit = {},
+    viewModel: HomeViewModel = hiltViewModel()
+) {
     val state by viewModel.uiState.collectAsState()
-    HomeScreen(state = state)
+    HomeScreen(
+        state = state,
+        onQuickAction = { type ->
+            when (type) {
+                HomeQuickActionType.LogMeal -> onNavigateToTrack()
+                HomeQuickActionType.Workout -> onNavigateToPlan()
+                HomeQuickActionType.BodyScan -> onNavigateToTrack()
+                HomeQuickActionType.Coach -> onNavigateToCoach()
+            }
+        },
+        onStartWorkout = onNavigateToPlan,
+        onWorkoutDetails = onNavigateToPlan,
+        onLogMeal = onNavigateToTrack,
+        onNutritionDetails = onNavigateToTrack,
+        onAskCoach = onNavigateToCoach,
+        onToggleNotifications = viewModel::toggleNotifications,
+        onDismissNotifications = viewModel::dismissNotifications
+    )
 }
 
 @Composable
-fun HomeScreen(state: HomeUiState) {
+fun HomeScreen(
+    state: HomeUiState,
+    onQuickAction: (HomeQuickActionType) -> Unit = {},
+    onStartWorkout: () -> Unit = {},
+    onWorkoutDetails: () -> Unit = {},
+    onLogMeal: () -> Unit = {},
+    onNutritionDetails: () -> Unit = {},
+    onAskCoach: () -> Unit = {},
+    onToggleNotifications: () -> Unit = {},
+    onDismissNotifications: () -> Unit = {}
+) {
+    // Notification dialog
+    if (state.showNotifications) {
+        NotificationDialog(
+            notifications = state.notifications,
+            onDismiss = onDismissNotifications
+        )
+    }
+
     FittyLazyScreen {
-        item { HomeTopBar(state = state) }
-        item { TodaySummaryCard(state = state) }
-        item { QuickActionsRow(actions = state.quickActions) }
+        item { HomeTopBar(state = state, onNotificationClick = onToggleNotifications) }
+        item { TodaySummaryCard(state = state, onStartToday = onStartWorkout, onViewPlan = onWorkoutDetails) }
+        item { QuickActionsRow(actions = state.quickActions, onAction = onQuickAction) }
         item { TodayTasksSection(state = state) }
         item { StreakCard(state = state.streak) }
-        item { WorkoutTodayCard(workout = state.workout) }
-        item { NutritionSummaryCard(nutrition = state.nutrition) }
-        item { AIInsightCard(insight = state.insight) }
+        item { WorkoutTodayCard(workout = state.workout, onStart = onStartWorkout, onDetails = onWorkoutDetails) }
+        item { NutritionSummaryCard(nutrition = state.nutrition, onLogMeal = onLogMeal, onDetails = onNutritionDetails) }
+        item { AIInsightCard(insight = state.insight, onAskCoach = onAskCoach) }
         item { AchievementPreviewCard(achievement = state.achievement) }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
 
 @Composable
-private fun HomeTopBar(state: HomeUiState) {
+private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -307,23 +424,25 @@ private fun HomeTopBar(state: HomeUiState) {
                 )
             }
         }
-        IconButton(onClick = { }) {
+        IconButton(onClick = onNotificationClick) {
             Box {
-                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = null)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(FittyPink)
-                )
+                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "Notifications")
+                if (state.notifications.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(FittyPink)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun TodaySummaryCard(state: HomeUiState) {
+private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, onViewPlan: () -> Unit = {}) {
     Card(
         shape = RoundedCornerShape(24.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
@@ -376,7 +495,7 @@ private fun TodaySummaryCard(state: HomeUiState) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
-                    onClick = { },
+                    onClick = onStartToday,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FittyPink),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
@@ -385,7 +504,7 @@ private fun TodaySummaryCard(state: HomeUiState) {
                     Text(state.focusPrimaryActionLabel, fontWeight = FontWeight.Bold)
                 }
                 OutlinedButton(
-                    onClick = { },
+                    onClick = onViewPlan,
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     modifier = Modifier.weight(1f)
@@ -406,16 +525,16 @@ private fun FocusMetric(label: String, value: String) {
 }
 
 @Composable
-private fun QuickActionsRow(actions: List<HomeQuickActionUi>) {
+private fun QuickActionsRow(actions: List<HomeQuickActionUi>, onAction: (HomeQuickActionType) -> Unit = {}) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         actions.forEach { action ->
-            QuickAction(action = action, modifier = Modifier.weight(1f))
+            QuickAction(action = action, modifier = Modifier.weight(1f), onClick = { onAction(action.type) })
         }
     }
 }
 
 @Composable
-private fun QuickAction(action: HomeQuickActionUi, modifier: Modifier = Modifier) {
+private fun QuickAction(action: HomeQuickActionUi, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     val icon = when (action.type) {
         HomeQuickActionType.LogMeal -> Icons.Outlined.CameraAlt
         HomeQuickActionType.Workout -> Icons.Outlined.FitnessCenter
@@ -432,7 +551,7 @@ private fun QuickAction(action: HomeQuickActionUi, modifier: Modifier = Modifier
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        modifier = modifier.clickable { }
+        modifier = modifier.clickable { onClick() }
     ) {
         Column(
             modifier = Modifier
@@ -481,7 +600,7 @@ private fun TaskCard(task: HomeTaskUi) {
             width = 1.dp,
             color = if (task.done) FittyPink.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
         ),
-        modifier = Modifier.fillMaxWidth().clickable { }
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -508,7 +627,8 @@ private fun TaskCard(task: HomeTaskUi) {
                 Text(task.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             AssistChip(
-                onClick = { },
+                onClick = { /* read-only status */ },
+                enabled = false,
                 label = { Text(task.status, style = MaterialTheme.typography.labelSmall) },
                 shape = RoundedCornerShape(12.dp)
             )
@@ -522,7 +642,7 @@ private fun StreakCard(state: HomeStreakUi) {
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        modifier = Modifier.clickable { }
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             FittySectionHeader(state.sectionTitle)
@@ -543,7 +663,8 @@ private fun StreakCard(state: HomeStreakUi) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 state.dayLabels.forEachIndexed { index, day ->
-                    DayIndicator(day, active = index < state.activeDayCount.coerceAtMost(state.dayLabels.size), current = index == state.currentDayIndex)
+                    val isActive = state.activeDayFlags.getOrElse(index) { false }
+                    DayIndicator(day, active = isActive, current = index == state.currentDayIndex)
                 }
             }
             Text(state.bestLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -564,7 +685,7 @@ private fun DayIndicator(day: String, active: Boolean, current: Boolean) {
 }
 
 @Composable
-private fun WorkoutTodayCard(workout: HomeWorkoutUi) {
+private fun WorkoutTodayCard(workout: HomeWorkoutUi, onStart: () -> Unit = {}, onDetails: () -> Unit = {}) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         FittySectionHeader(workout.sectionTitle)
         Card(
@@ -577,12 +698,12 @@ private fun WorkoutTodayCard(workout: HomeWorkoutUi) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(workout.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(workout.meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    AssistChip(onClick = { }, label = { Text(workout.equipmentLabel) })
+                    AssistChip(onClick = onDetails, label = { Text(workout.equipmentLabel) })
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(onClick = { }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
+                        Button(onClick = onStart, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
                             Text(workout.primaryActionLabel)
                         }
-                        OutlinedButton(onClick = { }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = onDetails, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
                             Text(workout.secondaryActionLabel)
                         }
                     }
@@ -602,7 +723,7 @@ private fun WorkoutTodayCard(workout: HomeWorkoutUi) {
 }
 
 @Composable
-private fun NutritionSummaryCard(nutrition: HomeNutritionUi) {
+private fun NutritionSummaryCard(nutrition: HomeNutritionUi, onLogMeal: () -> Unit = {}, onDetails: () -> Unit = {}) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         FittySectionHeader(nutrition.sectionTitle)
         Card(
@@ -619,10 +740,10 @@ private fun NutritionSummaryCard(nutrition: HomeNutritionUi) {
                     MealRow(label = meal.label, calories = meal.calories)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
+                    Button(onClick = onLogMeal, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
                         Text(nutrition.primaryActionLabel)
                     }
-                    OutlinedButton(onClick = { }, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = onDetails, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) {
                         Text(nutrition.secondaryActionLabel)
                     }
                 }
@@ -651,7 +772,7 @@ private fun MealRow(label: String, calories: String) {
 }
 
 @Composable
-private fun AIInsightCard(insight: HomeInsightUi) {
+private fun AIInsightCard(insight: HomeInsightUi, onAskCoach: () -> Unit = {}) {
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -669,7 +790,7 @@ private fun AIInsightCard(insight: HomeInsightUi) {
             Text(insight.message, style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 insight.actions.forEach { actionLabel ->
-                    AssistChip(onClick = { }, label = { Text(actionLabel) })
+                    AssistChip(onClick = onAskCoach, label = { Text(actionLabel) })
                 }
             }
         }
@@ -712,14 +833,11 @@ private fun initialHomeUiState(context: Context): HomeUiState {
         tasksSectionTitle = context.getString(R.string.home_tasks_title),
         tasksSectionActionLabel = context.getString(R.string.home_action_view_all),
         tasks = defaultTasks(context),
-        streak = HomeStreakUi(
-            sectionTitle = context.getString(R.string.home_streak_title),
-            currentLabel = context.getString(R.string.home_streak_current, 0),
-            subtitle = context.getString(R.string.home_streak_subtitle),
-            bestLabel = context.getString(R.string.home_streak_best, 0),
-            dayLabels = defaultDayLabels(context),
-            activeDayCount = 0,
-            currentDayIndex = 5
+        streak = buildStreakUi(
+            context = context,
+            currentStreak = 0,
+            bestStreak = 0,
+            activeDates = emptyList()
         ),
         workout = HomeWorkoutUi(
             sectionTitle = context.getString(R.string.home_workout_section_title),
@@ -740,7 +858,8 @@ private fun initialHomeUiState(context: Context): HomeUiState {
             itemLabel = context.getString(R.string.home_achievement_item_label),
             subtitle = context.getString(R.string.home_achievement_locked),
             actionLabel = context.getString(R.string.home_action_view_all)
-        )
+        ),
+        notifications = defaultNotifications()
     )
 }
 
@@ -784,14 +903,11 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
         tasksSectionTitle = context.getString(R.string.home_tasks_title),
         tasksSectionActionLabel = context.getString(R.string.home_action_view_all),
         tasks = buildTasks(context = context, goalLabel = goalLabel),
-        streak = HomeStreakUi(
-            sectionTitle = context.getString(R.string.home_streak_title),
-            currentLabel = context.getString(R.string.home_streak_current, stats.currentStreak),
-            subtitle = context.getString(R.string.home_streak_subtitle),
-            bestLabel = context.getString(R.string.home_streak_best, stats.bestStreak),
-            dayLabels = defaultDayLabels(context),
-            activeDayCount = stats.currentStreak,
-            currentDayIndex = 5
+        streak = buildStreakUi(
+            context = context,
+            currentStreak = stats.currentStreak,
+            bestStreak = stats.bestStreak,
+            activeDates = stats.streakActiveDates
         ),
         workout = HomeWorkoutUi(
             sectionTitle = context.getString(R.string.home_workout_section_title),
@@ -828,7 +944,8 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
             itemLabel = context.getString(R.string.home_achievement_item_label),
             subtitle = if (stats.mealsLogged >= 10) context.getString(R.string.home_achievement_unlocked) else context.getString(R.string.home_achievement_locked),
             actionLabel = context.getString(R.string.home_action_view_all)
-        )
+        ),
+        notifications = defaultNotifications()
     )
 }
 
@@ -904,15 +1021,162 @@ private fun defaultInsightActions(context: Context): List<String> = listOf(
     context.getString(R.string.home_action_dismiss)
 )
 
-private fun defaultDayLabels(context: Context): List<String> = listOf(
-    context.getString(R.string.home_day_mon),
-    context.getString(R.string.home_day_tue),
-    context.getString(R.string.home_day_wed),
-    context.getString(R.string.home_day_thu),
-    context.getString(R.string.home_day_fri),
-    context.getString(R.string.home_day_sat),
-    context.getString(R.string.home_day_sun)
+/**
+ * Builds streak UI with actual weekday labels and per-day active flags.
+ * Shows Mon-Sun for the current week, with today highlighted.
+ */
+private fun buildStreakUi(
+    context: Context,
+    currentStreak: Int,
+    bestStreak: Int,
+    activeDates: List<String>
+): HomeStreakUi {
+    val today = LocalDate.now()
+    val startOfWeek = today.with(DayOfWeek.MONDAY)
+    val dayLabels = (0..6).map { offset ->
+        val d = startOfWeek.plusDays(offset.toLong())
+        d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(3)
+    }
+    val todayIndex = (today.dayOfWeek.value - 1).coerceIn(0, 6)
+
+    // Build active flags: check if each day of this week is in activeDates
+    val activeDayFlags = (0..6).map { offset ->
+        val dateStr = startOfWeek.plusDays(offset.toLong())
+            .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        activeDates.contains(dateStr)
+    }
+
+    return HomeStreakUi(
+        sectionTitle = context.getString(R.string.home_streak_title),
+        currentLabel = context.getString(R.string.home_streak_current, currentStreak),
+        subtitle = context.getString(R.string.home_streak_subtitle),
+        bestLabel = context.getString(R.string.home_streak_best, maxOf(currentStreak, bestStreak)),
+        dayLabels = dayLabels,
+        activeDayFlags = activeDayFlags,
+        currentDayIndex = todayIndex
+    )
+}
+
+private fun defaultNotifications(): List<HomeNotificationUi> = listOf(
+    HomeNotificationUi(
+        title = "Workout Reminder",
+        message = "Time for your daily workout! Stay consistent to keep your streak.",
+        time = "Just now",
+        icon = Icons.Outlined.FitnessCenter
+    ),
+    HomeNotificationUi(
+        title = "Meal Logging",
+        message = "Don't forget to log your lunch. Tracking meals helps reach your goals faster.",
+        time = "1h ago",
+        icon = Icons.Outlined.Restaurant
+    ),
+    HomeNotificationUi(
+        title = "Streak Update",
+        message = "You're on a roll! Complete today's activity to extend your streak.",
+        time = "3h ago",
+        icon = Icons.Outlined.LocalFireDepartment
+    ),
+    HomeNotificationUi(
+        title = "Weekly Progress",
+        message = "Your weekly summary is ready. Check your progress in the Track tab.",
+        time = "Yesterday",
+        icon = Icons.Outlined.BarChart
+    )
 )
+
+@Composable
+private fun NotificationDialog(
+    notifications: List<HomeNotificationUi>,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Notifications", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${notifications.size} new",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = FittyPink,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                if (notifications.isEmpty()) {
+                    Text(
+                        "No notifications yet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    notifications.forEach { notification ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(FittyPink.copy(alpha = 0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    notification.icon,
+                                    contentDescription = null,
+                                    tint = FittyPink,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        notification.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        notification.time,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    notification.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Dismiss", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
 
 private fun insightMessageFor(context: Context, goalLabel: String, mealsLogged: Int): String {
     return when {

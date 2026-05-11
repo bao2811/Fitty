@@ -66,7 +66,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class WelcomeUiState(
-    val isContinuingAsGuest: Boolean = false
+    val isContinuingAsGuest: Boolean = false,
+    val errorMessage: String? = null
 )
 
 @HiltViewModel
@@ -78,14 +79,19 @@ class WelcomeViewModel @Inject constructor(
 
     fun continueAsGuest(onComplete: () -> Unit) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isContinuingAsGuest = true) }
+            _uiState.update { it.copy(isContinuingAsGuest = true, errorMessage = null) }
             val result = continueAsGuestUseCase()
             val guestUser = result.user
             if (guestUser != null) {
                 _uiState.update { it.copy(isContinuingAsGuest = false) }
                 onComplete()
             } else {
-                _uiState.update { it.copy(isContinuingAsGuest = false) }
+                _uiState.update {
+                    it.copy(
+                        isContinuingAsGuest = false,
+                        errorMessage = result.errorMessage ?: "Guest mode failed. Please check your connection and try again."
+                    )
+                }
             }
         }
     }
@@ -101,6 +107,7 @@ fun WelcomeRoute(
     val state by viewModel.uiState.collectAsState()
     WelcomeScreen(
         isContinuingAsGuest = state.isContinuingAsGuest,
+        errorMessage = state.errorMessage,
         onCreateAccount = onCreateAccount,
         onSignIn = onSignIn,
         onContinueAsGuest = { viewModel.continueAsGuest(onContinueAsGuest) }
@@ -110,6 +117,7 @@ fun WelcomeRoute(
 @Composable
 fun WelcomeScreen(
     isContinuingAsGuest: Boolean,
+    errorMessage: String? = null,
     onCreateAccount: () -> Unit,
     onSignIn: () -> Unit,
     onContinueAsGuest: () -> Unit
@@ -237,6 +245,15 @@ fun WelcomeScreen(
 
             FittyPrimaryButton(text = stringResource(R.string.welcome_create_account), onClick = onCreateAccount)
             FittySecondaryButton(text = stringResource(R.string.welcome_sign_in), onClick = onSignIn)
+            errorMessage?.let { msg ->
+                Text(
+                    text = msg,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             TextButton(
                 onClick = onContinueAsGuest,
                 enabled = !isContinuingAsGuest,

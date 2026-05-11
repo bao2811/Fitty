@@ -145,13 +145,14 @@ class SignInViewModel @Inject constructor(
 }
 
 @Composable
-fun SignInRoute(onBack: () -> Unit, onCreateAccount: () -> Unit, onSignedIn: (Boolean) -> Unit, onContinueAsGuest: () -> Unit, viewModel: SignInViewModel = hiltViewModel()) {
+fun SignInRoute(onBack: () -> Unit, onCreateAccount: () -> Unit, onSignedIn: (Boolean) -> Unit, onContinueAsGuest: () -> Unit, onForgotPassword: () -> Unit = {}, viewModel: SignInViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     SignInScreen(state = state, onBack = onBack, onCreateAccount = onCreateAccount, onIdentifierChanged = viewModel::onIdentifierChanged,
         onPasswordChanged = viewModel::onPasswordChanged, onSubmit = { viewModel.submit(onSignedIn) },
         onGuestSignIn = { viewModel.continueAsGuest(onContinueAsGuest) },
         onGoogleToken = { viewModel.submitGoogle(it, onSignedIn) },
-        onGoogleError = viewModel::showGoogleError)
+        onGoogleError = viewModel::showGoogleError,
+        onForgotPassword = onForgotPassword)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -165,7 +166,8 @@ fun SignInScreen(
     onSubmit: () -> Unit,
     onGuestSignIn: () -> Unit,
     onGoogleToken: (String) -> Unit,
-    onGoogleError: (String) -> Unit
+    onGoogleError: (String) -> Unit,
+    onForgotPassword: () -> Unit
 ) {
     val fieldColors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink)
 
@@ -200,7 +202,7 @@ fun SignInScreen(
                     shape = RoundedCornerShape(16.dp), colors = fieldColors, modifier = Modifier.fillMaxWidth())
             }
             item { SignInPasswordField(value = state.password, onValueChange = onPasswordChanged, error = state.passwordError) }
-            item { TextButton(onClick = { }) { Text(stringResource(R.string.auth_forgot_password), color = FittyPink) } }
+            item { TextButton(onClick = onForgotPassword) { Text(stringResource(R.string.auth_forgot_password), color = FittyPink) } }
             item { state.errorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error) } }
             item { FittyPrimaryButton(text = stringResource(R.string.auth_sign_in_title), onClick = onSubmit, loading = state.isSubmitting) }
             item {
