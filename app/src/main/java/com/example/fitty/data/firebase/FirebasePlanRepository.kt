@@ -73,10 +73,10 @@ class FirebasePlanRepository @Inject constructor(
     } catch (e: Exception) { Result.failure(e) }
 
     override suspend fun getExerciseLibrary(): List<Exercise> =
-        firestore.collection("exercise_library").get().await().documents.mapNotNull { it.toExercise() }
+        firestore.collection("exercises").get().await().documents.mapNotNull { it.toExercise() }
 
     override suspend fun getExercise(exerciseId: String): Exercise? {
-        val doc = firestore.collection("exercise_library").document(exerciseId).get().await()
+        val doc = firestore.collection("exercises").document(exerciseId).get().await()
         return if (doc.exists()) doc.toExercise() else null
     }
 
@@ -130,15 +130,38 @@ class FirebasePlanRepository @Inject constructor(
 
     private fun DocumentSnapshot.toExercise(): Exercise? {
         if (!exists()) return null
-        return Exercise(id = id, name = getString("name").orEmpty(), description = getString("description").orEmpty(),
-            difficulty = getString("difficulty").orEmpty(), primaryMuscleGroup = getString("primaryMuscleGroup").orEmpty(),
-            targetMuscles = (get("targetMuscles") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
-            equipment = getString("equipment").orEmpty(), defaultRepsText = getString("defaultRepsText").orEmpty(),
-            defaultDurationSeconds = getLong("defaultDurationSeconds")?.toInt(), mediaUrl = getString("mediaUrl").orEmpty(),
-            mediaType = getString("mediaType") ?: "gif", steps = (get("steps") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+        val bodyPart = getString("bodyPart").orEmpty().ifBlank { getString("primaryMuscleGroup").orEmpty() }
+        val target = getString("target").orEmpty()
+        val gifUrl = getString("gifUrl").orEmpty().ifBlank { getString("mediaUrl").orEmpty() }
+        val updatedAt = when (val raw = get("updatedAt")) {
+            is String -> raw
+            is com.google.firebase.Timestamp -> raw.toDate().toInstant().toString()
+            else -> ""
+        }
+        return Exercise(
+            id = getString("id").orEmpty().ifBlank { id },
+            name = getString("name").orEmpty(),
+            bodyPart = bodyPart,
+            target = target,
+            description = getString("description").orEmpty(),
+            difficulty = getString("difficulty").orEmpty(),
+            primaryMuscleGroup = bodyPart,
+            targetMuscles = (get("targetMuscles") as? List<*>)?.filterIsInstance<String>()
+                ?: listOf(target).filter { it.isNotBlank() },
+            equipment = getString("equipment").orEmpty(),
+            gifUrl = gifUrl,
+            gifStoragePath = getString("gifStoragePath").orEmpty(),
+            gifVersion = getLong("gifVersion")?.toInt() ?: 0,
+            updatedAt = updatedAt,
+            defaultRepsText = getString("defaultRepsText").orEmpty(),
+            defaultDurationSeconds = getLong("defaultDurationSeconds")?.toInt(),
+            mediaUrl = gifUrl,
+            mediaType = "gif",
+            steps = (get("steps") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
             mistakes = (get("mistakes") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
             tips = (get("tips") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
-            variations = (get("variations") as? List<*>)?.filterIsInstance<String>() ?: emptyList())
+            variations = (get("variations") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+        )
     }
 
     private fun DocumentSnapshot.toProgramTemplate(): ProgramTemplate? {

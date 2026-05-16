@@ -8,17 +8,24 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import com.example.fitty.data.exercise.ExerciseSyncScheduler
 import com.example.fitty.navigation.FittyApp
 import com.example.fitty.notifications.FittyNotificationManager
 import com.example.fitty.ui.theme.FittyTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject
+    lateinit var exerciseSyncScheduler: ExerciseSyncScheduler
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FittyNotificationManager.createChannels(this)
         requestNotificationPermissionIfNeeded()
+        exerciseSyncScheduler.enqueueStartupSync()
+        exerciseSyncScheduler.enqueuePeriodicSync()
         enableEdgeToEdge()
         setContent {
             FittyTheme {

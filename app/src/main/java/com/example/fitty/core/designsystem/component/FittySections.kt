@@ -1,6 +1,7 @@
 package com.example.fitty.core.designsystem.component
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +28,11 @@ import androidx.compose.ui.unit.dp
 import com.example.fitty.ui.theme.FittyPink
 
 @Composable
-fun FittySectionHeader(title: String, action: String? = null) {
+fun FittySectionHeader(
+    title: String,
+    action: String? = null,
+    onActionClick: (() -> Unit)? = null
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -36,10 +41,11 @@ fun FittySectionHeader(title: String, action: String? = null) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         if (action != null) {
             Text(
-                action,
+                text = action,
                 style = MaterialTheme.typography.labelLarge,
                 color = FittyPink,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                modifier = if (onActionClick != null) Modifier.clickable { onActionClick() } else Modifier
             )
         }
     }

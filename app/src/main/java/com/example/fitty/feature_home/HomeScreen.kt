@@ -18,8 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.LocalDining
 import androidx.compose.material.icons.outlined.LocalFireDepartment
@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.SelfImprovement
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,11 +38,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,8 +70,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.domain.model.AppNotificationType
 import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.model.HomeTaskCategory
+import com.example.fitty.domain.model.HomeTaskDraft
+import com.example.fitty.domain.model.HomeTaskStatus
 import com.example.fitty.domain.model.preferredDisplayName
+import com.example.fitty.domain.repository.AppNotificationRepository
+import com.example.fitty.domain.repository.HomeTaskRepository
 import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
 import com.example.fitty.ui.theme.FittyGradientStart
@@ -75,45 +89,29 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.LocalTime
-import java.time.LocalDate
 import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import javax.inject.Inject
-
-enum class HomeQuickActionType {
-    LogMeal,
-    Workout,
-    BodyScan,
-    Coach
-}
-
-enum class HomeTaskType {
-    Workout,
-    Meal,
-    Water,
-    Done
-}
 
 data class HomeFocusMetricUi(
     val label: String,
     val value: String
 )
 
-data class HomeQuickActionUi(
-    val label: String,
-    val type: HomeQuickActionType
-)
-
 data class HomeTaskUi(
-    val type: HomeTaskType,
+    val id: Long,
+    val category: HomeTaskCategory,
     val title: String,
     val description: String,
     val time: String,
-    val status: String,
-    val highlighted: Boolean = false,
-    val done: Boolean = false
+    val status: HomeTaskStatus,
+    val reminderEnabled: Boolean
 )
 
 data class HomeMacroProgressUi(
@@ -185,7 +183,6 @@ data class HomeUiState(
     val focusMetrics: List<HomeFocusMetricUi> = emptyList(),
     val focusPrimaryActionLabel: String = "",
     val focusSecondaryActionLabel: String = "",
-    val quickActions: List<HomeQuickActionUi> = emptyList(),
     val tasksSectionTitle: String = "",
     val tasksSectionActionLabel: String = "",
     val tasks: List<HomeTaskUi> = emptyList(),
@@ -195,26 +192,34 @@ data class HomeUiState(
     val insight: HomeInsightUi = HomeInsightUi("", "", emptyList()),
     val achievement: HomeAchievementPreviewUi = HomeAchievementPreviewUi("", "", "", ""),
     val showNotifications: Boolean = false,
-    val notifications: List<HomeNotificationUi> = emptyList()
+    val notifications: List<HomeNotificationUi> = emptyList(),
+    val unreadNotificationCount: Int = 0
 )
 
 data class HomeNotificationUi(
+    val id: Long,
     val title: String,
     val message: String,
     val time: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val isRead: Boolean
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
     private val getHomeDashboardUseCase: com.example.fitty.domain.usecase.home.GetHomeDashboardUseCase,
+    private val homeTaskRepository: HomeTaskRepository,
+    private val appNotificationRepository: AppNotificationRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialHomeUiState(context))
     val uiState: StateFlow<HomeUiState> = _uiState
+    private val todayDateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
 
     init {
+        observeTasks()
+        observeNotifications()
         refreshUser()
     }
 
@@ -223,6 +228,10 @@ class HomeViewModel @Inject constructor(
             // Load user for profile display
             runCatching { getCurrentUserUseCase() }
                 .onSuccess { user ->
+                    val goalLabel = user?.profile?.primaryGoal?.toDisplayLabel(
+                        defaultValue = context.getString(R.string.home_goal_default)
+                    ) ?: context.getString(R.string.home_default_task_goal)
+                    ensureTodayTasks(goalLabel)
                     _uiState.update { current ->
                         if (user == null) current.copy(
                             isLoading = false,
@@ -230,10 +239,11 @@ class HomeViewModel @Inject constructor(
                                 R.string.home_greeting_default,
                                 context.getString(R.string.home_display_name_default)
                             )
-                        ) else user.toHomeUiState(context)
+                        ) else user.toHomeUiState(context).preserveDynamicState(current)
                     }
                 }
                 .onFailure {
+                    ensureTodayTasks(context.getString(R.string.home_default_task_goal))
                     _uiState.update { current ->
                         current.copy(
                             isLoading = false,
@@ -300,12 +310,134 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    internal fun addTask(
+        title: String,
+        description: String,
+        timeMinutes: Int,
+        category: HomeTaskCategory,
+        reminderEnabled: Boolean
+    ) {
+        viewModelScope.launch {
+            homeTaskRepository.addTask(
+                HomeTaskDraft(
+                    title = title,
+                    description = description,
+                    dateKey = todayDateKey,
+                    timeMinutes = timeMinutes,
+                    category = category,
+                    reminderEnabled = reminderEnabled
+                )
+            )
+        }
+    }
+
+    internal fun setTaskInProgress(taskId: Long, enabled: Boolean) {
+        viewModelScope.launch {
+            homeTaskRepository.updateTaskStatus(
+                taskId = taskId,
+                status = if (enabled) HomeTaskStatus.InProgress else HomeTaskStatus.Todo
+            )
+        }
+    }
+
+    internal fun setTaskCompleted(taskId: Long, enabled: Boolean) {
+        viewModelScope.launch {
+            homeTaskRepository.updateTaskStatus(
+                taskId = taskId,
+                status = if (enabled) HomeTaskStatus.Completed else HomeTaskStatus.Todo
+            )
+        }
+    }
+
+    internal fun toggleTaskReminder(taskId: Long, enabled: Boolean) {
+        viewModelScope.launch {
+            homeTaskRepository.updateTaskReminder(taskId, enabled)
+        }
+    }
+
+    internal fun deleteTask(taskId: Long) {
+        viewModelScope.launch {
+            homeTaskRepository.deleteTask(taskId)
+        }
+    }
+
     internal fun toggleNotifications() {
         _uiState.update { it.copy(showNotifications = !it.showNotifications) }
     }
 
     internal fun dismissNotifications() {
         _uiState.update { it.copy(showNotifications = false) }
+    }
+
+    internal fun markNotificationRead(notificationId: Long) {
+        viewModelScope.launch {
+            appNotificationRepository.markAsRead(notificationId)
+        }
+    }
+
+    internal fun markAllNotificationsRead() {
+        viewModelScope.launch {
+            appNotificationRepository.markAllAsRead()
+        }
+    }
+
+    internal fun deleteNotification(notificationId: Long) {
+        viewModelScope.launch {
+            appNotificationRepository.deleteNotification(notificationId)
+        }
+    }
+
+    private fun observeTasks() {
+        viewModelScope.launch {
+            homeTaskRepository.observeTasks(todayDateKey).collect { tasks ->
+                _uiState.update { current ->
+                    current.copy(tasks = tasks.map { task ->
+                        HomeTaskUi(
+                            id = task.id,
+                            category = task.category,
+                            title = task.title,
+                            description = task.description,
+                            time = formatTaskTime(task.timeMinutes),
+                            status = task.status,
+                            reminderEnabled = task.reminderEnabled
+                        )
+                    })
+                }
+            }
+        }
+    }
+
+    private fun observeNotifications() {
+        viewModelScope.launch {
+            appNotificationRepository.observeNotifications().collect { notifications ->
+                _uiState.update { current ->
+                    current.copy(
+                        notifications = notifications.map { notification ->
+                            HomeNotificationUi(
+                                id = notification.id,
+                                title = notification.title,
+                                message = notification.message,
+                                time = formatNotificationTime(notification.createdAt),
+                                icon = notification.type.toNotificationIcon(),
+                                isRead = notification.isRead
+                            )
+                        }
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            appNotificationRepository.observeUnreadCount().collect { unreadCount ->
+                _uiState.update { it.copy(unreadNotificationCount = unreadCount) }
+            }
+        }
+    }
+
+    private suspend fun ensureTodayTasks(goalLabel: String) {
+        homeTaskRepository.ensureTasks(
+            dateKey = todayDateKey,
+            defaults = defaultTaskDrafts(context = context, goalLabel = goalLabel)
+        )
     }
 }
 
@@ -319,49 +451,78 @@ fun HomeRoute(
     val state by viewModel.uiState.collectAsState()
     HomeScreen(
         state = state,
-        onQuickAction = { type ->
-            when (type) {
-                HomeQuickActionType.LogMeal -> onNavigateToTrack()
-                HomeQuickActionType.Workout -> onNavigateToPlan()
-                HomeQuickActionType.BodyScan -> onNavigateToTrack()
-                HomeQuickActionType.Coach -> onNavigateToCoach()
-            }
-        },
         onStartWorkout = onNavigateToPlan,
         onWorkoutDetails = onNavigateToPlan,
         onLogMeal = onNavigateToTrack,
         onNutritionDetails = onNavigateToTrack,
         onAskCoach = onNavigateToCoach,
         onToggleNotifications = viewModel::toggleNotifications,
-        onDismissNotifications = viewModel::dismissNotifications
+        onDismissNotifications = viewModel::dismissNotifications,
+        onAddTask = viewModel::addTask,
+        onSetTaskInProgress = viewModel::setTaskInProgress,
+        onSetTaskCompleted = viewModel::setTaskCompleted,
+        onToggleTaskReminder = viewModel::toggleTaskReminder,
+        onDeleteTask = viewModel::deleteTask,
+        onMarkNotificationRead = viewModel::markNotificationRead,
+        onMarkAllNotificationsRead = viewModel::markAllNotificationsRead,
+        onDeleteNotification = viewModel::deleteNotification
     )
 }
 
 @Composable
 fun HomeScreen(
     state: HomeUiState,
-    onQuickAction: (HomeQuickActionType) -> Unit = {},
     onStartWorkout: () -> Unit = {},
     onWorkoutDetails: () -> Unit = {},
     onLogMeal: () -> Unit = {},
     onNutritionDetails: () -> Unit = {},
     onAskCoach: () -> Unit = {},
     onToggleNotifications: () -> Unit = {},
-    onDismissNotifications: () -> Unit = {}
+    onDismissNotifications: () -> Unit = {},
+    onAddTask: (String, String, Int, HomeTaskCategory, Boolean) -> Unit = { _, _, _, _, _ -> },
+    onSetTaskInProgress: (Long, Boolean) -> Unit = { _, _ -> },
+    onSetTaskCompleted: (Long, Boolean) -> Unit = { _, _ -> },
+    onToggleTaskReminder: (Long, Boolean) -> Unit = { _, _ -> },
+    onDeleteTask: (Long) -> Unit = {},
+    onMarkNotificationRead: (Long) -> Unit = {},
+    onMarkAllNotificationsRead: () -> Unit = {},
+    onDeleteNotification: (Long) -> Unit = {}
 ) {
-    // Notification dialog
+    var showAddTaskDialog by rememberSaveable { mutableStateOf(false) }
+
     if (state.showNotifications) {
         NotificationDialog(
             notifications = state.notifications,
-            onDismiss = onDismissNotifications
+            unreadCount = state.unreadNotificationCount,
+            onDismiss = onDismissNotifications,
+            onMarkRead = onMarkNotificationRead,
+            onMarkAllRead = onMarkAllNotificationsRead,
+            onDelete = onDeleteNotification
+        )
+    }
+    if (showAddTaskDialog) {
+        AddTaskDialog(
+            onDismiss = { showAddTaskDialog = false },
+            onSave = { title, description, timeMinutes, category, reminderEnabled ->
+                onAddTask(title, description, timeMinutes, category, reminderEnabled)
+                showAddTaskDialog = false
+            }
         )
     }
 
     FittyLazyScreen {
         item { HomeTopBar(state = state, onNotificationClick = onToggleNotifications) }
         item { TodaySummaryCard(state = state, onStartToday = onStartWorkout, onViewPlan = onWorkoutDetails) }
-        item { QuickActionsRow(actions = state.quickActions, onAction = onQuickAction) }
-        item { TodayTasksSection(state = state) }
+        item {
+            TodayTasksSection(
+                state = state,
+                onAddTask = { showAddTaskDialog = true },
+                onSetTaskInProgress = onSetTaskInProgress,
+                onSetTaskCompleted = onSetTaskCompleted,
+                onToggleTaskReminder = onToggleTaskReminder,
+                onDeleteTask = onDeleteTask
+            )
+        }
         item { StreakCard(state = state.streak) }
         item { WorkoutTodayCard(workout = state.workout, onStart = onStartWorkout, onDetails = onWorkoutDetails) }
         item { NutritionSummaryCard(nutrition = state.nutrition, onLogMeal = onLogMeal, onDetails = onNutritionDetails) }
@@ -427,14 +588,22 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
         IconButton(onClick = onNotificationClick) {
             Box {
                 Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "Notifications")
-                if (state.notifications.isNotEmpty()) {
+                if (state.unreadNotificationCount > 0) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .size(8.dp)
+                            .size(18.dp)
                             .clip(CircleShape)
-                            .background(FittyPink)
-                    )
+                            .background(FittyPink),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = state.unreadNotificationCount.coerceAtMost(99).toString(),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -525,113 +694,143 @@ private fun FocusMetric(label: String, value: String) {
 }
 
 @Composable
-private fun QuickActionsRow(actions: List<HomeQuickActionUi>, onAction: (HomeQuickActionType) -> Unit = {}) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        actions.forEach { action ->
-            QuickAction(action = action, modifier = Modifier.weight(1f), onClick = { onAction(action.type) })
-        }
-    }
-}
-
-@Composable
-private fun QuickAction(action: HomeQuickActionUi, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
-    val icon = when (action.type) {
-        HomeQuickActionType.LogMeal -> Icons.Outlined.CameraAlt
-        HomeQuickActionType.Workout -> Icons.Outlined.FitnessCenter
-        HomeQuickActionType.BodyScan -> Icons.Outlined.AccessibilityNew
-        HomeQuickActionType.Coach -> Icons.Outlined.Psychology
-    }
-    val containerColor = when (action.type) {
-        HomeQuickActionType.LogMeal -> FittyPink.copy(alpha = 0.1f)
-        HomeQuickActionType.Workout -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
-        HomeQuickActionType.BodyScan -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f)
-        HomeQuickActionType.Coach -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        modifier = modifier.clickable { onClick() }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 14.dp, horizontal = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(containerColor),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp))
-            }
-            Text(action.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun TodayTasksSection(state: HomeUiState) {
+private fun TodayTasksSection(
+    state: HomeUiState,
+    onAddTask: () -> Unit,
+    onSetTaskInProgress: (Long, Boolean) -> Unit,
+    onSetTaskCompleted: (Long, Boolean) -> Unit,
+    onToggleTaskReminder: (Long, Boolean) -> Unit,
+    onDeleteTask: (Long) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FittySectionHeader(title = state.tasksSectionTitle, action = state.tasksSectionActionLabel)
-        state.tasks.forEach { task ->
-            TaskCard(task = task)
+        FittySectionHeader(
+            title = state.tasksSectionTitle,
+            action = state.tasksSectionActionLabel,
+            onActionClick = onAddTask
+        )
+        if (state.tasks.isEmpty()) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = stringResource(R.string.home_tasks_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        } else {
+            state.tasks.forEach { task ->
+                TaskCard(
+                    task = task,
+                    onSetInProgress = { enabled -> onSetTaskInProgress(task.id, enabled) },
+                    onSetCompleted = { enabled -> onSetTaskCompleted(task.id, enabled) },
+                    onToggleReminder = { enabled -> onToggleTaskReminder(task.id, enabled) },
+                    onDelete = { onDeleteTask(task.id) }
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun TaskCard(task: HomeTaskUi) {
-    val icon = when (task.type) {
-        HomeTaskType.Workout -> Icons.Outlined.FitnessCenter
-        HomeTaskType.Meal -> Icons.Outlined.Restaurant
-        HomeTaskType.Water -> Icons.Outlined.WaterDrop
-        HomeTaskType.Done -> Icons.Outlined.CheckCircle
+private fun TaskCard(
+    task: HomeTaskUi,
+    onSetInProgress: (Boolean) -> Unit,
+    onSetCompleted: (Boolean) -> Unit,
+    onToggleReminder: (Boolean) -> Unit,
+    onDelete: () -> Unit
+) {
+    val icon = when (task.category) {
+        HomeTaskCategory.Workout -> Icons.Outlined.FitnessCenter
+        HomeTaskCategory.Meal -> Icons.Outlined.Restaurant
+        HomeTaskCategory.Water -> Icons.Outlined.WaterDrop
+        HomeTaskCategory.Custom -> Icons.Outlined.SelfImprovement
     }
+    val completed = task.status == HomeTaskStatus.Completed
+    val inProgress = task.status == HomeTaskStatus.InProgress
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (task.highlighted) 3.dp else 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (inProgress) 3.dp else 1.dp),
         border = BorderStroke(
             width = 1.dp,
-            color = if (task.done) FittyPink.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+            color = if (completed) FittyPink.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
         ),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (task.done) FittyPink.copy(alpha = 0.10f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
-                contentAlignment = Alignment.Center
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    if (task.done) Icons.Outlined.CheckCircle else icon,
-                    contentDescription = null,
-                    tint = if (task.done) FittyPink else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (completed) FittyPink.copy(alpha = 0.10f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (completed) Icons.Outlined.CheckCircle else icon,
+                        contentDescription = null,
+                        tint = if (completed) FittyPink else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(task.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    if (task.description.isNotBlank()) {
+                        Text(task.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(task.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text(task.status.toDisplayLabel(), style = MaterialTheme.typography.labelSmall) },
+                    shape = RoundedCornerShape(12.dp)
                 )
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                }
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(task.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text(task.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(task.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = inProgress,
+                        onCheckedChange = onSetInProgress
+                    )
+                    Text(stringResource(R.string.home_task_doing), style = MaterialTheme.typography.bodySmall)
+                    Checkbox(
+                        checked = completed,
+                        onCheckedChange = onSetCompleted
+                    )
+                    Text(stringResource(R.string.home_task_completed), style = MaterialTheme.typography.bodySmall)
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(stringResource(R.string.home_task_reminder), style = MaterialTheme.typography.bodySmall)
+                    Switch(
+                        checked = task.reminderEnabled,
+                        onCheckedChange = onToggleReminder
+                    )
+                }
             }
-            AssistChip(
-                onClick = { /* read-only status */ },
-                enabled = false,
-                label = { Text(task.status, style = MaterialTheme.typography.labelSmall) },
-                shape = RoundedCornerShape(12.dp)
-            )
         }
     }
 }
@@ -829,10 +1028,9 @@ private fun initialHomeUiState(context: Context): HomeUiState {
         ),
         focusPrimaryActionLabel = context.getString(R.string.home_action_start_today),
         focusSecondaryActionLabel = context.getString(R.string.home_action_view_plan),
-        quickActions = defaultQuickActions(context),
         tasksSectionTitle = context.getString(R.string.home_tasks_title),
-        tasksSectionActionLabel = context.getString(R.string.home_action_view_all),
-        tasks = defaultTasks(context),
+        tasksSectionActionLabel = context.getString(R.string.home_action_add_task),
+        tasks = emptyList(),
         streak = buildStreakUi(
             context = context,
             currentStreak = 0,
@@ -859,7 +1057,7 @@ private fun initialHomeUiState(context: Context): HomeUiState {
             subtitle = context.getString(R.string.home_achievement_locked),
             actionLabel = context.getString(R.string.home_action_view_all)
         ),
-        notifications = defaultNotifications()
+        notifications = emptyList()
     )
 }
 
@@ -899,10 +1097,9 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
         ),
         focusPrimaryActionLabel = context.getString(R.string.home_action_start_today),
         focusSecondaryActionLabel = context.getString(R.string.home_action_view_plan),
-        quickActions = defaultQuickActions(context),
         tasksSectionTitle = context.getString(R.string.home_tasks_title),
-        tasksSectionActionLabel = context.getString(R.string.home_action_view_all),
-        tasks = buildTasks(context = context, goalLabel = goalLabel),
+        tasksSectionActionLabel = context.getString(R.string.home_action_add_task),
+        tasks = emptyList(),
         streak = buildStreakUi(
             context = context,
             currentStreak = stats.currentStreak,
@@ -945,55 +1142,41 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
             subtitle = if (stats.mealsLogged >= 10) context.getString(R.string.home_achievement_unlocked) else context.getString(R.string.home_achievement_locked),
             actionLabel = context.getString(R.string.home_action_view_all)
         ),
-        notifications = defaultNotifications()
+        notifications = emptyList()
     )
 }
 
-private fun buildTasks(context: Context, goalLabel: String): List<HomeTaskUi> {
-    return listOf(
-        HomeTaskUi(
-            type = HomeTaskType.Workout,
-            title = context.getString(R.string.home_task_workout_title),
-            description = "$goalLabel session",
-            time = context.getString(R.string.home_task_workout_time),
-            status = context.getString(R.string.home_task_in_progress),
-            highlighted = true
-        ),
-        HomeTaskUi(
-            type = HomeTaskType.Meal,
-            title = context.getString(R.string.home_task_log_lunch_title),
-            description = context.getString(R.string.home_task_log_lunch_desc),
-            time = context.getString(R.string.home_task_log_lunch_time),
-            status = context.getString(R.string.home_task_todo)
-        ),
-        HomeTaskUi(
-            type = HomeTaskType.Water,
-            title = context.getString(R.string.home_task_drink_water_title),
-            description = context.getString(R.string.home_task_drink_water_desc),
-            time = context.getString(R.string.home_task_drink_water_time),
-            status = context.getString(R.string.home_task_todo)
-        ),
-        HomeTaskUi(
-            type = HomeTaskType.Done,
-            title = context.getString(R.string.home_task_stretch_title),
-            description = context.getString(R.string.home_task_stretch_desc),
-            time = context.getString(R.string.home_task_done),
-            status = context.getString(R.string.home_task_done),
-            done = true
-        )
+private fun defaultTaskDrafts(context: Context, goalLabel: String): List<HomeTaskDraft> = listOf(
+    HomeTaskDraft(
+        title = context.getString(R.string.home_task_workout_title),
+        description = "$goalLabel session",
+        dateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
+        timeMinutes = 7 * 60,
+        category = HomeTaskCategory.Workout,
+        reminderEnabled = false,
+        status = HomeTaskStatus.Todo,
+        isDefault = true
+    ),
+    HomeTaskDraft(
+        title = context.getString(R.string.home_task_log_lunch_title),
+        description = context.getString(R.string.home_task_log_lunch_desc),
+        dateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
+        timeMinutes = 12 * 60 + 30,
+        category = HomeTaskCategory.Meal,
+        reminderEnabled = false,
+        status = HomeTaskStatus.Todo,
+        isDefault = true
+    ),
+    HomeTaskDraft(
+        title = context.getString(R.string.home_task_drink_water_title),
+        description = context.getString(R.string.home_task_drink_water_desc),
+        dateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
+        timeMinutes = 15 * 60,
+        category = HomeTaskCategory.Water,
+        reminderEnabled = false,
+        status = HomeTaskStatus.Todo,
+        isDefault = true
     )
-}
-
-private fun defaultQuickActions(context: Context): List<HomeQuickActionUi> = listOf(
-    HomeQuickActionUi(label = context.getString(R.string.home_action_log_meal), type = HomeQuickActionType.LogMeal),
-    HomeQuickActionUi(label = context.getString(R.string.home_quick_action_workout), type = HomeQuickActionType.Workout),
-    HomeQuickActionUi(label = context.getString(R.string.home_quick_action_body_scan), type = HomeQuickActionType.BodyScan),
-    HomeQuickActionUi(label = context.getString(R.string.home_quick_action_coach), type = HomeQuickActionType.Coach)
-)
-
-private fun defaultTasks(context: Context): List<HomeTaskUi> = buildTasks(
-    context = context,
-    goalLabel = context.getString(R.string.home_default_task_goal)
 )
 
 private fun defaultNutrition(context: Context, summary: String = context.getString(R.string.home_nutrition_summary, 1240, 2100)): HomeNutritionUi {
@@ -1057,37 +1240,14 @@ private fun buildStreakUi(
     )
 }
 
-private fun defaultNotifications(): List<HomeNotificationUi> = listOf(
-    HomeNotificationUi(
-        title = "Workout Reminder",
-        message = "Time for your daily workout! Stay consistent to keep your streak.",
-        time = "Just now",
-        icon = Icons.Outlined.FitnessCenter
-    ),
-    HomeNotificationUi(
-        title = "Meal Logging",
-        message = "Don't forget to log your lunch. Tracking meals helps reach your goals faster.",
-        time = "1h ago",
-        icon = Icons.Outlined.Restaurant
-    ),
-    HomeNotificationUi(
-        title = "Streak Update",
-        message = "You're on a roll! Complete today's activity to extend your streak.",
-        time = "3h ago",
-        icon = Icons.Outlined.LocalFireDepartment
-    ),
-    HomeNotificationUi(
-        title = "Weekly Progress",
-        message = "Your weekly summary is ready. Check your progress in the Track tab.",
-        time = "Yesterday",
-        icon = Icons.Outlined.BarChart
-    )
-)
-
 @Composable
 private fun NotificationDialog(
     notifications: List<HomeNotificationUi>,
-    onDismiss: () -> Unit
+    unreadCount: Int,
+    onDismiss: () -> Unit,
+    onMarkRead: (Long) -> Unit,
+    onMarkAllRead: () -> Unit,
+    onDelete: (Long) -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -1102,64 +1262,103 @@ private fun NotificationDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Notifications", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        "${notifications.size} new",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = FittyPink,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Column {
+                        Text(stringResource(R.string.home_notifications_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "$unreadCount unread",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (unreadCount > 0) {
+                        TextButton(onClick = onMarkAllRead) {
+                            Text(stringResource(R.string.home_notifications_mark_all_read), color = FittyPink, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
 
                 if (notifications.isEmpty()) {
                     Text(
-                        "No notifications yet",
+                        stringResource(R.string.home_notifications_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 16.dp)
                     )
                 } else {
                     notifications.forEach { notification ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.Top
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (notification.isRead) {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                }
+                            ),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (notification.isRead) {
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                                } else {
+                                    FittyPink.copy(alpha = 0.18f)
+                                }
+                            )
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(FittyPink.copy(alpha = 0.1f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    notification.icon,
-                                    contentDescription = null,
-                                    tint = FittyPink,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(FittyPink.copy(alpha = 0.1f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            notification.icon,
+                                            contentDescription = null,
+                                            tint = FittyPink,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                notification.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                notification.time,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Text(
+                                            notification.message,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.End
                                 ) {
-                                    Text(
-                                        notification.title,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        notification.time,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    if (!notification.isRead) {
+                                        TextButton(onClick = { onMarkRead(notification.id) }) {
+                                            Text(stringResource(R.string.home_notification_read))
+                                        }
+                                    }
+                                    TextButton(onClick = { onDelete(notification.id) }) {
+                                        Text(stringResource(R.string.home_notification_delete))
+                                    }
                                 }
-                                Text(
-                                    notification.message,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2
-                                )
                             }
                         }
                     }
@@ -1171,7 +1370,136 @@ private fun NotificationDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Dismiss", fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_action_close), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddTaskDialog(
+    onDismiss: () -> Unit,
+    onSave: (String, String, Int, HomeTaskCategory, Boolean) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var timeText by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(HomeTaskCategory.Custom) }
+    var reminderEnabled by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val titleRequiredMessage = stringResource(R.string.home_task_title_required)
+    val invalidTimeMessage = stringResource(R.string.home_task_invalid_time)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.home_add_task_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = {
+                        title = it
+                        errorMessage = null
+                    },
+                    label = { Text(stringResource(R.string.home_task_field_title)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text(stringResource(R.string.home_task_field_description)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 2
+                )
+                OutlinedTextField(
+                    value = timeText,
+                    onValueChange = {
+                        timeText = it
+                        errorMessage = null
+                    },
+                    label = { Text(stringResource(R.string.home_task_field_time)) },
+                    placeholder = { Text(stringResource(R.string.home_task_field_time_hint)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                Text(
+                    text = stringResource(R.string.home_task_category),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        HomeTaskCategory.Workout,
+                        HomeTaskCategory.Meal,
+                        HomeTaskCategory.Water,
+                        HomeTaskCategory.Custom
+                    ).forEach { option ->
+                        OutlinedButton(
+                            onClick = { category = option },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (category == option) FittyPink.copy(alpha = 0.1f) else Color.Transparent
+                            )
+                        ) {
+                            Text(
+                                text = option.name,
+                                color = if (category == option) FittyPink else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(stringResource(R.string.home_task_reminder), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = reminderEnabled, onCheckedChange = { reminderEnabled = it })
+                }
+                errorMessage?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(stringResource(R.string.home_task_cancel))
+                    }
+                    Button(
+                        onClick = {
+                            val timeMinutes = parseTimeToMinutes(timeText)
+                            when {
+                                title.isBlank() -> errorMessage = titleRequiredMessage
+                                timeMinutes == null -> errorMessage = invalidTimeMessage
+                                else -> onSave(
+                                    title.trim(),
+                                    description.trim(),
+                                    timeMinutes,
+                                    category,
+                                    reminderEnabled
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(stringResource(R.string.home_task_save), fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -1204,6 +1532,56 @@ private fun greetingForNow(context: Context): String {
         h < 18 -> context.getString(R.string.home_good_afternoon)
         else -> context.getString(R.string.home_good_evening)
     }
+}
+
+private fun HomeUiState.preserveDynamicState(current: HomeUiState): HomeUiState = copy(
+    tasks = current.tasks,
+    notifications = current.notifications,
+    unreadNotificationCount = current.unreadNotificationCount,
+    showNotifications = current.showNotifications
+)
+
+private fun HomeTaskStatus.toDisplayLabel(): String = when (this) {
+    HomeTaskStatus.Todo -> "To Do"
+    HomeTaskStatus.InProgress -> "In Progress"
+    HomeTaskStatus.Completed -> "Completed"
+}
+
+private fun AppNotificationType.toNotificationIcon(): ImageVector = when (this) {
+    AppNotificationType.Workout -> Icons.Outlined.FitnessCenter
+    AppNotificationType.Meal -> Icons.Outlined.Restaurant
+    AppNotificationType.Reminder -> Icons.Outlined.Notifications
+    AppNotificationType.Streak -> Icons.Outlined.LocalFireDepartment
+    AppNotificationType.Progress -> Icons.Outlined.BarChart
+    AppNotificationType.General -> Icons.Outlined.Notifications
+}
+
+private fun formatTaskTime(timeMinutes: Int): String {
+    val normalized = timeMinutes.coerceIn(0, 23 * 60 + 59)
+    val time = LocalTime.of(normalized / 60, normalized % 60)
+    return time.format(DateTimeFormatter.ofPattern("HH:mm"))
+}
+
+private fun formatNotificationTime(createdAt: Long): String {
+    val diff = System.currentTimeMillis() - createdAt
+    return when {
+        diff < 60_000L -> "Just now"
+        diff < 3_600_000L -> "${diff / 60_000L}m ago"
+        diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
+        else -> LocalDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(createdAt),
+            ZoneId.systemDefault()
+        ).format(DateTimeFormatter.ofPattern("dd/MM HH:mm"))
+    }
+}
+
+private fun parseTimeToMinutes(value: String): Int? {
+    val parts = value.trim().split(":")
+    if (parts.size != 2) return null
+    val hour = parts[0].toIntOrNull() ?: return null
+    val minute = parts[1].toIntOrNull() ?: return null
+    if (hour !in 0..23 || minute !in 0..59) return null
+    return hour * 60 + minute
 }
 
 private fun String.toDisplayLabel(defaultValue: String): String {

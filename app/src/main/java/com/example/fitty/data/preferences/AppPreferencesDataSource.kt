@@ -35,6 +35,10 @@ class AppPreferencesDataSource(
         preferences[LAST_WELCOME_NOTIFICATION_AT]
     }
 
+    val exerciseGifPreloadCompleted: Flow<Boolean> = context.fittyDataStore.data.map { preferences ->
+        preferences[EXERCISE_GIF_PRELOAD_COMPLETED] ?: false
+    }
+
     suspend fun setOnboardingCompleted(completed: Boolean) {
         context.fittyDataStore.edit { preferences ->
             preferences[ONBOARDING_COMPLETED] = completed
@@ -78,6 +82,14 @@ class AppPreferencesDataSource(
         }
     }
 
+    suspend fun setExerciseGifPreloadCompleted(completed: Boolean) {
+        context.fittyDataStore.edit { preferences ->
+            preferences[EXERCISE_GIF_PRELOAD_COMPLETED] = completed
+        }
+    }
+
+    suspend fun isExerciseGifPreloadCompleted(): Boolean = exerciseGifPreloadCompleted.first()
+
     suspend fun shouldShowWelcomeNotification(
         nowMillis: Long,
         cooldownMillis: Long
@@ -94,5 +106,6 @@ class AppPreferencesDataSource(
         val SIGNED_IN = booleanPreferencesKey("signed_in")
         val CURRENT_USER_ID = stringPreferencesKey("current_user_id")
         val LAST_WELCOME_NOTIFICATION_AT = longPreferencesKey("last_welcome_notification_at")
+        val EXERCISE_GIF_PRELOAD_COMPLETED = booleanPreferencesKey("exercise_gif_preload_completed")
     }
 }

@@ -16,3 +16,9 @@
 local.properties
 *.txt
 *.md
+.env
+.env.*
+!*.env.example
+*firebase-adminsdk*.json
+.fir-18934-firebase-adminsdk-fbsvc-1bffdf88a9.json
+/.scripts

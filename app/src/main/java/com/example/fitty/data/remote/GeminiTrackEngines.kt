@@ -1,5 +1,6 @@
 package com.example.fitty.data.remote
 
+import com.example.fitty.BuildConfig
 import com.example.fitty.domain.model.BodyScan
 import com.example.fitty.domain.model.BodyScanAnalysisEngine
 import com.example.fitty.domain.model.BodyScanAnalysisResult
@@ -22,7 +23,7 @@ import javax.inject.Singleton
 class GeminiMealAnalysisEngine @Inject constructor() : MealAnalysisEngine {
 
     companion object {
-        private const val API_KEY = "AIzaSyD-ZnqFpANUWghNrNUue-lDXNNiSciknlk"
+        private const val API_KEY = BuildConfig.GEMINI_API_KEY
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     }
@@ -162,7 +163,7 @@ class GeminiMealAnalysisEngine @Inject constructor() : MealAnalysisEngine {
 class GeminiBodyScanAnalysisEngine @Inject constructor() : BodyScanAnalysisEngine {
 
     companion object {
-        private const val API_KEY = "AIzaSyD-ZnqFpANUWghNrNUue-lDXNNiSciknlk"
+        private const val API_KEY = BuildConfig.GEMINI_API_KEY
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     }

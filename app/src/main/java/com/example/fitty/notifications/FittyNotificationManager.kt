@@ -54,16 +54,7 @@ object FittyNotificationManager {
         }
         if (!canPostNotifications(context)) return
         createChannels(context)
-
-        val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            0,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val pendingIntent = openAppPendingIntent(context, WELCOME_NOTIFICATION_ID)
 
         val notification = NotificationCompat.Builder(context, WELCOME_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher_round)
@@ -94,15 +85,33 @@ object FittyNotificationManager {
         }
         if (!canPostNotifications(context)) return
         createChannels(context)
-        val notification = NotificationCompat.Builder(context, WELCOME_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-        NotificationManagerCompat.from(context).notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+        showBasicNotification(
+            context = context,
+            notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt(),
+            title = title,
+            body = body
+        )
+    }
+
+    fun showTaskReminderNotification(
+        context: Context,
+        taskId: Long,
+        title: String,
+        body: String,
+        onForegroundMessage: ((title: String, message: String) -> Unit)? = null
+    ) {
+        if (isAppInForeground()) {
+            onForegroundMessage?.invoke(title, body)
+            return
+        }
+        if (!canPostNotifications(context)) return
+        createChannels(context)
+        showBasicNotification(
+            context = context,
+            notificationId = taskId.toInt(),
+            title = title,
+            body = body
+        )
     }
 
     private fun welcomeMessageFor(displayName: String): String {
@@ -125,5 +134,35 @@ object FittyNotificationManager {
 
     private fun isAppInForeground(): Boolean {
         return ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    }
+
+    private fun showBasicNotification(
+        context: Context,
+        notificationId: Int,
+        title: String,
+        body: String
+    ) {
+        val notification = NotificationCompat.Builder(context, WELCOME_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(openAppPendingIntent(context, notificationId))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        NotificationManagerCompat.from(context).notify(notificationId, notification)
+    }
+
+    private fun openAppPendingIntent(context: Context, requestCode: Int): PendingIntent {
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            context,
+            requestCode,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 }

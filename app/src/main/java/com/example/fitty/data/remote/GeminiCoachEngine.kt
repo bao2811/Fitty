@@ -1,5 +1,6 @@
 package com.example.fitty.data.remote
 
+import com.example.fitty.BuildConfig
 import com.example.fitty.domain.model.CoachContext
 import com.example.fitty.domain.model.CoachEngine
 import com.example.fitty.domain.model.CoachMessage
@@ -19,7 +20,7 @@ import javax.inject.Singleton
 class GeminiCoachEngine @Inject constructor() : CoachEngine {
 
     companion object {
-        private const val API_KEY = "AIzaSyD-ZnqFpANUWghNrNUue-lDXNNiSciknlk"
+        private const val API_KEY = BuildConfig.GEMINI_API_KEY
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     }

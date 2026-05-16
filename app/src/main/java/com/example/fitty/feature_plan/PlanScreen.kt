@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
@@ -75,6 +76,11 @@ import coil.request.ImageRequest
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionBlock
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.domain.model.ExerciseQuery
+import com.example.fitty.domain.model.Exercise
+import com.example.fitty.domain.repository.ExerciseCatalogRepository
+import com.example.fitty.domain.usecase.exercise.ObserveExerciseSyncStateUseCase
+import com.example.fitty.domain.usecase.exercise.SyncExercisesUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
 import com.example.fitty.ui.theme.FittyPink
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -82,6 +88,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 internal data class SampleExercise(
@@ -92,7 +100,11 @@ internal data class SampleExercise(
     val level: String,
     val equipment: String,
     val repsOrDuration: String,
-    val mediaUrl: String,
+    val thumbnailUrl: String,
+    val localThumbnailPath: String = "",
+    val videoUrl: String = "",
+    val localVideoPath: String = "",
+    val isDownloaded: Boolean = false,
     val description: String,
     val steps: List<String>,
     val mistakes: List<String>,
@@ -100,7 +112,10 @@ internal data class SampleExercise(
     val easierVariation: String,
     val harderVariation: String,
     val targetMuscles: String
-)
+) {
+    val mediaUrl: String
+        get() = if (localThumbnailPath.isNotBlank()) localThumbnailPath else thumbnailUrl
+}
 
 internal data class SampleWorkout(
     val title: String,
@@ -121,197 +136,154 @@ internal data class PlanUiState(
     val tabs: List<PlanTab> = PlanTab.entries,
     val selectedTab: PlanTab = PlanTab.Today,
     val exerciseLibrary: List<SampleExercise> = emptyList(),
+    val categories: List<PracticeCategory> = emptyList(),
+    val selectedCategory: String = CATEGORY_ALL,
     val starterWorkout: SampleWorkout? = null,
-    val selectedExercise: SampleExercise? = null
+    val selectedExercise: SampleExercise? = null,
+    val isSyncing: Boolean = false,
+    val syncMessage: String? = null
+)
+
+internal data class PracticeCategory(
+    val label: String,
+    val count: Int
 )
 
 @HiltViewModel
 class PlanViewModel @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext private val context: Context,
+    private val exerciseRepository: ExerciseCatalogRepository,
+    private val syncExercisesUseCase: SyncExercisesUseCase,
+    private val observeExerciseSyncStateUseCase: ObserveExerciseSyncStateUseCase
 ) : ViewModel() {
-    private val exerciseLibrary = buildBeginnerExerciseLibrary(context)
-    private val starterWorkout = buildBeginnerStarterWorkout(context, exerciseLibrary)
-
     private val _uiState = MutableStateFlow(
-        PlanUiState(
-            exerciseLibrary = exerciseLibrary,
-            starterWorkout = starterWorkout,
-            selectedExercise = exerciseLibrary.firstOrNull()
-        )
+        PlanUiState()
     )
     internal val uiState: StateFlow<PlanUiState> = _uiState
+
+    init {
+        observeExerciseLibrary()
+        observeSyncState()
+        syncMetadata()
+    }
 
     internal fun selectTab(tab: PlanTab) {
         _uiState.update { it.copy(selectedTab = tab) }
     }
 
+    internal fun selectCategory(category: String) {
+        _uiState.update { current ->
+            val filtered = current.exerciseLibrary.filterByCategory(category)
+            current.copy(
+                selectedCategory = category,
+                starterWorkout = filtered.takeIf { it.isNotEmpty() }
+                    ?.let { buildBeginnerStarterWorkout(context, it, category) },
+                selectedExercise = filtered.firstOrNull()
+            )
+        }
+    }
+
     internal fun selectExercise(exercise: SampleExercise) {
         _uiState.update { it.copy(selectedExercise = exercise) }
     }
+
+    private fun observeExerciseLibrary() {
+        viewModelScope.launch {
+            exerciseRepository.observeExercises(ExerciseQuery(limit = 250)).collect { exercises ->
+                val mappedLibrary = exercises.map { exercise -> exercise.toPracticeExercise(context) }
+                val categories = buildCategories(mappedLibrary)
+                val selectedCategory = _uiState.value.selectedCategory
+                    .takeIf { selected -> categories.any { it.label == selected } }
+                    ?: CATEGORY_ALL
+                val filteredLibrary = mappedLibrary.filterByCategory(selectedCategory)
+                val selectedId = _uiState.value.selectedExercise?.id
+                val selectedExercise = filteredLibrary.firstOrNull { it.id == selectedId } ?: filteredLibrary.firstOrNull()
+
+                _uiState.update {
+                    it.copy(
+                        exerciseLibrary = mappedLibrary,
+                        categories = categories,
+                        selectedCategory = selectedCategory,
+                        starterWorkout = filteredLibrary.takeIf { library -> library.isNotEmpty() }
+                            ?.let { buildBeginnerStarterWorkout(context, it, selectedCategory) },
+                        selectedExercise = selectedExercise
+                    )
+                }
+
+            }
+        }
+    }
+
+    private fun syncMetadata() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSyncing = true, syncMessage = null) }
+            val result = syncExercisesUseCase(force = false)
+            _uiState.update { state ->
+                state.copy(
+                    isSyncing = false,
+                    syncMessage = result.fold(
+                        onSuccess = { report ->
+                            "Synced ${report.fetched} exercises. Downloaded ${report.mediaDownloaded} thumbnails."
+                        },
+                        onFailure = { error ->
+                            error.message ?: "Using cached exercise metadata."
+                        }
+                    )
+                )
+            }
+        }
+    }
+
+    private fun observeSyncState() {
+        viewModelScope.launch {
+            observeExerciseSyncStateUseCase().collect { syncState ->
+                _uiState.update {
+                    it.copy(
+                        isSyncing = syncState.isSyncing,
+                        syncMessage = when {
+                            syncState.lastErrorMessage != null -> syncState.lastErrorMessage
+                            syncState.lastSuccessfulSyncAt != null -> "Metadata cached for offline use."
+                            else -> it.syncMessage
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private fun buildCategories(exercises: List<SampleExercise>): List<PracticeCategory> {
+        val grouped = exercises
+            .groupingBy { it.muscle.ifBlank { CATEGORY_OTHER } }
+            .eachCount()
+            .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+        return buildList {
+            add(PracticeCategory(label = CATEGORY_ALL, count = exercises.size))
+            grouped.forEach { (label, count) ->
+                add(PracticeCategory(label = label, count = count))
+            }
+        }
+    }
 }
 
-private fun buildBeginnerExerciseLibrary(context: Context): List<SampleExercise> {
-    val beginner = context.getString(R.string.plan_level_beginner)
-    val noEquipment = context.getString(R.string.plan_equipment_none)
-    val chest = context.getString(R.string.plan_muscle_chest)
-    val core = context.getString(R.string.plan_muscle_core)
-    val glutes = context.getString(R.string.plan_muscle_glutes)
-    val legs = context.getString(R.string.plan_muscle_legs)
-    return listOf(
-        SampleExercise(
-            id = "bodyweight_squat",
-            title = context.getString(R.string.plan_exercise_bodyweight_squat_title),
-            summary = context.getString(R.string.plan_exercise_summary_format, legs, beginner, context.getString(R.string.plan_reps_12)),
-            muscle = legs,
-            level = beginner,
-            equipment = noEquipment,
-            repsOrDuration = context.getString(R.string.plan_reps_12),
-            mediaUrl = "https://media.giphy.com/media/1C1ipHPEs4Vjwglwza/giphy.gif",
-            description = context.getString(R.string.plan_exercise_bodyweight_squat_desc),
-            steps = listOf(
-                context.getString(R.string.plan_exercise_bodyweight_squat_step_1),
-                context.getString(R.string.plan_exercise_bodyweight_squat_step_2),
-                context.getString(R.string.plan_exercise_bodyweight_squat_step_3)
-            ),
-            mistakes = listOf(
-                context.getString(R.string.plan_exercise_bodyweight_squat_mistake_1),
-                context.getString(R.string.plan_exercise_bodyweight_squat_mistake_2),
-                context.getString(R.string.plan_exercise_bodyweight_squat_mistake_3)
-            ),
-            tips = listOf(
-                context.getString(R.string.plan_exercise_bodyweight_squat_tip_1),
-                context.getString(R.string.plan_exercise_bodyweight_squat_tip_2),
-                context.getString(R.string.plan_exercise_bodyweight_squat_tip_3)
-            ),
-            easierVariation = context.getString(R.string.plan_variation_chair_squat),
-            harderVariation = context.getString(R.string.plan_variation_jump_squat),
-            targetMuscles = context.getString(R.string.plan_target_muscles_format, context.getString(R.string.plan_muscle_quadriceps), glutes, core)
-        ),
-        SampleExercise(
-            id = "incline_push_up",
-            title = context.getString(R.string.plan_exercise_incline_push_up_title),
-            summary = context.getString(R.string.plan_exercise_summary_format, chest, beginner, context.getString(R.string.plan_reps_10)),
-            muscle = chest,
-            level = beginner,
-            equipment = context.getString(R.string.plan_equipment_bench_or_table),
-            repsOrDuration = context.getString(R.string.plan_reps_10),
-            mediaUrl = "https://media.giphy.com/media/kYvaNlsFBgq3xZ8fRn/giphy.gif",
-            description = context.getString(R.string.plan_exercise_incline_push_up_desc),
-            steps = listOf(
-                context.getString(R.string.plan_exercise_incline_push_up_step_1),
-                context.getString(R.string.plan_exercise_incline_push_up_step_2),
-                context.getString(R.string.plan_exercise_incline_push_up_step_3)
-            ),
-            mistakes = listOf(
-                context.getString(R.string.plan_exercise_incline_push_up_mistake_1),
-                context.getString(R.string.plan_exercise_incline_push_up_mistake_2),
-                context.getString(R.string.plan_exercise_incline_push_up_mistake_3)
-            ),
-            tips = listOf(
-                context.getString(R.string.plan_exercise_incline_push_up_tip_1),
-                context.getString(R.string.plan_exercise_incline_push_up_tip_2),
-                context.getString(R.string.plan_exercise_incline_push_up_tip_3)
-            ),
-            easierVariation = context.getString(R.string.plan_variation_wall_push_up),
-            harderVariation = context.getString(R.string.plan_variation_knee_push_up),
-            targetMuscles = context.getString(R.string.plan_target_muscles_format, chest, context.getString(R.string.plan_muscle_shoulders), context.getString(R.string.plan_muscle_triceps))
-        ),
-        SampleExercise(
-            id = "plank",
-            title = context.getString(R.string.plan_exercise_plank_title),
-            summary = context.getString(R.string.plan_exercise_summary_format, core, beginner, context.getString(R.string.plan_duration_30_sec)),
-            muscle = core,
-            level = beginner,
-            equipment = context.getString(R.string.plan_equipment_mat_optional),
-            repsOrDuration = context.getString(R.string.plan_duration_30_sec),
-            mediaUrl = "https://media.giphy.com/media/vZwHcmIRWzhWbPV7kx/giphy.gif",
-            description = context.getString(R.string.plan_exercise_plank_desc),
-            steps = listOf(
-                context.getString(R.string.plan_exercise_plank_step_1),
-                context.getString(R.string.plan_exercise_plank_step_2),
-                context.getString(R.string.plan_exercise_plank_step_3)
-            ),
-            mistakes = listOf(
-                context.getString(R.string.plan_exercise_plank_mistake_1),
-                context.getString(R.string.plan_exercise_plank_mistake_2),
-                context.getString(R.string.plan_exercise_plank_mistake_3)
-            ),
-            tips = listOf(
-                context.getString(R.string.plan_exercise_plank_tip_1),
-                context.getString(R.string.plan_exercise_plank_tip_2),
-                context.getString(R.string.plan_exercise_plank_tip_3)
-            ),
-            easierVariation = context.getString(R.string.plan_variation_knee_plank),
-            harderVariation = context.getString(R.string.plan_variation_plank_shoulder_tap),
-            targetMuscles = context.getString(R.string.plan_target_muscles_format, core, context.getString(R.string.plan_muscle_shoulders), glutes)
-        ),
-        SampleExercise(
-            id = "reverse_lunge",
-            title = context.getString(R.string.plan_exercise_reverse_lunge_title),
-            summary = context.getString(R.string.plan_exercise_summary_format, legs, beginner, context.getString(R.string.plan_reps_10_side)),
-            muscle = legs,
-            level = beginner,
-            equipment = noEquipment,
-            repsOrDuration = context.getString(R.string.plan_reps_10_side),
-            mediaUrl = "https://media.giphy.com/media/jp7eu9mD42asbXVapr/giphy.gif",
-            description = context.getString(R.string.plan_exercise_reverse_lunge_desc),
-            steps = listOf(
-                context.getString(R.string.plan_exercise_reverse_lunge_step_1),
-                context.getString(R.string.plan_exercise_reverse_lunge_step_2),
-                context.getString(R.string.plan_exercise_reverse_lunge_step_3)
-            ),
-            mistakes = listOf(
-                context.getString(R.string.plan_exercise_reverse_lunge_mistake_1),
-                context.getString(R.string.plan_exercise_reverse_lunge_mistake_2),
-                context.getString(R.string.plan_exercise_reverse_lunge_mistake_3)
-            ),
-            tips = listOf(
-                context.getString(R.string.plan_exercise_reverse_lunge_tip_1),
-                context.getString(R.string.plan_exercise_reverse_lunge_tip_2),
-                context.getString(R.string.plan_exercise_reverse_lunge_tip_3)
-            ),
-            easierVariation = context.getString(R.string.plan_variation_split_squat_hold),
-            harderVariation = context.getString(R.string.plan_variation_walking_lunge),
-            targetMuscles = context.getString(R.string.plan_target_muscles_format, context.getString(R.string.plan_muscle_quadriceps), glutes, context.getString(R.string.plan_muscle_hamstrings))
-        ),
-        SampleExercise(
-            id = "glute_bridge",
-            title = context.getString(R.string.plan_exercise_glute_bridge_title),
-            summary = context.getString(R.string.plan_exercise_summary_format, glutes, beginner, context.getString(R.string.plan_reps_15)),
-            muscle = glutes,
-            level = beginner,
-            equipment = noEquipment,
-            repsOrDuration = context.getString(R.string.plan_reps_15),
-            mediaUrl = "https://media.giphy.com/media/26FPJIbqE5Rhkah4Q/giphy.gif",
-            description = context.getString(R.string.plan_exercise_glute_bridge_desc),
-            steps = listOf(
-                context.getString(R.string.plan_exercise_glute_bridge_step_1),
-                context.getString(R.string.plan_exercise_glute_bridge_step_2),
-                context.getString(R.string.plan_exercise_glute_bridge_step_3)
-            ),
-            mistakes = listOf(
-                context.getString(R.string.plan_exercise_glute_bridge_mistake_1),
-                context.getString(R.string.plan_exercise_glute_bridge_mistake_2),
-                context.getString(R.string.plan_exercise_glute_bridge_mistake_3)
-            ),
-            tips = listOf(
-                context.getString(R.string.plan_exercise_glute_bridge_tip_1),
-                context.getString(R.string.plan_exercise_glute_bridge_tip_2),
-                context.getString(R.string.plan_exercise_glute_bridge_tip_3)
-            ),
-            easierVariation = context.getString(R.string.plan_variation_short_range_bridge),
-            harderVariation = context.getString(R.string.plan_variation_single_leg_bridge),
-            targetMuscles = context.getString(R.string.plan_target_muscles_format, glutes, context.getString(R.string.plan_muscle_hamstrings), core)
-        )
-    )
-}
-
-private fun buildBeginnerStarterWorkout(context: Context, exercises: List<SampleExercise>): SampleWorkout {
+private fun buildBeginnerStarterWorkout(
+    context: Context,
+    exercises: List<SampleExercise>,
+    category: String
+): SampleWorkout {
+    val focusLabel = if (category == CATEGORY_ALL) {
+        context.getString(R.string.plan_focus_full_body)
+    } else {
+        category
+    }
     return SampleWorkout(
-        title = context.getString(R.string.plan_workout_full_body_basics_title),
+        title = if (category == CATEGORY_ALL) {
+            context.getString(R.string.plan_workout_full_body_basics_title)
+        } else {
+            "$category Practice"
+        },
         summary = context.getString(
             R.string.plan_workout_summary_format,
-            context.getString(R.string.plan_focus_full_body),
+            focusLabel,
             context.getString(R.string.plan_level_beginner),
             context.getString(R.string.plan_calories_220)
         ),
@@ -322,12 +294,59 @@ private fun buildBeginnerStarterWorkout(context: Context, exercises: List<Sample
     )
 }
 
+private fun Exercise.toPracticeExercise(context: Context): SampleExercise {
+    val beginner = context.getString(R.string.plan_filter_beginner)
+    val bodyPartLabel = bodyPart.ifBlank { context.getString(R.string.plan_tag_full_body) }
+    val targetLabel = target.ifBlank { context.getString(R.string.plan_muscle_core) }
+    val equipmentLabel = equipment.ifBlank { context.getString(R.string.plan_equipment_none) }
+
+    return SampleExercise(
+        id = id,
+        title = name.ifBlank { id },
+        summary = context.getString(
+            R.string.plan_exercise_summary_format,
+            bodyPartLabel,
+            beginner,
+            defaultRepsText.ifBlank { "12 reps" }
+        ),
+        muscle = bodyPartLabel,
+        level = beginner,
+        equipment = equipmentLabel,
+        repsOrDuration = defaultRepsText.ifBlank { "12 reps" },
+        thumbnailUrl = thumbnailUrl.ifBlank { gifUrl },
+        localThumbnailPath = localThumbnailPath,
+        videoUrl = videoUrl,
+        localVideoPath = localVideoPath,
+        isDownloaded = isDownloaded,
+        description = "Targets $targetLabel with ${equipmentLabel.lowercase()}. Open this exercise once to cache the GIF locally for Practice.",
+        steps = listOf(
+            "Set up for $name with ${equipmentLabel.lowercase()}.",
+            "Move with control and keep tension on $targetLabel.",
+            "Reset your posture before starting the next rep."
+        ),
+        mistakes = listOf(
+            "Rushing through the movement.",
+            "Shortening the range before fatigue is managed.",
+            "Losing control of the start and finish position."
+        ),
+        tips = listOf(
+            "Start at a repeatable tempo.",
+            "Exhale through the effort phase.",
+            "Open this once on Wi-Fi to keep the GIF offline."
+        ),
+        easierVariation = "Reduce range or use support.",
+        harderVariation = "Add more control, reps, or time under tension.",
+        targetMuscles = targetMuscles.ifEmpty { listOf(targetLabel, bodyPartLabel) }.joinToString(", ")
+    )
+}
+
 @Composable
 fun PlanRoute(viewModel: PlanViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsState()
     PlanScreen(
         state = state,
         onTabSelected = viewModel::selectTab,
+        onCategorySelected = viewModel::selectCategory,
         onExerciseSelected = viewModel::selectExercise
     )
 }
@@ -336,10 +355,12 @@ fun PlanRoute(viewModel: PlanViewModel = hiltViewModel()) {
 private fun PlanScreen(
     state: PlanUiState,
     onTabSelected: (PlanTab) -> Unit,
+    onCategorySelected: (String) -> Unit,
     onExerciseSelected: (SampleExercise) -> Unit
 ) {
     val starterWorkout = state.starterWorkout
     val selectedExercise = state.selectedExercise
+    val filteredExercises = state.exerciseLibrary.filterByCategory(state.selectedCategory)
 
     FittyLazyScreen {
         item {
@@ -356,6 +377,22 @@ private fun PlanScreen(
                 onSelected = onTabSelected
             )
         }
+        item {
+            PracticeLibraryStatus(
+                hasExercises = state.exerciseLibrary.isNotEmpty(),
+                isSyncing = state.isSyncing,
+                syncMessage = state.syncMessage
+            )
+        }
+        if (state.categories.isNotEmpty()) {
+            item {
+                PracticeCategoryRow(
+                    categories = state.categories,
+                    selectedCategory = state.selectedCategory,
+                    onCategorySelected = onCategorySelected
+                )
+            }
+        }
         when (state.selectedTab) {
             PlanTab.Today -> {
                 starterWorkout?.let { workout ->
@@ -363,7 +400,10 @@ private fun PlanScreen(
                     item {
                         WorkoutSessionDetailPreview(
                             workout = workout,
-                            onExerciseSelected = onExerciseSelected
+                            onExerciseSelected = { exercise ->
+                                onExerciseSelected(exercise)
+                                onTabSelected(PlanTab.Library)
+                            }
                         )
                     }
                 }
@@ -382,18 +422,62 @@ private fun PlanScreen(
                 if (selectedExercise != null) {
                     item {
                         ExerciseLibrarySection(
-                            exercises = state.exerciseLibrary,
+                            exercises = filteredExercises.take(PRACTICE_LIBRARY_PREVIEW_COUNT),
                             selectedExerciseId = selectedExercise.id,
                             onExerciseSelected = onExerciseSelected
                         )
                     }
                     item { ExerciseDetailPreview(selectedExercise) }
                 }
-                item { BuildWorkoutSection(previewExercises = state.exerciseLibrary.take(3)) }
+                item { BuildWorkoutSection(previewExercises = filteredExercises.take(3)) }
                 item { MyCustomPlansSection() }
             }
         }
         item { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+}
+
+@Composable
+private fun PracticeLibraryStatus(
+    hasExercises: Boolean,
+    isSyncing: Boolean,
+    syncMessage: String?
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    ) {
+        Text(
+            text = when {
+                isSyncing -> "Practice is syncing metadata and thumbnails."
+                !syncMessage.isNullOrBlank() -> syncMessage
+                hasExercises -> "Practice library is ready."
+                else -> "Practice is waiting for exercise data."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+        )
+    }
+}
+
+@Composable
+private fun PracticeCategoryRow(
+    categories: List<PracticeCategory>,
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState())
+    ) {
+        categories.forEach { category ->
+            FilterChip(
+                selected = category.label == selectedCategory,
+                onClick = { onCategorySelected(category.label) },
+                label = { Text("${category.label} (${category.count})") }
+            )
+        }
     }
 }
 
@@ -995,22 +1079,41 @@ private fun ExerciseMediaPreview(
 ) {
     val context = LocalContext.current
     val imageLoader = rememberGifImageLoader()
+    val imageModel: Any? = when {
+        exercise.localThumbnailPath.isNotBlank() -> File(exercise.localThumbnailPath)
+        exercise.thumbnailUrl.startsWith("http://", ignoreCase = true) ||
+            exercise.thumbnailUrl.startsWith("https://", ignoreCase = true) -> exercise.thumbnailUrl
+        else -> null
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.TopEnd
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(exercise.mediaUrl)
-                .crossfade(true)
-                .build(),
-            imageLoader = imageLoader,
-            contentDescription = exercise.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize()
-        )
+        if (imageModel != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(imageModel)
+                    .crossfade(true)
+                    .build(),
+                imageLoader = imageLoader,
+                contentDescription = exercise.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier.matchParentSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Thumbnail unavailable",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
         AssistChip(
             onClick = { },
             enabled = false,
@@ -1026,6 +1129,15 @@ private fun ExerciseMediaPreview(
         )
     }
 }
+
+private fun List<SampleExercise>.filterByCategory(category: String): List<SampleExercise> {
+    if (category == CATEGORY_ALL) return this
+    return filter { exercise -> exercise.muscle.equals(category, ignoreCase = true) }
+}
+
+private const val CATEGORY_ALL = "All"
+private const val CATEGORY_OTHER = "Other"
+private const val PRACTICE_LIBRARY_PREVIEW_COUNT = 8
 
 @Composable
 private fun rememberGifImageLoader(): ImageLoader {
