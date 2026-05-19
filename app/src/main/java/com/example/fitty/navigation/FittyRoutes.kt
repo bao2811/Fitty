@@ -20,6 +20,16 @@ object MainRoutes {
     const val Track = "track"
     const val Coach = "coach"
     const val Profile = "profile"
+    const val CategoryExerciseList = "category_exercises/{categoryId}/{categoryLabel}/{bodyPartKeys}"
+
+    fun categoryExerciseList(
+        categoryId: String,
+        categoryLabel: String,
+        bodyPartKeys: List<String>
+    ): String {
+        val keys = bodyPartKeys.joinToString(",")
+        return "category_exercises/$categoryId/$categoryLabel/$keys"
+    }
 }
 
 data class MainTab(

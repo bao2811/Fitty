@@ -5,6 +5,7 @@ import com.example.fitty.domain.model.BodyScan
 import com.example.fitty.domain.model.DailySummary
 import com.example.fitty.domain.model.MealLog
 import com.example.fitty.domain.model.ProgressStats
+import com.example.fitty.domain.model.MealScanRecord
 
 interface TrackingRepository {
     // Meal logs
@@ -12,6 +13,11 @@ interface TrackingRepository {
     suspend fun getMealLogs(uid: String, dateKey: String): List<MealLog>
     suspend fun getMealLog(uid: String, mealId: String): MealLog?
     suspend fun deleteMealLog(uid: String, mealId: String): Result<Unit>
+
+    // Meal scan history
+    suspend fun saveMealScanRecord(uid: String, record: MealScanRecord): Result<String>
+    suspend fun getMealScanHistory(uid: String, limit: Int = 20): List<MealScanRecord>
+    suspend fun uploadScanImage(uid: String, localImageUri: String): Result<String>
 
     // Body scans
     suspend fun saveBodyScan(uid: String, bodyScan: BodyScan): Result<String>

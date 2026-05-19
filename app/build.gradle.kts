@@ -36,6 +36,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GEMINI_API_KEY", "\"${dotEnv["GEMINI_API_KEY"].orEmpty()}\"")
+        buildConfigField("String", "WORKOUTX_BASE_URL", "\"${dotEnv["WORKOUTX_BASE_URL"].orEmpty()}\"")
     }
 
     buildTypes {
@@ -58,6 +59,11 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            assets.srcDirs("src/main/asset")
+        }
+    }
 }
 
 dependencies {
@@ -79,6 +85,7 @@ dependencies {
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
     implementation(libs.play.services.auth)
     implementation(libs.coil.compose)

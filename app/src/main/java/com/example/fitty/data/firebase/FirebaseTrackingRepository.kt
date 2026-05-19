@@ -1,15 +1,18 @@
 package com.example.fitty.data.firebase
 
+import android.net.Uri
 import com.example.fitty.domain.model.*
 import com.example.fitty.domain.repository.TrackingRepository
 import com.google.firebase.firestore.*
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class FirebaseTrackingRepository @Inject constructor(
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val storage: FirebaseStorage
 ) : TrackingRepository {
 
     private fun userDoc(uid: String) = firestore.collection("users").document(uid)
@@ -34,6 +37,37 @@ class FirebaseTrackingRepository @Inject constructor(
     override suspend fun deleteMealLog(uid: String, mealId: String): Result<Unit> = try {
         userDoc(uid).collection("meal_logs").document(mealId).delete().await(); Result.success(Unit)
     } catch (e: Exception) { Result.failure(e) }
+
+    // ── Meal Scan History ────────────────────────────────────────────────
+
+    override suspend fun uploadScanImage(uid: String, localImageUri: String): Result<String> = try {
+        val fileName = "meal_scan_${System.currentTimeMillis()}.jpg"
+        val ref = storage.reference.child("users/$uid/meal_scans/$fileName")
+        ref.putFile(Uri.parse(localImageUri)).await()
+        val downloadUrl = ref.downloadUrl.await().toString()
+        Result.success(downloadUrl)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    override suspend fun saveMealScanRecord(uid: String, record: MealScanRecord): Result<String> = try {
+        val ref = if (record.id.isBlank()) userDoc(uid).collection("meal_scan_history").document()
+        else userDoc(uid).collection("meal_scan_history").document(record.id)
+        ref.set(record.toScanMap(), SetOptions.merge()).await()
+        Result.success(ref.id)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun getMealScanHistory(uid: String, limit: Int): List<MealScanRecord> =
+        userDoc(uid).collection("meal_scan_history")
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .limit(limit.toLong())
+            .get().await()
+            .documents.mapNotNull { it.toMealScanRecord() }
+
+    // ── Body Scans ───────────────────────────────────────────────────────
 
     override suspend fun saveBodyScan(uid: String, bodyScan: BodyScan): Result<String> = try {
         val ref = if (bodyScan.id.isBlank()) userDoc(uid).collection("body_scans").document()
@@ -78,18 +112,28 @@ class FirebaseTrackingRepository @Inject constructor(
         val user = firestore.collection("users").document(uid).get().await()
         val statsMap = user.get("stats") as? Map<*, *> ?: emptyMap<String, Any>()
         val measurements = getBodyMeasurements(uid, days)
+        val latestWeight = measurements.firstOrNull()?.weightKg
+        val targetWeightVal = (user.getDouble("targetWeightKg"))?.toFloat()
+        val heightCm = (user.getDouble("heightCm"))?.toFloat()
+        val bmiVal = if (latestWeight != null && heightCm != null && heightCm > 0) {
+            val heightM = heightCm / 100f
+            latestWeight / (heightM * heightM)
+        } else null
         return ProgressStats(
             totalWorkouts = (statsMap["totalWorkouts"] as? Number)?.toInt() ?: 0,
             totalMealsLogged = (statsMap["mealsLogged"] as? Number)?.toInt() ?: 0,
             currentStreak = (statsMap["currentStreak"] as? Number)?.toInt() ?: 0,
             bestStreak = (statsMap["bestStreak"] as? Number)?.toInt() ?: 0,
-            latestWeight = measurements.firstOrNull()?.weightKg,
+            latestWeight = latestWeight,
             latestBodyFat = measurements.firstOrNull()?.bodyFatPercent,
-            bodyMeasurements = measurements
+            bodyMeasurements = measurements,
+            targetWeight = targetWeightVal,
+            bmi = bmiVal
         )
     }
 
-    // Mapping helpers
+    // ── Mapping helpers ──────────────────────────────────────────────────
+
     @Suppress("UNCHECKED_CAST")
     private fun DocumentSnapshot.toMealLog(): MealLog? {
         if (!exists()) return null
@@ -104,6 +148,37 @@ class FirebaseTrackingRepository @Inject constructor(
             totalCalories = getLong("totalCalories")?.toInt() ?: 0, totalProtein = getLong("totalProtein")?.toInt() ?: 0,
             totalCarbs = getLong("totalCarbs")?.toInt() ?: 0, totalFat = getLong("totalFat")?.toInt() ?: 0,
             confidence = getDouble("confidence")?.toFloat() ?: 0f, foodItems = items, notes = getString("notes"))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun DocumentSnapshot.toMealScanRecord(): MealScanRecord? {
+        if (!exists()) return null
+        val items = (get("foodItems") as? List<Map<String, Any?>>)?.map { m ->
+            FoodItem(
+                name = m["name"] as? String ?: "",
+                quantity = (m["quantity"] as? Number)?.toInt() ?: 0,
+                unit = m["unit"] as? String ?: "g",
+                calories = (m["calories"] as? Number)?.toInt() ?: 0,
+                protein = (m["protein"] as? Number)?.toInt() ?: 0,
+                carbs = (m["carbs"] as? Number)?.toInt() ?: 0,
+                fat = (m["fat"] as? Number)?.toInt() ?: 0,
+                confidence = (m["confidence"] as? Number)?.toFloat() ?: 0f
+            )
+        } ?: emptyList()
+        return MealScanRecord(
+            id = id,
+            imageUrl = getString("imageUrl").orEmpty(),
+            localImagePath = getString("localImagePath").orEmpty(),
+            mealLogId = getString("mealLogId").orEmpty(),
+            totalCalories = getLong("totalCalories")?.toInt() ?: 0,
+            totalProtein = getLong("totalProtein")?.toInt() ?: 0,
+            totalCarbs = getLong("totalCarbs")?.toInt() ?: 0,
+            totalFat = getLong("totalFat")?.toInt() ?: 0,
+            confidence = getDouble("confidence")?.toFloat() ?: 0f,
+            foodItems = items,
+            timestamp = getLong("timestamp") ?: 0L,
+            dateKey = getString("dateKey").orEmpty()
+        )
     }
 
     private fun DocumentSnapshot.toBodyScan(): BodyScan? {
@@ -150,6 +225,25 @@ class FirebaseTrackingRepository @Inject constructor(
         "foodItems" to foodItems.map { mapOf("name" to it.name, "quantity" to it.quantity, "unit" to it.unit,
             "calories" to it.calories, "protein" to it.protein, "carbs" to it.carbs, "fat" to it.fat, "confidence" to it.confidence) },
         "notes" to notes, "updatedAt" to FieldValue.serverTimestamp())
+
+    private fun MealScanRecord.toScanMap(): Map<String, Any?> = mapOf(
+        "imageUrl" to imageUrl,
+        "localImagePath" to localImagePath,
+        "mealLogId" to mealLogId,
+        "totalCalories" to totalCalories,
+        "totalProtein" to totalProtein,
+        "totalCarbs" to totalCarbs,
+        "totalFat" to totalFat,
+        "confidence" to confidence,
+        "foodItems" to foodItems.map {
+            mapOf("name" to it.name, "quantity" to it.quantity, "unit" to it.unit,
+                "calories" to it.calories, "protein" to it.protein, "carbs" to it.carbs,
+                "fat" to it.fat, "confidence" to it.confidence)
+        },
+        "timestamp" to timestamp,
+        "dateKey" to dateKey,
+        "createdAt" to FieldValue.serverTimestamp()
+    )
 
     private fun BodyScan.toMap(): Map<String, Any?> = mapOf("capturedAt" to capturedAt,
         "frontImageUrl" to frontImageUrl, "sideImageUrl" to sideImageUrl, "summary" to summary, "confidence" to confidence,

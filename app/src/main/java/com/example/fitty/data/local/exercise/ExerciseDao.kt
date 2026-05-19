@@ -87,6 +87,14 @@ interface ExerciseDao {
     @Query("SELECT COUNT(*) FROM exercises")
     suspend fun countExercises(): Int
 
+    @Query(
+        """
+        SELECT COUNT(*) FROM exercises
+        WHERE thumbnailUrl = '' AND gifUrl = ''
+        """
+    )
+    suspend fun countExercisesMissingPreviewMedia(): Int
+
     @Query("SELECT DISTINCT muscleGroup FROM exercises WHERE muscleGroup != '' ORDER BY muscleGroup COLLATE NOCASE ASC")
     suspend fun getMuscleGroups(): List<String>
 }

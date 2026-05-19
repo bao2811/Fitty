@@ -149,6 +149,8 @@ class FirebasePlanRepository @Inject constructor(
             targetMuscles = (get("targetMuscles") as? List<*>)?.filterIsInstance<String>()
                 ?: listOf(target).filter { it.isNotBlank() },
             equipment = getString("equipment").orEmpty(),
+            thumbnailUrl = getString("thumbnailUrl").orEmpty(),
+            thumbnailStoragePath = getString("thumbnailStoragePath").orEmpty(),
             gifUrl = gifUrl,
             gifStoragePath = getString("gifStoragePath").orEmpty(),
             gifVersion = getLong("gifVersion")?.toInt() ?: 0,

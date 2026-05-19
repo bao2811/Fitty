@@ -1,6 +1,8 @@
 *.iml
 .gradle
 .gradle-user-home
+.android/
+.kotlin/
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -22,3 +24,4 @@ local.properties
 *firebase-adminsdk*.json
 .fir-18934-firebase-adminsdk-fbsvc-1bffdf88a9.json
 /.scripts
+*.log

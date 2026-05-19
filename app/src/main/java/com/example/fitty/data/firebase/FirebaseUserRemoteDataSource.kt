@@ -10,6 +10,9 @@ import com.example.fitty.domain.model.FittyStats
 import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.preferredDisplayName
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
@@ -61,7 +64,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             userDocument(firebaseUser.uid).set(userDoc, SetOptions.merge()).await()
             FittyAuthResult(user = getCurrentUser())
         } catch (error: Exception) {
-            FittyAuthResult(errorMessage = error.message ?: "Could not create account")
+            FittyAuthResult(errorMessage = error.toCreateAccountMessage())
         }
     }
 
@@ -80,7 +83,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
             ensureUserDocument(firebaseUser)
             FittyAuthResult(user = getCurrentUser())
         } catch (error: Exception) {
-            FittyAuthResult(errorMessage = error.message ?: "Username/email or password is incorrect")
+            FittyAuthResult(errorMessage = error.toSignInMessage())
         }
     }
 
@@ -625,4 +628,16 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         val DAY_ORDER = listOf("sun", "mon", "tue", "wed", "thu", "fri", "sat")
         val DATE_KEY_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
     }
+}
+
+private fun Exception.toCreateAccountMessage(): String = when (this) {
+    is FirebaseAuthUserCollisionException -> "Account already exists"
+    is FirebaseAuthInvalidCredentialsException -> "Enter a valid email address"
+    else -> message ?: "Could not create account"
+}
+
+private fun Exception.toSignInMessage(): String = when (this) {
+    is FirebaseAuthInvalidUserException,
+    is FirebaseAuthInvalidCredentialsException -> "Email or password is incorrect"
+    else -> message ?: "Email or password is incorrect"
 }

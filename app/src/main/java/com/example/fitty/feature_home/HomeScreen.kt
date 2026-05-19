@@ -1,6 +1,7 @@
 package com.example.fitty.feature_home
 
 import android.content.Context
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,16 +10,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.LocalDining
@@ -37,9 +42,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +69,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -193,7 +201,12 @@ data class HomeUiState(
     val achievement: HomeAchievementPreviewUi = HomeAchievementPreviewUi("", "", "", ""),
     val showNotifications: Boolean = false,
     val notifications: List<HomeNotificationUi> = emptyList(),
-    val unreadNotificationCount: Int = 0
+    val unreadNotificationCount: Int = 0,
+    val heightCm: Int? = null,
+    val weightKg: Int? = null,
+    val targetWeightKg: Int? = null,
+    val bmi: Float? = null,
+    val showEditBodyDialog: Boolean = false
 )
 
 data class HomeNotificationUi(
@@ -211,6 +224,9 @@ class HomeViewModel @Inject constructor(
     private val getHomeDashboardUseCase: com.example.fitty.domain.usecase.home.GetHomeDashboardUseCase,
     private val homeTaskRepository: HomeTaskRepository,
     private val appNotificationRepository: AppNotificationRepository,
+    private val userRepository: com.example.fitty.domain.repository.UserRepository,
+    private val sessionRepository: com.example.fitty.domain.repository.SessionRepository,
+    private val trackingRepository: com.example.fitty.domain.repository.TrackingRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialHomeUiState(context))
@@ -221,6 +237,7 @@ class HomeViewModel @Inject constructor(
         observeTasks()
         observeNotifications()
         refreshUser()
+        loadTodaySummary()
     }
 
     fun refreshUser() {
@@ -239,7 +256,20 @@ class HomeViewModel @Inject constructor(
                                 R.string.home_greeting_default,
                                 context.getString(R.string.home_display_name_default)
                             )
-                        ) else user.toHomeUiState(context).preserveDynamicState(current)
+                        ) else {
+                            val withBody = user.toHomeUiState(context).preserveDynamicState(current)
+                            val h = user.profile.heightCm
+                            val w = user.profile.weightKg
+                            val bmi = if (h != null && h > 0 && w != null && w > 0) {
+                                w.toFloat() / ((h.toFloat() / 100f) * (h.toFloat() / 100f))
+                            } else null
+                            withBody.copy(
+                                heightCm = h,
+                                weightKg = w,
+                                targetWeightKg = user.profile.targetWeightKg,
+                                bmi = bmi
+                            )
+                        }
                     }
                 }
                 .onFailure {
@@ -266,7 +296,7 @@ class HomeViewModel @Inject constructor(
                             focusMetrics = listOf(
                                 HomeFocusMetricUi(
                                     context.getString(R.string.home_metric_workout),
-                                    "${summary?.progress?.workoutsCompleted ?: 0}/1"
+                                    "${summary?.progress?.workoutsCompleted ?: 0}/${summary?.targets?.workouts ?: 1}"
                                 ),
                                 HomeFocusMetricUi(
                                     context.getString(R.string.home_metric_meals_logged),
@@ -274,7 +304,7 @@ class HomeViewModel @Inject constructor(
                                 ),
                                 HomeFocusMetricUi(
                                     context.getString(R.string.home_metric_water),
-                                    "${summary?.progress?.waterMl ?: 0} / ${summary?.targets?.waterMl ?: 2500} ml"
+                                    "${"%.1f".format((summary?.progress?.waterMl ?: 0) / 1000f)}/${"%.1f".format((summary?.targets?.waterMl ?: 2500) / 1000f)} L"
                                 )
                             ),
                             workout = if (workout != null) HomeWorkoutUi(
@@ -285,19 +315,26 @@ class HomeViewModel @Inject constructor(
                                 primaryActionLabel = context.getString(R.string.home_action_start),
                                 secondaryActionLabel = context.getString(R.string.home_action_details)
                             ) else current.workout,
-                            nutrition = if (summary != null) defaultNutrition(
-                                context = context,
-                                summary = context.getString(
-                                    R.string.home_nutrition_summary,
-                                    summary.progress.caloriesConsumed,
-                                    summary.targets.calories
-                                )
-                            ) else current.nutrition,
+                            nutrition = if (summary != null) {
+                                val uid = sessionRepository.getCurrentUserId()
+                                if (uid != null) {
+                                    val logs = runCatching { trackingRepository.getMealLogs(uid, todayDateKey) }.getOrDefault(emptyList())
+                                    buildNutritionFromMealLogs(
+                                        mealLogs = logs,
+                                        caloriesTarget = summary.targets.calories
+                                    )
+                                } else {
+                                    emptyNutrition(
+                                        context = context,
+                                        caloriesTarget = summary.targets.calories
+                                    )
+                                }
+                            } else current.nutrition,
                             streak = buildStreakUi(
                                 context = context,
-                                currentStreak = summary?.currentStreak ?: current.streak.currentDayIndex,
-                                bestStreak = 0, // from user stats
-                                activeDates = emptyList()
+                                currentStreak = dashboard.user.stats.currentStreak,
+                                bestStreak = dashboard.user.stats.bestStreak,
+                                activeDates = dashboard.user.stats.streakActiveDates
                             ),
                             insight = if (summary?.insightText?.isNotBlank() == true) HomeInsightUi(
                                 title = context.getString(R.string.home_insight_title),
@@ -439,6 +476,140 @@ class HomeViewModel @Inject constructor(
             defaults = defaultTaskDrafts(context = context, goalLabel = goalLabel)
         )
     }
+
+    fun toggleEditBodyDialog(show: Boolean) {
+        _uiState.update { it.copy(showEditBodyDialog = show) }
+    }
+
+    fun updateBodyMetrics(newHeightCm: Int?, newWeightKg: Int?, newTargetWeightKg: Int?) {
+        viewModelScope.launch {
+            val uid = sessionRepository.getCurrentUserId() ?: return@launch
+            val user = getCurrentUserUseCase() ?: return@launch
+            val updatedProfile = user.profile.copy(
+                heightCm = newHeightCm ?: user.profile.heightCm,
+                weightKg = newWeightKg ?: user.profile.weightKg,
+                targetWeightKg = newTargetWeightKg ?: user.profile.targetWeightKg
+            )
+            userRepository.updateProfile(uid, updatedProfile)
+            val h = updatedProfile.heightCm
+            val w = updatedProfile.weightKg
+            val bmi = if (h != null && h > 0 && w != null && w > 0) {
+                w.toFloat() / ((h.toFloat() / 100f) * (h.toFloat() / 100f))
+            } else null
+            _uiState.update {
+                it.copy(
+                    heightCm = updatedProfile.heightCm,
+                    weightKg = updatedProfile.weightKg,
+                    targetWeightKg = updatedProfile.targetWeightKg,
+                    bmi = bmi,
+                    showEditBodyDialog = false
+                )
+            }
+        }
+    }
+
+    private fun loadTodaySummary() {
+        viewModelScope.launch {
+            val uid = sessionRepository.getCurrentUserId() ?: return@launch
+            runCatching {
+                val summary = trackingRepository.getDailySummary(uid, todayDateKey)
+                val mealLogs = trackingRepository.getMealLogs(uid, todayDateKey)
+                val workoutsCompleted = summary?.progress?.workoutsCompleted ?: 0
+                val workoutTarget = summary?.targets?.workouts ?: 1
+                val mealsLogged = mealLogs.size
+                val waterMl = summary?.progress?.waterMl ?: 0
+                val waterTarget = summary?.targets?.waterMl ?: 2500
+                val waterL = "%.1f".format(waterMl / 1000f)
+                val waterTL = "%.1f".format(waterTarget / 1000f)
+
+                // Build real nutrition from meal logs
+                val nutritionUi = buildNutritionFromMealLogs(
+                    mealLogs = mealLogs,
+                    caloriesTarget = summary?.targets?.calories ?: 2100
+                )
+
+                // Build focus description from real data
+                val workoutDuration = summary?.todayWorkoutTitle?.let {
+                    // Extract duration if available from summary
+                    summary.targets.workouts
+                } ?: 1
+
+                _uiState.update { current ->
+                    current.copy(
+                        focusMetrics = listOf(
+                            HomeFocusMetricUi(
+                                label = context.getString(R.string.home_metric_workout),
+                                value = "$workoutsCompleted/$workoutTarget"
+                            ),
+                            HomeFocusMetricUi(
+                                label = context.getString(R.string.home_metric_meals_logged),
+                                value = "$mealsLogged/3"
+                            ),
+                            HomeFocusMetricUi(
+                                label = context.getString(R.string.home_metric_water),
+                                value = "$waterL/$waterTL L"
+                            )
+                        ),
+                        nutrition = nutritionUi
+                    )
+                }
+            }
+        }
+    }
+
+    private fun buildNutritionFromMealLogs(
+        mealLogs: List<com.example.fitty.domain.model.MealLog>,
+        caloriesTarget: Int
+    ): HomeNutritionUi {
+        val totalCalories = mealLogs.sumOf { it.totalCalories }
+        val totalProtein = mealLogs.sumOf { it.totalProtein }
+        val totalCarbs = mealLogs.sumOf { it.totalCarbs }
+        val totalFat = mealLogs.sumOf { it.totalFat }
+        val totalMacroGrams = (totalProtein + totalCarbs + totalFat).coerceAtLeast(1)
+
+        val proteinRatio = totalProtein.toFloat() / totalMacroGrams
+        val carbsRatio = totalCarbs.toFloat() / totalMacroGrams
+        val fatRatio = totalFat.toFloat() / totalMacroGrams
+
+        // Group meals by type and build meal rows
+        val mealRows = if (mealLogs.isEmpty()) {
+            listOf(
+                HomeMealUi(context.getString(R.string.home_meal_breakfast), "—"),
+                HomeMealUi(context.getString(R.string.home_meal_lunch), "—"),
+                HomeMealUi(context.getString(R.string.home_meal_snack), "—")
+            )
+        } else {
+            mealLogs.groupBy { it.mealType.ifBlank { "Other" } }.map { (type, logs) ->
+                val cal = logs.sumOf { it.totalCalories }
+                HomeMealUi(
+                    label = type.replaceFirstChar { c -> c.uppercase() },
+                    calories = "$cal kcal"
+                )
+            }
+        }
+
+        return HomeNutritionUi(
+            sectionTitle = context.getString(R.string.home_nutrition_section_title),
+            summary = "$totalCalories / $caloriesTarget kcal",
+            macros = if (mealLogs.isEmpty()) {
+                listOf(
+                    HomeMacroProgressUi(context.getString(R.string.home_macro_protein), 0f),
+                    HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), 0f),
+                    HomeMacroProgressUi(context.getString(R.string.home_macro_fat), 0f)
+                )
+            } else {
+                listOf(
+                    HomeMacroProgressUi(context.getString(R.string.home_macro_protein), proteinRatio),
+                    HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), carbsRatio),
+                    HomeMacroProgressUi(context.getString(R.string.home_macro_fat), fatRatio)
+                )
+            },
+            meals = mealRows,
+            primaryActionLabel = context.getString(R.string.home_action_log_meal),
+            secondaryActionLabel = context.getString(R.string.home_action_details)
+        )
+    }
+
 }
 
 @Composable
@@ -465,7 +636,10 @@ fun HomeRoute(
         onDeleteTask = viewModel::deleteTask,
         onMarkNotificationRead = viewModel::markNotificationRead,
         onMarkAllNotificationsRead = viewModel::markAllNotificationsRead,
-        onDeleteNotification = viewModel::deleteNotification
+        onDeleteNotification = viewModel::deleteNotification,
+        onEditBodyMetrics = { viewModel.toggleEditBodyDialog(true) },
+        onDismissEditBody = { viewModel.toggleEditBodyDialog(false) },
+        onSaveBodyMetrics = viewModel::updateBodyMetrics
     )
 }
 
@@ -486,7 +660,10 @@ fun HomeScreen(
     onDeleteTask: (Long) -> Unit = {},
     onMarkNotificationRead: (Long) -> Unit = {},
     onMarkAllNotificationsRead: () -> Unit = {},
-    onDeleteNotification: (Long) -> Unit = {}
+    onDeleteNotification: (Long) -> Unit = {},
+    onEditBodyMetrics: () -> Unit = {},
+    onDismissEditBody: () -> Unit = {},
+    onSaveBodyMetrics: (Int?, Int?, Int?) -> Unit = { _, _, _ -> }
 ) {
     var showAddTaskDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -513,6 +690,25 @@ fun HomeScreen(
     FittyLazyScreen {
         item { HomeTopBar(state = state, onNotificationClick = onToggleNotifications) }
         item { TodaySummaryCard(state = state, onStartToday = onStartWorkout, onViewPlan = onWorkoutDetails) }
+        // Quick Actions Row
+        item {
+            QuickActionsRow(
+                onWorkout = onStartWorkout,
+                onScanMeal = onLogMeal,
+                onTrackProgress = onNutritionDetails
+            )
+        }
+        // Body Metrics Card
+        item {
+            BodyMetricsCard(
+                heightCm = state.heightCm,
+                weightKg = state.weightKg,
+                targetWeightKg = state.targetWeightKg,
+                bmi = state.bmi,
+                onEdit = onEditBodyMetrics
+            )
+        }
+        item { StreakCard(state.streak) }
         item {
             TodayTasksSection(
                 state = state,
@@ -523,12 +719,22 @@ fun HomeScreen(
                 onDeleteTask = onDeleteTask
             )
         }
-        item { StreakCard(state = state.streak) }
-        item { WorkoutTodayCard(workout = state.workout, onStart = onStartWorkout, onDetails = onWorkoutDetails) }
-        item { NutritionSummaryCard(nutrition = state.nutrition, onLogMeal = onLogMeal, onDetails = onNutritionDetails) }
-        item { AIInsightCard(insight = state.insight, onAskCoach = onAskCoach) }
-        item { AchievementPreviewCard(achievement = state.achievement) }
-        item { Spacer(modifier = Modifier.height(8.dp)) }
+        item { WorkoutTodayCard(state.workout, onStart = onStartWorkout, onDetails = onWorkoutDetails) }
+        item { NutritionSummaryCard(state.nutrition, onLogMeal = onLogMeal, onDetails = onNutritionDetails) }
+        item { AIInsightCard(state.insight, onAskCoach = onAskCoach) }
+        item { AchievementPreviewCard(state.achievement) }
+        item { Spacer(modifier = Modifier.height(90.dp)) }
+    }
+
+    // Edit body metrics dialog
+    if (state.showEditBodyDialog) {
+        EditBodyMetricsDialog(
+            currentHeightCm = state.heightCm,
+            currentWeightKg = state.weightKg,
+            currentTargetWeightKg = state.targetWeightKg,
+            onDismiss = onDismissEditBody,
+            onSave = onSaveBodyMetrics
+        )
     }
 }
 
@@ -540,14 +746,15 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f)
         ) {
+            // Gradient avatar with glow
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .shadow(6.dp, CircleShape)
+                    .size(56.dp)
+                    .shadow(12.dp, CircleShape, ambientColor = FittyPink.copy(alpha = 0.3f), spotColor = FittyPink.copy(alpha = 0.25f))
                     .clip(CircleShape)
                     .background(Brush.linearGradient(listOf(FittyGradientStart, FittyGradientEnd))),
                 contentAlignment = Alignment.Center
@@ -564,17 +771,15 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
                         model = state.avatarUrl,
                         contentDescription = state.displayName,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
+                        modifier = Modifier.size(52.dp).clip(CircleShape)
                     )
                 }
             }
             Column {
                 Text(
-                    text = state.greetingTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    text = state.greetingTitle.replace("Welcome", "Hi,").replace("hi,", "Hi,"),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -585,25 +790,27 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
                 )
             }
         }
-        IconButton(onClick = onNotificationClick) {
-            Box {
-                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "Notifications")
-                if (state.unreadNotificationCount > 0) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(18.dp)
-                            .clip(CircleShape)
-                            .background(FittyPink),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = state.unreadNotificationCount.coerceAtMost(99).toString(),
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+        // Notification bell — no border/background
+        Box(modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onNotificationClick) {
+                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "Notifications", tint = MaterialTheme.colorScheme.onSurface)
+            }
+            if (state.unreadNotificationCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-2).dp, y = 4.dp)
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .background(FittyPink),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = state.unreadNotificationCount.coerceAtMost(99).toString(),
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -611,74 +818,215 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
 }
 
 @Composable
-private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, onViewPlan: () -> Unit = {}) {
+private fun QuickActionsRow(
+    onWorkout: () -> Unit,
+    onScanMeal: () -> Unit,
+    onTrackProgress: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        QuickActionChip(
+            icon = Icons.Outlined.FitnessCenter,
+            label = "Workout",
+            onClick = onWorkout,
+            modifier = Modifier.weight(1f)
+        )
+        QuickActionChip(
+            icon = Icons.Outlined.Restaurant,
+            label = "Scan Meal",
+            onClick = onScanMeal,
+            modifier = Modifier.weight(1f)
+        )
+        QuickActionChip(
+            icon = Icons.Outlined.BarChart,
+            label = "Progress",
+            onClick = onTrackProgress,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun QuickActionChip(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     Card(
-        shape = RoundedCornerShape(24.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        modifier = Modifier.fillMaxWidth()
+        onClick = onClick,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = modifier
     ) {
         Column(
-            modifier = Modifier
-                .background(Brush.horizontalGradient(listOf(FittyGradientStart, FittyGradientEnd)))
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(FittyPink.copy(alpha = 0.12f), FittyPinkLight.copy(alpha = 0.08f))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        state.focusTitle,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        state.focusDescription,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Outlined.SelfImprovement,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
+                Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(22.dp))
             }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.focusMetrics.forEach { metric ->
-                    FocusMetric(label = metric.label, value = metric.value)
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onStartToday,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FittyPink),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
-                    modifier = Modifier.weight(1f)
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, onViewPlan: () -> Unit = {}) {
+    Card(
+        shape = RoundedCornerShape(28.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            FittyGradientStart,
+                            FittyGradientEnd,
+                            FittyPink.copy(alpha = 0.9f)
+                        )
+                    )
+                )
+        ) {
+            // Decorative circle overlays
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .offset(x = (-30).dp, y = (-20).dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.06f))
+            )
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 20.dp, y = 20.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.05f))
+            )
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(state.focusPrimaryActionLabel, fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            state.focusTitle,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            state.focusDescription,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                    // Circular daily progress
+                    Box(
+                        modifier = Modifier.size(64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val metricsProgress = state.focusMetrics.firstOrNull()?.value?.let {
+                            val parts = it.split("/")
+                            if (parts.size == 2) {
+                                val current = parts[0].trim().toFloatOrNull() ?: 0f
+                                val total = parts[1].trim().toFloatOrNull() ?: 1f
+                                if (total > 0) current / total else 0f
+                            } else 0f
+                        } ?: 0f
+                        CircularProgressIndicator(
+                            progress = { 1f },
+                            modifier = Modifier.size(60.dp),
+                            strokeWidth = 5.dp,
+                            color = Color.White.copy(alpha = 0.2f),
+                            trackColor = Color.Transparent
+                        )
+                        CircularProgressIndicator(
+                            progress = { metricsProgress },
+                            modifier = Modifier.size(60.dp),
+                            strokeWidth = 5.dp,
+                            color = Color.White,
+                            trackColor = Color.Transparent
+                        )
+                        Icon(
+                            Icons.Outlined.SelfImprovement,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
-                OutlinedButton(
-                    onClick = onViewPlan,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    modifier = Modifier.weight(1f)
+                // Metrics row with pill backgrounds
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(state.focusSecondaryActionLabel)
+                    state.focusMetrics.take(3).forEach { metric ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.15f))
+                                .padding(vertical = 10.dp, horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    metric.value,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    metric.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.75f)
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = onStartToday,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FittyPink),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
+                        modifier = Modifier.weight(1f).height(52.dp)
+                    ) {
+                        Text(state.focusPrimaryActionLabel, fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(
+                        onClick = onViewPlan,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.5f)),
+                        modifier = Modifier.weight(1f).height(52.dp)
+                    ) {
+                        Text(state.focusSecondaryActionLabel, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -691,6 +1039,7 @@ private fun FocusMetric(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
         Text(value, style = MaterialTheme.typography.bodyMedium, color = Color.White, fontWeight = FontWeight.Bold)
     }
+
 }
 
 @Composable
@@ -702,15 +1051,28 @@ private fun TodayTasksSection(
     onToggleTaskReminder: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FittySectionHeader(
-            title = state.tasksSectionTitle,
-            action = state.tasksSectionActionLabel,
-            onActionClick = onAddTask
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = state.tasksSectionTitle,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.ExtraBold
+            )
+            TextButton(onClick = onAddTask) {
+                Text(
+                    text = "+ ${state.tasksSectionActionLabel}",
+                    color = FittyPink,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
         if (state.tasks.isEmpty()) {
             Card(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -752,9 +1114,9 @@ private fun TaskCard(
     val completed = task.status == HomeTaskStatus.Completed
     val inProgress = task.status == HomeTaskStatus.InProgress
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (inProgress) 3.dp else 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (inProgress) 5.dp else 2.dp),
         border = BorderStroke(
             width = 1.dp,
             color = if (completed) FittyPink.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
@@ -771,15 +1133,15 @@ private fun TaskCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (completed) FittyPink.copy(alpha = 0.10f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)),
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (completed) FittyPink.copy(alpha = 0.10f) else FittyPinkLight.copy(alpha = 0.35f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         if (completed) Icons.Outlined.CheckCircle else icon,
                         contentDescription = null,
-                        tint = if (completed) FittyPink else MaterialTheme.colorScheme.primary,
+                        tint = FittyPink,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -794,7 +1156,7 @@ private fun TaskCard(
                     onClick = {},
                     enabled = false,
                     label = { Text(task.status.toDisplayLabel(), style = MaterialTheme.typography.labelSmall) },
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
@@ -1045,7 +1407,7 @@ private fun initialHomeUiState(context: Context): HomeUiState {
             primaryActionLabel = context.getString(R.string.home_action_start),
             secondaryActionLabel = context.getString(R.string.home_action_details)
         ),
-        nutrition = defaultNutrition(context),
+        nutrition = emptyNutrition(context),
         insight = HomeInsightUi(
             title = context.getString(R.string.home_insight_title),
             message = context.getString(R.string.home_insight_default, context.getString(R.string.home_goal_default)),
@@ -1123,13 +1485,9 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
             primaryActionLabel = context.getString(R.string.home_action_start),
             secondaryActionLabel = context.getString(R.string.home_action_details)
         ),
-        nutrition = defaultNutrition(
+        nutrition = emptyNutrition(
             context = context,
-            summary = context.getString(
-                R.string.home_nutrition_summary,
-                estimateCaloriesLogged(),
-                estimateCaloriesTarget(profile.weightKg, profile.primaryGoal)
-            )
+            caloriesTarget = estimateCaloriesTarget(profile.weightKg, profile.primaryGoal)
         ),
         insight = HomeInsightUi(
             title = context.getString(R.string.home_insight_title),
@@ -1179,19 +1537,19 @@ private fun defaultTaskDrafts(context: Context, goalLabel: String): List<HomeTas
     )
 )
 
-private fun defaultNutrition(context: Context, summary: String = context.getString(R.string.home_nutrition_summary, 1240, 2100)): HomeNutritionUi {
+private fun emptyNutrition(context: Context, caloriesTarget: Int = 2100): HomeNutritionUi {
     return HomeNutritionUi(
         sectionTitle = context.getString(R.string.home_nutrition_section_title),
-        summary = summary,
+        summary = "0 / $caloriesTarget kcal",
         macros = listOf(
-            HomeMacroProgressUi(context.getString(R.string.home_macro_protein), 0.46f),
-            HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), 0.58f),
-            HomeMacroProgressUi(context.getString(R.string.home_macro_fat), 0.38f)
+            HomeMacroProgressUi(context.getString(R.string.home_macro_protein), 0f),
+            HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), 0f),
+            HomeMacroProgressUi(context.getString(R.string.home_macro_fat), 0f)
         ),
         meals = listOf(
-            HomeMealUi(context.getString(R.string.home_meal_breakfast), context.getString(R.string.home_calories_420)),
-            HomeMealUi(context.getString(R.string.home_meal_lunch), context.getString(R.string.home_calories_610)),
-            HomeMealUi(context.getString(R.string.home_meal_snack), context.getString(R.string.home_calories_210))
+            HomeMealUi(context.getString(R.string.home_meal_breakfast), "—"),
+            HomeMealUi(context.getString(R.string.home_meal_lunch), "—"),
+            HomeMealUi(context.getString(R.string.home_meal_snack), "—")
         ),
         primaryActionLabel = context.getString(R.string.home_action_log_meal),
         secondaryActionLabel = context.getString(R.string.home_action_details)
@@ -1249,131 +1607,156 @@ private fun NotificationDialog(
     onMarkAllRead: () -> Unit,
     onDelete: (Long) -> Unit
 ) {
+    var showUnreadOnly by rememberSaveable { mutableStateOf(false) }
+    val visibleNotifications = remember(notifications, showUnreadOnly) {
+        if (showUnreadOnly) notifications.filter { !it.isRead } else notifications
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(stringResource(R.string.home_notifications_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(
-                            text = "$unreadCount unread",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (unreadCount > 0) {
-                        TextButton(onClick = onMarkAllRead) {
-                            Text(stringResource(R.string.home_notifications_mark_all_read), color = FittyPink, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(FittyPink.copy(alpha = 0.1f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Notifications, contentDescription = null, tint = FittyPink, modifier = Modifier.size(22.dp))
                         }
+                        Column {
+                            Text("Thông báo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            if (unreadCount > 0) {
+                                Text("$unreadCount chưa đọc", style = MaterialTheme.typography.labelSmall, color = FittyPink)
+                            }
+                        }
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                     }
                 }
 
-                if (notifications.isEmpty()) {
-                    Text(
-                        stringResource(R.string.home_notifications_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
-                } else {
-                    notifications.forEach { notification ->
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (notification.isRead) {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                }
-                            ),
-                            border = BorderStroke(
-                                width = 1.dp,
-                                color = if (notification.isRead) {
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                                } else {
-                                    FittyPink.copy(alpha = 0.18f)
-                                }
-                            )
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.Top
-                                ) {
+                // Tabs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    NotificationTab(label = "Tất cả", selected = !showUnreadOnly, modifier = Modifier.weight(1f), onClick = { showUnreadOnly = false })
+                    NotificationTab(label = "Chưa đọc", selected = showUnreadOnly, modifier = Modifier.weight(1f), onClick = { showUnreadOnly = true })
+                }
+
+                // Mark all read
+                if (unreadCount > 0) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Text("Đọc tất cả", style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onMarkAllRead))
+                    }
+                }
+
+                // Notification items
+                if (visibleNotifications.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        visibleNotifications.forEach { notification ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (notification.isRead) Color.Transparent else FittyPink.copy(alpha = 0.04f))
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(contentAlignment = Alignment.TopStart) {
                                     Box(
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(FittyPink.copy(alpha = 0.1f)),
+                                        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.08f)),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(
-                                            notification.icon,
-                                            contentDescription = null,
-                                            tint = FittyPink,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                        Icon(notification.icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(18.dp))
                                     }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Text(
-                                                notification.title,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                notification.time,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        Text(
-                                            notification.message,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                    if (!notification.isRead) {
+                                        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(FittyPink))
                                     }
                                 }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    if (!notification.isRead) {
-                                        TextButton(onClick = { onMarkRead(notification.id) }) {
-                                            Text(stringResource(R.string.home_notification_read))
-                                        }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(notification.title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                                        Text(notification.time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    TextButton(onClick = { onDelete(notification.id) }) {
-                                        Text(stringResource(R.string.home_notification_delete))
+                                    Text(notification.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        if (!notification.isRead) {
+                                            Text("Đã đọc", style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onMarkRead(notification.id) })
+                                        }
+                                        Text("Xóa", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.clickable { onDelete(notification.id) })
                                     }
                                 }
                             }
                         }
                     }
-                }
-
-                Button(
-                    onClick = onDismiss,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.home_action_close), fontWeight = FontWeight.Bold)
+                } else {
+                    // Empty state
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(FittyPink.copy(alpha = 0.06f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Notifications, contentDescription = null, tint = FittyPinkLight, modifier = Modifier.size(28.dp))
+                        }
+                        Text("Không có thông báo mới", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text("Chúng tôi sẽ báo khi có cập nhật.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun NotificationTab(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) Color.White else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -1600,6 +1983,98 @@ private fun List<String>.formatWorkoutDays(context: Context): String {
     return joinToString(", ") { value ->
         value.replaceFirstChar { char ->
             if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
+        }
+    }
+}
+
+@Composable
+private fun BodyMetricsCard(
+    heightCm: Int?,
+    weightKg: Int?,
+    targetWeightKg: Int?,
+    bmi: Float?,
+    onEdit: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(FittyPink.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.AccessibilityNew, contentDescription = null, tint = FittyPink, modifier = Modifier.size(22.dp))
+                    }
+                    Text("Body Metrics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(12.dp)) { Text("Edit", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium) }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                BodyMetricTile(value = heightCm?.toString() ?: "--", unit = "cm", label = "Height", modifier = Modifier.weight(1f))
+                BodyMetricTile(value = weightKg?.toString() ?: "--", unit = "kg", label = "Weight", modifier = Modifier.weight(1f))
+                BodyMetricTile(value = bmi?.let { "%.1f".format(it) } ?: "--", unit = "", label = "BMI", modifier = Modifier.weight(1f))
+            }
+            if (targetWeightKg != null && weightKg != null) {
+                val diff = weightKg - targetWeightKg
+                val progress = if (diff > 0) (1f - (diff.toFloat() / weightKg.toFloat())).coerceIn(0f, 1f) else 1f
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Target: " + targetWeightKg + " kg", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(((progress * 100).toInt()).toString() + "%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = FittyPink)
+                    }
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BodyMetricTile(value: String, unit: String, label: String, modifier: Modifier = Modifier) {
+    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)), modifier = modifier) {
+        Column(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (unit.isNotBlank()) Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun EditBodyMetricsDialog(currentHeightCm: Int?, currentWeightKg: Int?, currentTargetWeightKg: Int?, onDismiss: () -> Unit, onSave: (Int?, Int?, Int?) -> Unit) {
+    var height by remember { mutableStateOf(currentHeightCm?.toString() ?: "") }
+    var weight by remember { mutableStateOf(currentWeightKg?.toString() ?: "") }
+    var targetWeight by remember { mutableStateOf(currentTargetWeightKg?.toString() ?: "") }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(defaultElevation = 12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(FittyPink.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AccessibilityNew, null, tint = FittyPink, modifier = Modifier.size(24.dp)) }
+                    Text("Update Body Metrics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+                OutlinedTextField(value = height, onValueChange = { height = it.filter { c -> c.isDigit() } }, label = { Text("Height (cm)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = weight, onValueChange = { weight = it.filter { c -> c.isDigit() } }, label = { Text("Weight (kg)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = targetWeight, onValueChange = { targetWeight = it.filter { c -> c.isDigit() } }, label = { Text("Target Weight (kg)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                val h = height.toIntOrNull(); val w = weight.toIntOrNull()
+                if (h != null && h > 0 && w != null && w > 0) {
+                    val previewBmi = w.toFloat() / ((h.toFloat() / 100f) * (h.toFloat() / 100f))
+                    val bmiCat = when { previewBmi < 18.5f -> "Underweight"; previewBmi < 25f -> "Normal"; previewBmi < 30f -> "Overweight"; else -> "Obese" }
+                    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = FittyPink.copy(alpha = 0.07f))) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("BMI Preview", style = MaterialTheme.typography.labelMedium)
+                            Text("%.1f".format(previewBmi) + " (" + bmiCat + ")", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = FittyPink)
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Text("Cancel") }
+                    Button(onClick = { onSave(height.toIntOrNull(), weight.toIntOrNull(), targetWeight.toIntOrNull()) }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) { Text("Save", fontWeight = FontWeight.Bold) }
+                }
+            }
         }
     }
 }

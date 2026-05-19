@@ -2,8 +2,10 @@ package com.example.fitty.data.firebase
 
 import com.example.fitty.domain.model.*
 import com.example.fitty.domain.repository.CoachRepository
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.*
 import kotlinx.coroutines.tasks.await
+import java.util.Date
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -56,7 +58,7 @@ class FirebaseCoachRepository @Inject constructor(
         if (!exists()) return null
         return CoachThread(id = id, title = getString("title").orEmpty(),
             lastMessagePreview = getString("lastMessagePreview").orEmpty(),
-            lastMessageAt = getLong("lastMessageAt") ?: 0L,
+            lastMessageAt = getEpochMillis("lastMessageAt"),
             messageCount = getLong("messageCount")?.toInt() ?: 0)
     }
 
@@ -82,7 +84,7 @@ class FirebaseCoachRepository @Inject constructor(
             }
         } ?: emptyList()
         return CoachMessage(id = id, threadId = threadId, role = getString("role") ?: "user",
-            text = getString("text").orEmpty(), suggestions = sugList, createdAt = getLong("createdAt") ?: 0L)
+            text = getString("text").orEmpty(), suggestions = sugList, createdAt = getEpochMillis("createdAt"))
     }
 
     private fun CoachMessage.toMap(): Map<String, Any?> = mapOf("role" to role, "text" to text,
@@ -96,4 +98,15 @@ class FirebaseCoachRepository @Inject constructor(
                 is CoachSuggestion.General -> mapOf("type" to "general", "title" to s.title, "actionLabel" to s.actionLabel)
             }
         }, "createdAt" to FieldValue.serverTimestamp())
+
+    private fun DocumentSnapshot.getEpochMillis(field: String): Long {
+        val raw = get(field) ?: return 0L
+        return when (raw) {
+            is Timestamp -> raw.toDate().time
+            is Date -> raw.time
+            is Number -> raw.toLong()
+            is String -> raw.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+    }
 }

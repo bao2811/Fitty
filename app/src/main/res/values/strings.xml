@@ -47,6 +47,8 @@
     <string name="auth_join_fitty">Join Fitty</string>
     <string name="auth_create_account_subtitle">Create your personalized fitness journey</string>
     <string name="auth_create_account_failed">Create account failed</string>
+    <string name="auth_account_exists">Account already exists</string>
+    <string name="auth_invalid_sign_in_credentials">Email or password is incorrect</string>
     <string name="auth_username_required">Username is required</string>
     <string name="auth_username_min">Username must be at least 3 characters</string>
     <string name="auth_enter_valid_email">Enter a valid email</string>

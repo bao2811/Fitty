@@ -90,6 +90,18 @@ internal data class TrackAnalysisResult(
     val rows: List<TrackAnalysisRow>
 )
 
+internal data class MealScanHistoryUi(
+    val id: String,
+    val imageUrl: String,
+    val calories: Int,
+    val protein: Int,
+    val carbs: Int,
+    val fat: Int,
+    val foodCount: Int,
+    val dateKey: String,
+    val timestamp: Long
+)
+
 internal data class TrackUiState(
     val selectedTab: TrackTab? = null,
     val tabs: List<TrackTab> = listOf(TrackTab.Meals, TrackTab.Body, TrackTab.Progress, TrackTab.Stats),
@@ -99,17 +111,31 @@ internal data class TrackUiState(
     val captureError: String? = null,
     val mealConfirmed: Boolean = false,
     val bodyScanSaved: Boolean = false,
+    // Progress
     val progressWeight: String = "--",
     val progressWeightPercent: Float = 0f,
     val progressWorkouts: String = "0 / 0",
     val progressWorkoutPercent: Float = 0f,
     val progressMeals: String = "0 meals logged",
     val progressMealPercent: Float = 0f,
+    val targetWeight: String = "--",
+    val bmi: String = "--",
+    val totalCaloriesBurned: String = "0",
+    val avgDailyCalories: String = "0",
+    val weeklyActiveDays: List<Boolean> = List(7) { false },
+    val completionRate: Int = 0,
+    // Stats
     val statWorkouts: String = "0",
     val statMeals: String = "0",
     val statStreak: String = "0 days",
     val statActiveMin: String = "0",
-    val mealHistory: List<Pair<String, String>> = emptyList()
+    val statAvgCalories: String = "0 kcal",
+    val statProteinAvg: String = "0g",
+    val statCarbsAvg: String = "0g",
+    val statFatAvg: String = "0g",
+    // Scan history
+    val mealHistory: List<Pair<String, String>> = emptyList(),
+    val scanHistory: List<MealScanHistoryUi> = emptyList()
 )
 
 @Composable
@@ -135,6 +161,7 @@ class TrackViewModel @Inject constructor(
     private val saveBodyScanUseCase: com.example.fitty.domain.usecase.track.SaveBodyScanUseCase,
     private val getProgressStatsUseCase: com.example.fitty.domain.usecase.track.GetProgressStatsUseCase,
     private val getMealLogsUseCase: com.example.fitty.domain.usecase.track.GetMealLogsUseCase,
+    private val getMealScanHistoryUseCase: com.example.fitty.domain.usecase.track.GetMealScanHistoryUseCase,
     private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TrackUiState())
@@ -143,23 +170,77 @@ class TrackViewModel @Inject constructor(
     private var lastMealResult: com.example.fitty.domain.model.MealAnalysisResult? = null
     private var lastBodyResult: com.example.fitty.domain.model.BodyScanAnalysisResult? = null
 
-    init { loadStats() }
+    init {
+        loadStats()
+        loadScanHistory()
+    }
+
+    private fun loadScanHistory() {
+        viewModelScope.launch {
+            runCatching { getMealScanHistoryUseCase() }.onSuccess { records ->
+                _uiState.update { state ->
+                    state.copy(scanHistory = records.map { r ->
+                        MealScanHistoryUi(
+                            id = r.id,
+                            imageUrl = r.imageUrl.ifBlank { r.localImagePath },
+                            calories = r.totalCalories,
+                            protein = r.totalProtein,
+                            carbs = r.totalCarbs,
+                            fat = r.totalFat,
+                            foodCount = r.foodItems.size,
+                            dateKey = r.dateKey,
+                            timestamp = r.timestamp
+                        )
+                    })
+                }
+            }
+        }
+    }
 
     private fun loadStats() {
         viewModelScope.launch {
             runCatching { getProgressStatsUseCase() }.onSuccess { stats ->
+                val totalWorkoutsCompleted = stats.dailySummaries.sumOf { s -> s.progress.workoutsCompleted }
+                val totalCalBurned = stats.dailySummaries.sumOf { s -> s.progress.caloriesBurned }
+                val avgCal = if (stats.dailySummaries.isNotEmpty()) totalCalBurned / stats.dailySummaries.size else 0
+                val weekActive = MutableList(7) { false }
+                stats.dailySummaries.takeLast(7).forEachIndexed { i, s ->
+                    weekActive[i] = s.progress.workoutsCompleted > 0 || s.progress.mealsLogged > 0
+                }
+                val activeDays = weekActive.count { it }
+                val rate = if (7 > 0) (activeDays * 100) / 7 else 0
+
+                // Macro averages from scan history
+                val totalProtein = stats.dailySummaries.sumOf { s -> s.progress.proteinGrams }
+                val totalCarbs = stats.dailySummaries.sumOf { s -> s.progress.carbsGrams }
+                val totalFat = stats.dailySummaries.sumOf { s -> s.progress.fatGrams }
+                val dayCount = stats.dailySummaries.size.coerceAtLeast(1)
+
                 _uiState.update {
                     it.copy(
                         statWorkouts = stats.totalWorkouts.toString(),
                         statMeals = stats.totalMealsLogged.toString(),
                         statStreak = "${stats.bestStreak} days",
                         statActiveMin = "${stats.totalWorkouts * 30}",
+                        statAvgCalories = "${avgCal} kcal",
+                        statProteinAvg = "${totalProtein / dayCount}g",
+                        statCarbsAvg = "${totalCarbs / dayCount}g",
+                        statFatAvg = "${totalFat / dayCount}g",
                         progressWeight = stats.latestWeight?.let { w -> "%.1f kg".format(w) } ?: "--",
-                        progressWeightPercent = stats.latestWeight?.let { 0.42f } ?: 0f,
-                        progressWorkouts = "${stats.dailySummaries.sumOf { s -> s.progress.workoutsCompleted }} total",
-                        progressWorkoutPercent = if (stats.totalWorkouts > 0) 0.5f else 0f,
-                        progressMeals = "${stats.totalMealsLogged} meals logged",
-                        progressMealPercent = if (stats.totalMealsLogged > 0) 0.58f else 0f
+                        progressWeightPercent = stats.latestWeight?.let { w ->
+                            val target = stats.targetWeight ?: w
+                            if (target > 0) (w / target).toFloat().coerceIn(0f, 1f) else 0f
+                        } ?: 0f,
+                        targetWeight = stats.targetWeight?.let { w -> "%.1f kg".format(w) } ?: "--",
+                        bmi = stats.bmi?.let { b -> "%.1f".format(b) } ?: "--",
+                        progressWorkouts = "$totalWorkoutsCompleted total",
+                        progressWorkoutPercent = if (stats.totalWorkouts > 0) (totalWorkoutsCompleted.toFloat() / (stats.totalWorkouts * 1.2f)).coerceIn(0f, 1f) else 0f,
+                        progressMeals = "${stats.totalMealsLogged} meals",
+                        progressMealPercent = if (stats.totalMealsLogged > 0) (stats.totalMealsLogged.toFloat() / (stats.totalMealsLogged + 5)).coerceIn(0f, 1f) else 0f,
+                        totalCaloriesBurned = "$totalCalBurned",
+                        avgDailyCalories = "$avgCal",
+                        weeklyActiveDays = weekActive,
+                        completionRate = rate
                     )
                 }
             }
@@ -247,13 +328,15 @@ class TrackViewModel @Inject constructor(
 
     internal fun confirmMeal() {
         val meal = lastMealResult?.mealLog ?: return
+        val imageUri = _uiState.value.capturedImageUri
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmittingImage = true) }
-            confirmMealLogUseCase(meal)
+            confirmMealLogUseCase(meal, imageUri)
                 .onSuccess {
                     _uiState.update { it.copy(isSubmittingImage = false, mealConfirmed = true) }
                     runCatching { updateStreakUseCase("meal") }
                     loadStats()
+                    loadScanHistory()
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) }
@@ -269,6 +352,7 @@ class TrackViewModel @Inject constructor(
                 .onSuccess {
                     _uiState.update { it.copy(isSubmittingImage = false, bodyScanSaved = true) }
                     runCatching { updateStreakUseCase("body_scan") }
+                    loadStats()
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) }
@@ -354,18 +438,18 @@ private fun TrackScreen(
 
 private fun trackTabLabel(tab: TrackTab): String {
     return when (tab) {
-        TrackTab.Meals -> "Track Meal"
-        TrackTab.Body -> "Body"
-        TrackTab.Progress -> "Progress"
-        TrackTab.Stats -> "Stats"
+        TrackTab.Meals -> "Bữa ăn"
+        TrackTab.Body -> "Hình thể"
+        TrackTab.Progress -> "Tiến độ"
+        TrackTab.Stats -> "Thống kê"
     }
 }
 
 private fun trackTabDescription(tab: TrackTab): String {
     return when (tab) {
-        TrackTab.Meals -> "Chụp ảnh bữa ăn, xem ảnh vừa chụp và gửi tới API phân tích dinh dưỡng."
-        TrackTab.Body -> "Chụp ảnh body progress, xem ảnh và gửi tới API phân tích hình thể."
-        TrackTab.Progress -> "Xem tiến độ cân nặng, tập luyện và lượng calo đã theo dõi."
+        TrackTab.Meals -> "Chụp ảnh bữa ăn để AI phân tích dinh dưỡng."
+        TrackTab.Body -> "Chụp ảnh toàn thân để AI phân tích hình thể."
+        TrackTab.Progress -> "Xem tiến độ cân nặng, tập luyện và dinh dưỡng."
         TrackTab.Stats -> "Xem thống kê tổng hợp."
     }
 }
@@ -386,7 +470,7 @@ private fun TrackFeaturePicker(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Choose what you want to track",
+            "Chọn nội dung theo dõi",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
@@ -442,7 +526,7 @@ private fun TrackDetailHeader(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedButton(onClick = onBackToPicker, shape = RoundedCornerShape(16.dp)) {
             Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("Choose another", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
+            Text("Chọn mục khác", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
         }
         Text(trackTabLabel(tab), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
@@ -455,31 +539,34 @@ private fun MealsTab(
     onSubmitImage: () -> Unit,
     onConfirmMeal: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // ── Camera Scan Card ──
         CameraAnalysisCard(
             icon = Icons.Outlined.CameraAlt,
-            title = "Meal photo scan",
-            body = "Take a meal photo, preview it here, then send it to the future nutrition API.",
-            primaryAction = "Scan Meal",
+            title = "Quét bữa ăn",
+            body = "Chụp ảnh bữa ăn để phân tích dinh dưỡng bằng AI.",
+            primaryAction = "Chụp ảnh",
             state = state,
             onOpenCamera = onOpenCamera,
             onSubmitImage = onSubmitImage
         )
-        // Confirm & Log button after analysis
+
+        // ── Confirm button after analysis ──
         if (state.analysisResult != null && state.selectedTab == TrackTab.Meals) {
             if (state.mealConfirmed) {
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.1f))
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
                         Text(
-                            "Meal logged successfully!",
+                            "Đã lưu bữa ăn thành công!",
                             modifier = Modifier.padding(start = 8.dp),
                             color = Color(0xFF2E7D32),
                             fontWeight = FontWeight.SemiBold,
@@ -493,28 +580,82 @@ private fun MealsTab(
                     enabled = !state.isSubmittingImage,
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
                     if (state.isSubmittingImage) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
-                        Text("Confirm & Log Meal", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                        Text("Xác nhận & lưu", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
-        SummaryCard(Icons.Outlined.Restaurant, "Daily calories", "${state.progressMeals}") {
-            MacroProgress("Protein", state.progressMealPercent)
-            MacroProgress("Carbs", state.progressWorkoutPercent)
-            MacroProgress("Fat", state.progressWeightPercent)
+
+        // ── Daily Summary Card ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
+                    }
+                    Column {
+                        Text("Tổng hôm nay", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(state.progressMeals, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    MacroStatPill("Protein", state.statProteinAvg, Color(0xFF6C63FF))
+                    MacroStatPill("Carbs", state.statCarbsAvg, Color(0xFFFF9F43))
+                    MacroStatPill("Fat", state.statFatAvg, Color(0xFF2ED573))
+                }
+            }
         }
+
+        // ── Scan History ──
+        if (state.scanHistory.isNotEmpty()) {
+            Text("Lịch sử quét", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            state.scanHistory.forEach { scan ->
+                ScanHistoryCard(scan)
+            }
+        }
+
+        // ── Meal Log History ──
         if (state.mealHistory.isNotEmpty()) {
+            Text("Nhật ký bữa ăn", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             state.mealHistory.forEach { (label, cal) ->
                 InfoRowCard(label, cal, Icons.Outlined.Restaurant)
             }
-        } else {
-            InfoRowCard("Meals", "No meals logged yet", Icons.Outlined.Restaurant)
+        } else if (state.scanHistory.isEmpty()) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(FittyPink.copy(alpha = 0.06f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = FittyPink.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
+                    }
+                    Text("Chưa có bữa ăn nào", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("Chụp ảnh bữa ăn để bắt đầu theo dõi dinh dưỡng.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
@@ -526,31 +667,34 @@ private fun BodyTab(
     onSubmitImage: () -> Unit,
     onSaveBodyScan: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // ── Camera Scan Card ──
         CameraAnalysisCard(
             icon = Icons.Outlined.AccessibilityNew,
-            title = "Body photo scan",
-            body = "Capture a body progress photo, preview it here, then send it to the future body analysis API.",
-            primaryAction = "Start Body Scan",
+            title = "Quét hình thể",
+            body = "Chụp ảnh toàn thân để AI phân tích chỉ số cơ thể.",
+            primaryAction = "Chụp ảnh",
             state = state,
             onOpenCamera = onOpenCamera,
             onSubmitImage = onSubmitImage
         )
-        // Save Scan button after analysis
+
+        // ── Save button after analysis ──
         if (state.analysisResult != null && state.selectedTab == TrackTab.Body) {
             if (state.bodyScanSaved) {
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.1f))
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.08f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
                         Text(
-                            "Body scan saved!",
+                            "Đã lưu kết quả phân tích!",
                             modifier = Modifier.padding(start = 8.dp),
                             color = Color(0xFF2E7D32),
                             fontWeight = FontWeight.SemiBold,
@@ -564,50 +708,296 @@ private fun BodyTab(
                     enabled = !state.isSubmittingImage,
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
                     if (state.isSubmittingImage) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
-                        Text("Save Body Scan", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                        Text("Lưu kết quả", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
-        SummaryCard(Icons.Outlined.AccessibilityNew, "Latest AI analysis", "Posture and body metrics will appear after your first scan") {
-            Text("Capture front, side, and back photos in good lighting.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+
+        // ── Body Metrics Card ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF6C63FF).copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.AccessibilityNew, contentDescription = null, tint = Color(0xFF6C63FF), modifier = Modifier.size(20.dp))
+                    }
+                    Text("Chỉ số cơ thể", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(state.progressWeight, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Cân nặng", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(state.bmi, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF6C63FF))
+                        Text("BMI", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(state.targetWeight, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FittyPink)
+                        Text("Mục tiêu", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         }
-        InfoRowCard("Photo history", "No saved assessments yet", Icons.Outlined.Timeline)
+
+        // ── Tips ──
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("💡 Mẹo chụp ảnh", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("• Chụp ở nơi có ánh sáng tốt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• Mặc quần áo ôm sát", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• Chụp cả 3 góc: trước, ngang, sau", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
 @Composable
 private fun ProgressTab(state: TrackUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SummaryCard(Icons.Outlined.MonitorWeight, "Weight trend", state.progressWeight) {
-            LinearProgressIndicator(progress = { state.progressWeightPercent }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
-            Text("${(state.progressWeightPercent * 100).toInt()}% toward target weight", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // ── Completion Ring + Overview ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.padding(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Circular progress
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(90.dp)) {
+                    CircularProgressIndicator(
+                        progress = { state.completionRate / 100f },
+                        modifier = Modifier.size(90.dp),
+                        strokeWidth = 8.dp,
+                        color = FittyPink,
+                        trackColor = FittyPink.copy(alpha = 0.1f)
+                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${state.completionRate}%", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = FittyPink)
+                        Text("tuần này", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
+                    Text("Tiến độ tuần", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    ProgressMiniRow(Icons.Outlined.FitnessCenter, "Tập luyện", state.progressWorkouts)
+                    ProgressMiniRow(Icons.Outlined.Restaurant, "Bữa ăn", state.progressMeals)
+                    ProgressMiniRow(Icons.Outlined.LocalFireDepartment, "Calo đốt", state.totalCaloriesBurned)
+                }
+            }
         }
-        SummaryCard(Icons.Outlined.BarChart, "Workouts", state.progressWorkouts) {
-            LinearProgressIndicator(progress = { state.progressWorkoutPercent }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+
+        // ── Weekly Activity ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Hoạt động 7 ngày", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    val days = listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN")
+                    state.weeklyActiveDays.forEachIndexed { i, active ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (active) FittyPink else FittyPink.copy(alpha = 0.08f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (active) {
+                                    Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            Text(days.getOrElse(i) { "" }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
         }
-        SummaryCard(Icons.Outlined.Restaurant, "Calories tracked", state.progressMeals) {
-            LinearProgressIndicator(progress = { state.progressMealPercent }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
+
+        // ── Weight Progress ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.MonitorWeight, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
+                    }
+                    Text("Cân nặng", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Hiện tại", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(state.progressWeight, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Mục tiêu", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(state.targetWeight, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = FittyPink)
+                    }
+                }
+                LinearProgressIndicator(
+                    progress = { state.progressWeightPercent },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = FittyPink,
+                    trackColor = FittyPink.copy(alpha = 0.1f)
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("BMI: ${state.bmi}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${(state.progressWeightPercent * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // ── Workout & Meal Progress Bars ──
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ProgressMiniCard(
+                icon = Icons.Outlined.FitnessCenter,
+                title = "Tập luyện",
+                value = state.progressWorkouts,
+                progress = state.progressWorkoutPercent,
+                modifier = Modifier.weight(1f)
+            )
+            ProgressMiniCard(
+                icon = Icons.Outlined.Restaurant,
+                title = "Dinh dưỡng",
+                value = state.progressMeals,
+                progress = state.progressMealPercent,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProgressMiniRow(icon: ImageVector, label: String, value: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(14.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ProgressMiniCard(icon: ImageVector, title: String, value: String, progress: Float, modifier: Modifier = Modifier) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(FittyPink.copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(16.dp))
+            }
+            Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                color = FittyPink,
+                trackColor = FittyPink.copy(alpha = 0.1f)
+            )
+            Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = FittyPink)
         }
     }
 }
 
 @Composable
 private fun StatsTab(state: TrackUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // ── Overview tiles ──
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile(state.statWorkouts, "Workouts", Icons.Outlined.FitnessCenter, Modifier.weight(1f))
-            StatTile(state.statMeals, "Meals", Icons.Outlined.Restaurant, Modifier.weight(1f))
+            StatTile(state.statWorkouts, "Buổi tập", Icons.Outlined.FitnessCenter, Color(0xFF6C63FF), Modifier.weight(1f))
+            StatTile(state.statMeals, "Bữa ăn", Icons.Outlined.Restaurant, Color(0xFFFF6B9D), Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile(state.statStreak, "Best streak", Icons.Outlined.LocalFireDepartment, Modifier.weight(1f))
-            StatTile(state.statActiveMin, "Active min", Icons.Outlined.BarChart, Modifier.weight(1f))
+            StatTile(state.statStreak, "Chuỗi tốt nhất", Icons.Outlined.LocalFireDepartment, Color(0xFFFF9F43), Modifier.weight(1f))
+            StatTile(state.statActiveMin, "Phút hoạt động", Icons.Outlined.BarChart, Color(0xFF2ED573), Modifier.weight(1f))
+        }
+
+        // ── Nutrition breakdown ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFFF6B9D).copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = Color(0xFFFF6B9D), modifier = Modifier.size(20.dp))
+                    }
+                    Column {
+                        Text("Dinh dưỡng trung bình", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(state.statAvgCalories + " / ngày", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    MacroStatPill("Protein", state.statProteinAvg, Color(0xFF6C63FF))
+                    MacroStatPill("Carbs", state.statCarbsAvg, Color(0xFFFF9F43))
+                    MacroStatPill("Fat", state.statFatAvg, Color(0xFF2ED573))
+                }
+            }
+        }
+
+        // ── Avg daily calories ──
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Tổng quan hoạt động", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text("Calo đốt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(state.totalCaloriesBurned, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFF6B9D))
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Trung bình/ngày", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(state.avgDailyCalories, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF6C63FF))
+                    }
+                }
+            }
         }
     }
 }
@@ -665,7 +1055,7 @@ private fun CameraAnalysisCard(
                 OutlinedButton(onClick = onOpenCamera, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)) {
                     Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(
-                        text = if (state.capturedImageUri == null) primaryAction else "Retake",
+                        text = if (state.capturedImageUri == null) primaryAction else "Chụp lại",
                         modifier = Modifier.padding(start = 8.dp),
                         fontWeight = FontWeight.SemiBold
                     )
@@ -679,7 +1069,7 @@ private fun CameraAnalysisCard(
                     if (state.isSubmittingImage) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
-                        Text("Send to API", fontWeight = FontWeight.Bold)
+                        Text("Phân tích", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -774,7 +1164,7 @@ private fun MacroProgress(label: String, progress: Float) {
 }
 
 @Composable
-private fun StatTile(value: String, label: String, icon: ImageVector, modifier: Modifier = Modifier) {
+private fun StatTile(value: String, label: String, icon: ImageVector, tintColor: Color = FittyPink, modifier: Modifier = Modifier) {
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -783,10 +1173,10 @@ private fun StatTile(value: String, label: String, icon: ImageVector, modifier: 
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
-                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(FittyPink.copy(alpha = 0.1f)),
+                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(tintColor.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = tintColor, modifier = Modifier.size(20.dp))
             }
             Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -794,6 +1184,20 @@ private fun StatTile(value: String, label: String, icon: ImageVector, modifier: 
     }
 }
 
+@Composable
+private fun MacroStatPill(label: String, value: String, color: Color) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(color.copy(alpha = 0.08f))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = color)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
 
 
 private fun createTrackImageUri(context: Context): Uri {
@@ -808,4 +1212,85 @@ private fun createTrackImageUri(context: Context): Uri {
         "${context.packageName}.fileprovider",
         imageFile
     )
+}
+
+@Composable
+private fun ScanHistoryCard(scan: MealScanHistoryUi) {
+    val dateText = if (scan.dateKey.isNotBlank()) scan.dateKey else {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+            .format(java.util.Date(scan.timestamp))
+    }
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Scan image thumbnail
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(FittyPink.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (scan.imageUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = scan.imageUrl,
+                        contentDescription = "Scan photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(72.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                } else {
+                    Icon(
+                        Icons.Outlined.CameraAlt,
+                        contentDescription = null,
+                        tint = FittyPink.copy(alpha = 0.4f),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+            // Info
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "${scan.calories} kcal",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("P: ${scan.protein}g", style = MaterialTheme.typography.labelSmall, color = FittyPink)
+                    Text("C: ${scan.carbs}g", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("F: ${scan.fat}g", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                }
+                Text(
+                    dateText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            // Food count badge
+            if (scan.foodCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .background(FittyPink.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "${scan.foodCount} items",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = FittyPink,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
 }

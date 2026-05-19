@@ -1,5 +1,6 @@
 package com.example.fitty.data.exercise
 
+import com.example.fitty.data.firebase.toExerciseFirestoreDocument
 import com.example.fitty.data.local.exercise.EXERCISE_SYNC_STATE_ID
 import com.example.fitty.data.local.exercise.ExerciseDao
 import com.example.fitty.data.local.exercise.ExerciseEntity
@@ -7,15 +8,16 @@ import com.example.fitty.data.local.exercise.ExerciseHistoryDao
 import com.example.fitty.data.local.exercise.ExerciseHistoryEntity
 import com.example.fitty.data.local.exercise.ExerciseSyncStateDao
 import com.example.fitty.data.local.exercise.ExerciseSyncStateEntity
-import com.example.fitty.data.remote.exercise.ExerciseApiService
 import com.example.fitty.data.remote.exercise.ExerciseDto
 import com.example.fitty.domain.model.Exercise
 import com.example.fitty.domain.model.ExerciseQuery
 import com.example.fitty.domain.model.ExerciseSyncReport
 import com.example.fitty.domain.model.ExerciseSyncState
 import com.example.fitty.domain.repository.ExerciseCatalogRepository
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,7 +27,7 @@ class OfflineFirstExerciseRepository @Inject constructor(
     private val exerciseDao: ExerciseDao,
     private val syncStateDao: ExerciseSyncStateDao,
     private val historyDao: ExerciseHistoryDao,
-    private val apiService: ExerciseApiService,
+    private val firestore: FirebaseFirestore,
     private val networkMonitor: NetworkMonitor,
     private val mediaDownloadManager: ExerciseMediaDownloadManager
 ) : ExerciseCatalogRepository {
@@ -77,6 +79,8 @@ class OfflineFirstExerciseRepository @Inject constructor(
         val online = networkMonitor.isOnline()
         val previousState = syncStateDao.getSyncState() ?: ExerciseSyncStateEntity()
         val startedAt = Instant.now().toString()
+        val hasIncompletePreviewMedia = exerciseDao.countExercisesMissingPreviewMedia() > 0
+        val shouldForceFullRefresh = force || hasIncompletePreviewMedia
         syncStateDao.upsertSyncState(
             previousState.copy(
                 isSyncing = true,
@@ -91,7 +95,6 @@ class OfflineFirstExerciseRepository @Inject constructor(
             throw IllegalStateException("No internet connection. Loading cached metadata from Room.")
         }
 
-        var cursor: String? = null
         var fetched = 0
         var inserted = 0
         var updated = 0
@@ -99,62 +102,58 @@ class OfflineFirstExerciseRepository @Inject constructor(
         var failedMediaDownloads = 0
         var latestDeltaToken = previousState.deltaToken
         var apiVersion = previousState.apiVersion
-        val updatedAfter = if (force) null else previousState.lastSuccessfulSyncAt
         val existingById = getAllExistingById()
+        val remoteExercises = firestore.collection("exercises")
+            .get()
+            .await()
+            .documents
+            .mapNotNull { document -> document.toExerciseFirestoreDocument()?.toDomain() }
 
-        do {
-            val page = apiService.getExercises(
-                cursor = cursor,
-                pageSize = PAGE_SIZE,
-                updatedAfter = updatedAfter
-            )
-            fetched += page.items.size
-            latestDeltaToken = page.deltaToken ?: latestDeltaToken
-            apiVersion = page.apiVersion ?: apiVersion
+        fetched = remoteExercises.size
+        apiVersion = "firestore"
+        latestDeltaToken = if (shouldForceFullRefresh) null else latestDeltaToken
 
-            val mergedEntities = page.items.map { dto ->
-                val current = existingById[dto.id]
-                val base = dto.toDomain(current)
-                if (current == null) inserted += 1 else updated += 1
-                val withMedia = try {
-                    val thumbnail = mediaDownloadManager.cacheThumbnail(base)
-                    mediaDownloaded += thumbnail.second
-                    base.copy(
-                        localThumbnailPath = thumbnail.first,
-                        isDownloaded = thumbnail.first.isNotBlank() || base.localVideoPath.isNotBlank(),
-                        mediaDownloadProgress = if (base.thumbnailUrl.isBlank()) 0f else 1f,
-                        syncStatus = "synced"
-                    )
-                } catch (_: Throwable) {
-                    failedMediaDownloads += 1
-                    base.copy(syncStatus = "metadata_synced", mediaDownloadProgress = 0f)
-                }
-                withMedia.toEntity()
-            }
-
-            if (mergedEntities.isNotEmpty()) {
-                exerciseDao.upsertExercises(mergedEntities)
-                mergedEntities.forEach { existingById[it.id] = it }
-            }
-
-            cursor = page.nextCursor
-            syncStateDao.upsertSyncState(
-                ExerciseSyncStateEntity(
-                    id = EXERCISE_SYNC_STATE_ID,
-                    isSyncing = true,
-                    isOnline = true,
-                    lastAttemptedSyncAt = startedAt,
-                    apiVersion = apiVersion,
-                    deltaToken = latestDeltaToken,
-                    totalExercises = exerciseDao.countExercises(),
-                    downloadedImages = mediaDownloaded,
-                    downloadedGifs = 0,
-                    downloadedVideos = 0,
-                    progress = if (cursor == null) 1f else 0.5f,
-                    lastErrorMessage = null
+        val mergedEntities = remoteExercises.map { remote ->
+            val current = existingById[remote.id]
+            val base = remote.mergeWithCurrent(current)
+            if (current == null) inserted += 1 else updated += 1
+            val withMedia = try {
+                val thumbnail = mediaDownloadManager.cacheThumbnail(base)
+                mediaDownloaded += thumbnail.second
+                base.copy(
+                    localThumbnailPath = thumbnail.first,
+                    isDownloaded = thumbnail.first.isNotBlank() || base.localVideoPath.isNotBlank(),
+                    mediaDownloadProgress = if (base.thumbnailUrl.isBlank()) 0f else 1f,
+                    syncStatus = "synced"
                 )
+            } catch (_: Throwable) {
+                failedMediaDownloads += 1
+                base.copy(syncStatus = "metadata_synced", mediaDownloadProgress = 0f)
+            }
+            withMedia.toEntity()
+        }
+
+        if (mergedEntities.isNotEmpty()) {
+            exerciseDao.upsertExercises(mergedEntities)
+            mergedEntities.forEach { existingById[it.id] = it }
+        }
+
+        syncStateDao.upsertSyncState(
+            ExerciseSyncStateEntity(
+                id = EXERCISE_SYNC_STATE_ID,
+                isSyncing = true,
+                isOnline = true,
+                lastAttemptedSyncAt = startedAt,
+                apiVersion = apiVersion,
+                deltaToken = latestDeltaToken,
+                totalExercises = exerciseDao.countExercises(),
+                downloadedImages = mediaDownloaded,
+                downloadedGifs = 0,
+                downloadedVideos = 0,
+                progress = 1f,
+                lastErrorMessage = null
             )
-        } while (cursor != null)
+        )
 
         syncStateDao.upsertSyncState(
             ExerciseSyncStateEntity(
@@ -228,7 +227,9 @@ class OfflineFirstExerciseRepository @Inject constructor(
         equipment = equipment,
         instructions = instructions,
         thumbnailUrl = thumbnailUrl,
+        thumbnailStoragePath = thumbnailStoragePath,
         gifUrl = gifUrl,
+        gifStoragePath = gifStoragePath,
         videoUrl = videoUrl,
         localThumbnailPath = localThumbnailPath,
         localGifPath = localGifPath,
@@ -257,7 +258,9 @@ class OfflineFirstExerciseRepository @Inject constructor(
         description = description,
         instructions = instructions.ifBlank { description },
         thumbnailUrl = thumbnailUrl,
+        thumbnailStoragePath = thumbnailStoragePath,
         gifUrl = gifUrl,
+        gifStoragePath = gifStoragePath,
         videoUrl = videoUrl,
         localThumbnailPath = localThumbnailPath,
         localGifPath = localGifPath,
@@ -285,8 +288,9 @@ class OfflineFirstExerciseRepository @Inject constructor(
         targetMuscles = listOfNotNull(target).filter { it.isNotBlank() },
         equipment = equipment.orEmpty(),
         instructions = instructions.orEmpty().ifBlank { description.orEmpty() },
-        thumbnailUrl = thumbnailUrl.orEmpty(),
-        gifUrl = current?.gifUrl.orEmpty(),
+        thumbnailUrl = thumbnailUrl.orEmpty().ifBlank { gifUrl.orEmpty() },
+        thumbnailStoragePath = current?.thumbnailStoragePath.orEmpty(),
+        gifUrl = gifUrl.orEmpty().ifBlank { current?.gifUrl.orEmpty() },
         videoUrl = videoUrl.orEmpty(),
         localThumbnailPath = current?.localThumbnailPath.orEmpty(),
         localGifPath = current?.localGifPath.orEmpty(),
@@ -296,6 +300,29 @@ class OfflineFirstExerciseRepository @Inject constructor(
         isFavorite = current?.isFavorite ?: false,
         remoteVersion = version.orEmpty(),
         updatedAt = updatedAt.orEmpty(),
+        syncStatus = "pending",
+        mediaDownloadProgress = 0f
+    )
+
+    private fun Exercise.mergeWithCurrent(current: ExerciseEntity?): Exercise = copy(
+        muscleGroup = primaryMuscleGroup.ifBlank { current?.muscleGroup.orEmpty() },
+        caloriesBurned = current?.caloriesBurned ?: caloriesBurned,
+        durationSeconds = current?.durationSeconds ?: durationSeconds,
+        difficulty = difficulty.ifBlank { current?.difficulty.orEmpty() },
+        description = description.ifBlank { current?.description.orEmpty() },
+        instructions = instructions.ifBlank { current?.instructions.orEmpty() },
+        thumbnailUrl = thumbnailUrl.ifBlank { current?.thumbnailUrl.orEmpty() },
+        thumbnailStoragePath = thumbnailStoragePath.ifBlank { current?.thumbnailStoragePath.orEmpty() },
+        gifUrl = gifUrl.ifBlank { current?.gifUrl.orEmpty() },
+        videoUrl = videoUrl.ifBlank { current?.videoUrl.orEmpty() },
+        localThumbnailPath = current?.localThumbnailPath.orEmpty(),
+        localGifPath = current?.localGifPath.orEmpty(),
+        localVideoPath = current?.localVideoPath.orEmpty(),
+        gifVersion = if (gifVersion == 0) current?.gifVersion ?: 0 else gifVersion,
+        isDownloaded = current?.isDownloaded ?: false,
+        isFavorite = current?.isFavorite ?: false,
+        remoteVersion = current?.remoteVersion.orEmpty(),
+        updatedAt = updatedAt.ifBlank { current?.updatedAt.orEmpty() },
         syncStatus = "pending",
         mediaDownloadProgress = 0f
     )
@@ -314,8 +341,4 @@ class OfflineFirstExerciseRepository @Inject constructor(
         progress = progress,
         lastErrorMessage = lastErrorMessage
     )
-
-    private companion object {
-        const val PAGE_SIZE = 100
-    }
 }
