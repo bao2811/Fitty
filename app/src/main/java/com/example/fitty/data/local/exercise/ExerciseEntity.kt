@@ -31,8 +31,12 @@ data class ExerciseEntity(
     val instructions: String,
     @ColumnInfo(name = "thumbnailUrl")
     val thumbnailUrl: String,
+    @ColumnInfo(name = "thumbnailStoragePath")
+    val thumbnailStoragePath: String,
     @ColumnInfo(name = "gifUrl")
     val gifUrl: String,
+    @ColumnInfo(name = "gifStoragePath")
+    val gifStoragePath: String,
     @ColumnInfo(name = "videoUrl")
     val videoUrl: String,
     @ColumnInfo(name = "localThumbnailPath")

@@ -5,6 +5,7 @@ import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.preferredDisplayName
 import com.example.fitty.domain.repository.NotificationTokenRepository
 import com.example.fitty.domain.repository.SessionRepository
+import com.example.fitty.domain.usecase.user.UpdateStreakUseCase
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -15,12 +16,14 @@ class FittyMessagingCoordinator @Inject constructor(
     private val firebaseMessaging: FirebaseMessaging,
     private val notificationTokenRepository: NotificationTokenRepository,
     private val sessionRepository: SessionRepository,
-    private val notificationDispatcher: FittyNotificationDispatcher
+    private val notificationDispatcher: FittyNotificationDispatcher,
+    private val updateStreakUseCase: UpdateStreakUseCase
 ) {
     suspend fun syncTokenAndWelcomeUser(session: FittyStartupState) {
         if (!session.isSignedIn || session.isGuest) return
 
         runCatching { syncNotificationToken() }
+        runCatching { updateStreakUseCase(reason = "login") }
         maybeShowWelcomeBackNotification(session.displayName)
     }
 
@@ -31,6 +34,7 @@ class FittyMessagingCoordinator @Inject constructor(
         if (user.guest) return
 
         runCatching { syncNotificationToken() }
+        runCatching { updateStreakUseCase(reason = "login") }
         maybeShowWelcomeBackNotification(
             displayName = user.preferredDisplayName(),
             forceNotification = forceNotification

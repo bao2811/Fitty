@@ -55,6 +55,7 @@ data class Exercise(
     val equipment: String = "",
     val instructions: String = "",
     val thumbnailUrl: String = "",
+    val thumbnailStoragePath: String = "",
     val gifUrl: String = "",
     val videoUrl: String = "",
     val gifStoragePath: String = "",

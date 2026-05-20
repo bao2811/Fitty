@@ -68,9 +68,14 @@ data class DailySummaryTargets(
 
 data class DailySummaryProgress(
     val caloriesConsumed: Int = 0,
+    val caloriesBurned: Int = 0,
     val waterMl: Int = 0,
     val workoutsCompleted: Int = 0,
-    val steps: Int = 0
+    val mealsLogged: Int = 0,
+    val steps: Int = 0,
+    val proteinGrams: Int = 0,
+    val carbsGrams: Int = 0,
+    val fatGrams: Int = 0
 )
 
 data class MealAnalysisResult(
@@ -91,5 +96,26 @@ data class ProgressStats(
     val currentStreak: Int = 0,
     val bestStreak: Int = 0,
     val latestWeight: Float? = null,
-    val latestBodyFat: Float? = null
+    val latestBodyFat: Float? = null,
+    val targetWeight: Float? = null,
+    val bmi: Float? = null
+)
+
+/**
+ * Represents a saved meal scan record in the user's scan history.
+ * Each scan stores the uploaded image URL and the full analysis result.
+ */
+data class MealScanRecord(
+    val id: String = "",
+    val imageUrl: String = "",
+    val localImagePath: String = "",
+    val mealLogId: String = "",
+    val totalCalories: Int = 0,
+    val totalProtein: Int = 0,
+    val totalCarbs: Int = 0,
+    val totalFat: Int = 0,
+    val confidence: Float = 0f,
+    val foodItems: List<FoodItem> = emptyList(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val dateKey: String = ""
 )

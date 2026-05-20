@@ -12,6 +12,7 @@ import javax.inject.Inject
  *
  * **Streak Condition:**
  * A day counts as "active" when the user performs at least ONE of:
+ * - Signs in / opens the app for the day
  * - Completes a workout session (any duration)
  * - Logs a meal via Track > Meals > Confirm
  * - Saves a body scan via Track > Body > Save
@@ -25,7 +26,7 @@ class UpdateStreakUseCase @Inject constructor(
     private val sessionRepository: SessionRepository
 ) {
     /**
-     * @param reason The type of activity: "workout", "meal", or "body_scan"
+     * @param reason The type of activity: "login", "workout", "meal", or "body_scan"
      */
     suspend operator fun invoke(reason: String): Result<Unit> {
         val uid = sessionRepository.getCurrentUserId()

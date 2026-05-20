@@ -14,4 +14,6 @@ interface UserRepository {
     suspend fun updateGoal(uid: String, primaryGoal: String, targetWeightKg: Int?): Result<Unit>
     suspend fun updateStats(uid: String, stats: FittyStats): Result<Unit>
     suspend fun deleteUserData(uid: String): Result<Unit>
+    suspend fun updateDisplayName(uid: String, name: String): Result<Unit>
+    suspend fun uploadProfilePhoto(uid: String, imageUri: String): Result<String>
 }

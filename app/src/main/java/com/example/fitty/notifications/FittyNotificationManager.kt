@@ -18,20 +18,25 @@ import com.example.fitty.R
 import java.util.Locale
 
 object FittyNotificationManager {
-    const val WELCOME_CHANNEL_ID = "fitty_welcome_back"
-    private const val WELCOME_CHANNEL_NAME = "Welcome Back"
-    private const val DEFAULT_CHANNEL_DESCRIPTION = "Motivational fitness notifications"
+    const val CHANNEL_ID = "fitty_alerts_v2"
+    private const val CHANNEL_NAME = "Fitty Alerts"
+    private const val OLD_CHANNEL_ID = "fitty_welcome_back"
+    private const val CHANNEL_DESCRIPTION = "Workout reminders, meal tracking and fitness notifications"
     private const val WELCOME_NOTIFICATION_ID = 1201
 
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // Delete old low-priority channel
+        notificationManager.deleteNotificationChannel(OLD_CHANNEL_ID)
         val channel = NotificationChannel(
-            WELCOME_CHANNEL_ID,
-            WELCOME_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_DEFAULT
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = DEFAULT_CHANNEL_DESCRIPTION
+            description = CHANNEL_DESCRIPTION
+            enableVibration(true)
+            setShowBadge(true)
         }
         notificationManager.createNotificationChannel(channel)
     }
@@ -50,14 +55,13 @@ object FittyNotificationManager {
         val message = welcomeMessageFor(displayName)
         if (isAppInForeground()) {
             onForegroundMessage?.invoke(title, message)
-            return
         }
         if (!canPostNotifications(context)) return
         createChannels(context)
         val pendingIntent = openAppPendingIntent(context, WELCOME_NOTIFICATION_ID)
 
-        val notification = NotificationCompat.Builder(context, WELCOME_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(
@@ -67,7 +71,8 @@ object FittyNotificationManager {
             )
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
         if (
@@ -90,7 +95,6 @@ object FittyNotificationManager {
     ) {
         if (isAppInForeground()) {
             onForegroundMessage?.invoke(title, body)
-            return
         }
         if (!canPostNotifications(context)) return
         createChannels(context)
@@ -111,7 +115,6 @@ object FittyNotificationManager {
     ) {
         if (isAppInForeground()) {
             onForegroundMessage?.invoke(title, body)
-            return
         }
         if (!canPostNotifications(context)) return
         createChannels(context)
@@ -151,14 +154,15 @@ object FittyNotificationManager {
         title: String,
         body: String
     ) {
-        val notification = NotificationCompat.Builder(context, WELCOME_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(openAppPendingIntent(context, notificationId))
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

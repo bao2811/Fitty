@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.work.WorkManager
+import com.example.fitty.BuildConfig
 import com.example.fitty.data.exercise.OfflineFirstExerciseRepository
 import com.example.fitty.data.firebase.FirebaseAuthRepository
 import com.example.fitty.data.firebase.FirebaseCoachRepository
@@ -48,6 +49,7 @@ import com.example.fitty.domain.repository.WorkoutSessionRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.storage.FirebaseStorage
 import com.google.gson.Gson
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -128,7 +130,7 @@ object AppModule {
         context,
         FittyDatabase::class.java,
         "fitty.db"
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
 
     @Provides
     fun provideHomeTaskDao(database: FittyDatabase): HomeTaskDao = database.homeTaskDao()
@@ -150,6 +152,9 @@ object AppModule {
 
     @Provides @Singleton
     fun provideFirebaseFirestore(): FirebaseFirestore = FirebaseFirestore.getInstance()
+
+    @Provides @Singleton
+    fun provideFirebaseStorage(): FirebaseStorage = FirebaseStorage.getInstance()
 
     @Provides @Singleton
     fun provideFirebaseMessaging(): FirebaseMessaging = FirebaseMessaging.getInstance()
@@ -178,7 +183,7 @@ object AppModule {
         gson: Gson,
         okHttpClient: OkHttpClient
     ): Retrofit = Retrofit.Builder()
-        .baseUrl("https://api.example.com/")
+        .baseUrl(BuildConfig.WORKOUTX_BASE_URL.ensureTrailingSlash())
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
@@ -312,4 +317,29 @@ object AppModule {
             )
         }
     }
+
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                ALTER TABLE exercises
+                ADD COLUMN gifStoragePath TEXT NOT NULL DEFAULT ''
+                """.trimIndent()
+            )
+        }
+    }
+
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                ALTER TABLE exercises
+                ADD COLUMN thumbnailStoragePath TEXT NOT NULL DEFAULT ''
+                """.trimIndent()
+            )
+        }
+    }
+
+    private fun String.ensureTrailingSlash(): String =
+        if (endsWith("/")) this else "$this/"
 }

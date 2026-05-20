@@ -4,7 +4,8 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -51,8 +52,9 @@ fun ExerciseVideoPlayerRoute(
     viewModel: ExerciseVideoPlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val exercise = androidx.compose.runtime.collectAsState(viewModel.exercise).value ?: return
-    val player = remember(exercise.id) {
+    val exercise by viewModel.exercise.collectAsState()
+    val currentExercise = exercise ?: return
+    val player = remember(currentExercise.id) {
         ExoPlayer.Builder(context)
             .setLoadControl(
                 DefaultLoadControl.Builder()
@@ -65,7 +67,7 @@ fun ExerciseVideoPlayerRoute(
                     .build()
             )
             .build().apply {
-                val mediaSource = exercise.localVideoPath.ifBlank { exercise.videoUrl }
+                val mediaSource = currentExercise.localVideoPath.ifBlank { currentExercise.videoUrl }
                 setMediaItem(MediaItem.fromUri(mediaSource))
                 prepare()
                 playWhenReady = true

@@ -1,31 +1,35 @@
 package com.example.fitty.feature_auth
 
 import android.content.Context
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.PersonAddAlt1
+import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,29 +38,29 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fitty.R
-import com.example.fitty.core.designsystem.component.FittyPrimaryButton
-import com.example.fitty.core.designsystem.component.FittySecondaryButton
-import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.usecase.auth.ContinueAsGuestUseCase
 import com.example.fitty.domain.usecase.auth.SignInWithGoogleUseCase
 import com.example.fitty.domain.usecase.auth.SignUpUseCase
-import com.example.fitty.ui.theme.FittyGradientEnd
-import com.example.fitty.ui.theme.FittyGradientStart
 import com.example.fitty.ui.theme.FittyPink
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -64,8 +68,12 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class SignUpUiState(
-    val username: String = "", val email: String = "", val password: String = "",
-    val confirmPassword: String = "", val formError: String? = null, val isSubmitting: Boolean = false
+    val username: String = "",
+    val email: String = "",
+    val password: String = "",
+    val confirmPassword: String = "",
+    val formError: String? = null,
+    val isSubmitting: Boolean = false
 )
 
 @HiltViewModel
@@ -82,7 +90,10 @@ class SignUpViewModel @Inject constructor(
 
     fun submit(onSuccess: () -> Unit) {
         val error = validate(_uiState.value)
-        if (error != null) { _uiState.update { it.copy(formError = error) }; return }
+        if (error != null) {
+            _uiState.update { it.copy(formError = error) }
+            return
+        }
         viewModelScope.launch {
             try {
                 _uiState.update { it.copy(isSubmitting = true, formError = null) }
@@ -91,9 +102,20 @@ class SignUpViewModel @Inject constructor(
                     email = _uiState.value.email,
                     password = _uiState.value.password
                 )
-                if (result.user == null) { _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }; return@launch }
-                _uiState.update { it.copy(isSubmitting = false) }; onSuccess()
-            } catch (error: Exception) { _uiState.update { it.copy(isSubmitting = false, formError = error.message ?: context.getString(R.string.auth_create_account_failed)) } }
+                if (result.user == null) {
+                    _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }
+                    return@launch
+                }
+                _uiState.update { it.copy(isSubmitting = false) }
+                onSuccess()
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        formError = error.message ?: context.getString(R.string.auth_create_account_failed)
+                    )
+                }
+            }
         }
     }
 
@@ -101,8 +123,12 @@ class SignUpViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, formError = null) }
             val result = continueAsGuestUseCase()
-            if (result.user == null) { _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }; return@launch }
-            _uiState.update { it.copy(isSubmitting = false) }; onSuccess()
+            if (result.user == null) {
+                _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage) }
+                return@launch
+            }
+            _uiState.update { it.copy(isSubmitting = false) }
+            onSuccess()
         }
     }
 
@@ -112,7 +138,12 @@ class SignUpViewModel @Inject constructor(
             val result = signInWithGoogleUseCase(idToken)
             val user = result.user
             if (user == null) {
-                _uiState.update { it.copy(isSubmitting = false, formError = result.errorMessage ?: context.getString(R.string.auth_google_failed)) }
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        formError = result.errorMessage ?: context.getString(R.string.auth_google_failed)
+                    )
+                }
                 return@launch
             }
             _uiState.update { it.copy(isSubmitting = false) }
@@ -135,17 +166,27 @@ class SignUpViewModel @Inject constructor(
 }
 
 @Composable
-fun SignUpRoute(onBack: () -> Unit, onSignedUp: (Boolean) -> Unit, onContinueAsGuest: () -> Unit, viewModel: SignUpViewModel = hiltViewModel()) {
+fun SignUpRoute(
+    onBack: () -> Unit,
+    onSignedUp: (Boolean) -> Unit,
+    onContinueAsGuest: () -> Unit,
+    viewModel: SignUpViewModel = hiltViewModel()
+) {
     val state by viewModel.uiState.collectAsState()
-    SignUpScreen(state = state, onBack = onBack, onUsernameChanged = { viewModel.update { copy(username = it) } },
-        onEmailChanged = { viewModel.update { copy(email = it) } }, onPasswordChanged = { viewModel.update { copy(password = it) } },
+    SignUpScreen(
+        state = state,
+        onBack = onBack,
+        onUsernameChanged = { viewModel.update { copy(username = it) } },
+        onEmailChanged = { viewModel.update { copy(email = it) } },
+        onPasswordChanged = { viewModel.update { copy(password = it) } },
         onConfirmPasswordChanged = { viewModel.update { copy(confirmPassword = it) } },
-        onSubmit = { viewModel.submit { onSignedUp(false) } }, onGuestSignUp = { viewModel.continueAsGuest(onContinueAsGuest) },
+        onSubmit = { viewModel.submit { onSignedUp(false) } },
+        onGuestSignUp = { viewModel.continueAsGuest(onContinueAsGuest) },
         onGoogleToken = { viewModel.submitGoogle(it, onSignedUp) },
-        onGoogleError = viewModel::showGoogleError)
+        onGoogleError = viewModel::showGoogleError
+    )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignUpScreen(
     state: SignUpUiState,
@@ -159,55 +200,157 @@ fun SignUpScreen(
     onGoogleToken: (String) -> Unit,
     onGoogleError: (String) -> Unit
 ) {
-    val fc = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink)
+    var acceptedTerms by rememberSaveable { mutableStateOf(true) }
+
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.auth_create_account_title), fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.auth_back)) } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent))
-        }
+        containerColor = Color(0xFFF8F5FB),
+        contentWindowInsets = WindowInsets.statusBars
     ) { padding ->
-        FittyLazyScreen {
-            item { Spacer(modifier = Modifier.height(padding.calculateTopPadding())) }
-            item {
-                Box(modifier = Modifier.fillMaxWidth().height(100.dp)
-                    .background(Brush.horizontalGradient(listOf(FittyGradientStart, FittyGradientEnd)), RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(stringResource(R.string.auth_join_fitty), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text(stringResource(R.string.auth_create_account_subtitle), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
-                    }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFFFFFAFD), Color(0xFFF6F3FB), Color.White)
+                    )
+                )
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            AuthBackButtonCard(onBack = onBack)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(84.dp)
+                        .shadow(18.dp, RoundedCornerShape(22.dp), ambientColor = FittyPink.copy(alpha = 0.15f), spotColor = FittyPink.copy(alpha = 0.15f))
+                        .clip(RoundedCornerShape(22.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_fitty_logo),
+                        contentDescription = "Fitty",
+                        modifier = Modifier.size(84.dp),
+                        contentScale = ContentScale.Crop
+                    )
                 }
-            }
-            item { OutlinedTextField(value = state.username, onValueChange = onUsernameChanged, label = { Text(stringResource(R.string.auth_username)) }, leadingIcon = { Icon(Icons.Outlined.AlternateEmail, null) }, shape = RoundedCornerShape(16.dp), colors = fc, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(value = state.email, onValueChange = onEmailChanged, label = { Text(stringResource(R.string.auth_email)) }, leadingIcon = { Icon(Icons.Outlined.Email, null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), shape = RoundedCornerShape(16.dp), colors = fc, modifier = Modifier.fillMaxWidth()) }
-            item { PasswordField(stringResource(R.string.auth_password), state.password, onPasswordChanged) }
-            item { PasswordField(stringResource(R.string.auth_confirm_password), state.confirmPassword, onConfirmPasswordChanged) }
-            item { state.formError?.let { Text(text = it, color = MaterialTheme.colorScheme.error) } }
-            item { FittyPrimaryButton(text = stringResource(R.string.auth_create_account_title), onClick = onSubmit, loading = state.isSubmitting) }
-            item {
-                GoogleAuthButton(
-                    loading = state.isSubmitting,
-                    enabled = !state.isSubmitting,
-                    onIdToken = onGoogleToken,
-                    onError = onGoogleError,
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    text = stringResource(R.string.auth_create_account_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Join Fitty and start your transformation",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
             }
-            item { FittySecondaryButton(text = stringResource(R.string.auth_continue_as_guest), onClick = onGuestSignUp, enabled = !state.isSubmitting) }
+
+            FittyAuthTextField(
+                value = state.username,
+                onValueChange = onUsernameChanged,
+                label = stringResource(R.string.auth_username),
+                icon = Icons.Outlined.PersonOutline,
+                keyboardType = KeyboardType.Text
+            )
+            FittyAuthTextField(
+                value = state.email,
+                onValueChange = onEmailChanged,
+                label = stringResource(R.string.auth_email),
+                icon = Icons.Outlined.Email,
+                keyboardType = KeyboardType.Email
+            )
+            SignUpPasswordField(
+                label = stringResource(R.string.auth_password),
+                value = state.password,
+                onValueChange = onPasswordChanged
+            )
+            SignUpPasswordField(
+                label = stringResource(R.string.auth_confirm_password),
+                value = state.confirmPassword,
+                onValueChange = onConfirmPasswordChanged
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Checkbox(
+                    checked = acceptedTerms,
+                    onCheckedChange = { acceptedTerms = it }
+                )
+                Text(
+                    text = "I agree to the Terms of Service and Privacy Policy",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            state.formError?.let {
+                Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+            if (!acceptedTerms) {
+                Text(
+                    text = "Please accept the terms to continue.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            FittyAuthPrimaryButton(
+                text = stringResource(R.string.auth_create_account_title),
+                onClick = onSubmit,
+                loading = state.isSubmitting,
+                enabled = acceptedTerms
+            )
+            FittyAuthDivider()
+            GoogleAuthButton(
+                loading = state.isSubmitting,
+                enabled = !state.isSubmitting,
+                onIdToken = onGoogleToken,
+                onError = onGoogleError,
+                modifier = Modifier.fillMaxWidth()
+            )
+            FittyAuthOutlineActionButton(
+                text = stringResource(R.string.auth_continue_as_guest),
+                icon = Icons.Outlined.TaskAlt,
+                enabled = !state.isSubmitting,
+                onClick = onGuestSignUp
+            )
         }
     }
 }
 
 @Composable
-private fun PasswordField(label: String, value: String, onValueChange: (String) -> Unit) {
+private fun SignUpPasswordField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
     var visible by rememberSaveable { mutableStateOf(false) }
-    OutlinedTextField(value = value, onValueChange = onValueChange, label = { Text(label) },
-        leadingIcon = { Icon(Icons.Outlined.Lock, null) },
-        trailingIcon = { IconButton(onClick = { visible = !visible }) { Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (visible) stringResource(R.string.auth_hide_password) else stringResource(R.string.auth_show_password)) } },
+    FittyAuthTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = label,
+        icon = Icons.Outlined.Lock,
+        keyboardType = KeyboardType.Password,
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        shape = RoundedCornerShape(16.dp),
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink),
-        modifier = Modifier.fillMaxWidth())
+        trailingContent = {
+            androidx.compose.material3.IconButton(onClick = { visible = !visible }) {
+                androidx.compose.material3.Icon(
+                    if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                    contentDescription = if (visible) {
+                        stringResource(R.string.auth_hide_password)
+                    } else {
+                        stringResource(R.string.auth_show_password)
+                    }
+                )
+            }
+        }
+    )
 }
