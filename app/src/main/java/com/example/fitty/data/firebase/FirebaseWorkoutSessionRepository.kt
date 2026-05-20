@@ -65,9 +65,9 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
 
     override suspend fun completeSession(uid: String, sessionId: String, durationMinutes: Int,
         caloriesBurned: Int, completionRate: Float, perceivedEffort: Int?, exercises: List<ExerciseLog>): Result<Unit> = try {
-        sessions(uid).document(sessionId).update(mapOf("status" to "completed", "endedAt" to FieldValue.serverTimestamp(),
+        sessions(uid).document(sessionId).set(mapOf("status" to "completed", "endedAt" to FieldValue.serverTimestamp(),
             "durationMinutes" to durationMinutes, "caloriesBurned" to caloriesBurned, "completionRate" to completionRate,
-            "perceivedEffort" to perceivedEffort, "updatedAt" to FieldValue.serverTimestamp())).await()
+            "perceivedEffort" to perceivedEffort, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
         exercises.forEach { ex ->
             if (ex.id.isNotBlank()) {
                 sessions(uid).document(sessionId).collection("exercise_logs").document(ex.id)
@@ -75,11 +75,7 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
                         "weightKgBySet" to ex.weightKgBySet, "completed" to ex.completed)).await()
             }
         }
-        // Update user stats
-        firestore.collection("users").document(uid).update(mapOf(
-            "stats.totalWorkouts" to FieldValue.increment(1),
-            "stats.currentStreak" to FieldValue.increment(1),
-            "updatedAt" to FieldValue.serverTimestamp())).await()
+        // Note: stats update is handled by CompleteWorkoutSessionUseCase
         Result.success(Unit)
     } catch (e: Exception) { Result.failure(e) }
 

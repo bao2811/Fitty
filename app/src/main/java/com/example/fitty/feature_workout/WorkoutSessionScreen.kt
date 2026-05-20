@@ -68,19 +68,46 @@ data class WorkoutSessionUiState(
 @HiltViewModel
 class WorkoutSessionViewModel @Inject constructor(
     private val completeWorkoutSessionUseCase: CompleteWorkoutSessionUseCase,
-    private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase
+    private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase,
+    private val workoutSessionRepository: com.example.fitty.domain.repository.WorkoutSessionRepository,
+    private val sessionRepository: com.example.fitty.domain.repository.SessionRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(WorkoutSessionUiState())
     val uiState: StateFlow<WorkoutSessionUiState> = _uiState
 
     private var timerRunning = false
+    private var planId: String = ""
+    private var scheduledWorkoutId: String = ""
+    private var firestoreSessionId: String = ""
 
-    fun initialize(sessionId: String) {
+    fun initialize(sessionId: String, planId: String = "", scheduledWorkoutId: String = "") {
+        this.planId = planId
+        this.scheduledWorkoutId = scheduledWorkoutId
+        this.firestoreSessionId = sessionId
         _uiState.update { it.copy(sessionId = sessionId) }
     }
 
     fun startWorkout() {
         _uiState.update { it.copy(isRunning = true, isPaused = false) }
+        // Create Firestore session if needed
+        viewModelScope.launch {
+            val uid = sessionRepository.getCurrentUserId() ?: return@launch
+            runCatching {
+                val session = com.example.fitty.domain.model.WorkoutSession(
+                    planId = planId,
+                    scheduledWorkoutId = scheduledWorkoutId,
+                    title = "Quick Workout",
+                    source = if (planId.isNotBlank()) "plan" else "quick",
+                    status = "in_progress",
+                    startedAt = System.currentTimeMillis()
+                )
+                val result = workoutSessionRepository.startSession(uid, session)
+                result.onSuccess { newId ->
+                    firestoreSessionId = newId
+                    _uiState.update { it.copy(sessionId = newId) }
+                }
+            }
+        }
         startTimer()
     }
 
@@ -106,14 +133,14 @@ class WorkoutSessionViewModel @Inject constructor(
         _uiState.update { it.copy(isCompleted = true) }
         viewModelScope.launch {
             completeWorkoutSessionUseCase(
-                sessionId = state.sessionId,
+                sessionId = firestoreSessionId.ifBlank { state.sessionId },
                 durationMinutes = state.elapsedSeconds / 60,
                 caloriesBurned = state.estimatedCalories,
                 completionRate = if (state.exerciseCount > 0) state.completedExercises.toFloat() / state.exerciseCount else 1f,
                 perceivedEffort = null,
                 exercises = emptyList(),
-                planId = "",
-                scheduledWorkoutId = ""
+                planId = planId,
+                scheduledWorkoutId = scheduledWorkoutId
             )
             runCatching { updateStreakUseCase("workout") }
             onComplete()
@@ -141,11 +168,13 @@ class WorkoutSessionViewModel @Inject constructor(
 @Composable
 fun WorkoutSessionRoute(
     sessionId: String,
+    planId: String = "",
+    scheduledWorkoutId: String = "",
     onBack: () -> Unit,
     viewModel: WorkoutSessionViewModel = hiltViewModel()
 ) {
     LaunchedEffect(sessionId) {
-        viewModel.initialize(sessionId)
+        viewModel.initialize(sessionId, planId, scheduledWorkoutId)
     }
     val state by viewModel.uiState.collectAsState()
     WorkoutSessionScreen(

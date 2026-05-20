@@ -38,9 +38,17 @@ class UpdateStreakUseCase @Inject constructor(
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val stats = user.stats
 
-        // Already active today — no streak change needed
+        // Always increment activity counters regardless of streak status
+        val newTotalWorkouts = if (reason == "workout") stats.totalWorkouts + 1 else stats.totalWorkouts
+        val newMealsLogged = if (reason == "meal") stats.mealsLogged + 1 else stats.mealsLogged
+
+        // If already active today, only update counters — skip streak recalculation
         if (stats.lastActiveDate == today) {
-            return Result.success(Unit)
+            val updatedStats = stats.copy(
+                totalWorkouts = newTotalWorkouts,
+                mealsLogged = newMealsLogged
+            )
+            return userRepository.updateStats(uid, updatedStats)
         }
 
         val yesterday = LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
@@ -51,10 +59,6 @@ class UpdateStreakUseCase @Inject constructor(
 
         // Keep last 7 active dates for UI display
         val newActiveDates = (stats.streakActiveDates + today).takeLast(7)
-
-        // Increment counters based on reason
-        val newTotalWorkouts = if (reason == "workout") stats.totalWorkouts + 1 else stats.totalWorkouts
-        val newMealsLogged = if (reason == "meal") stats.mealsLogged + 1 else stats.mealsLogged
 
         val updatedStats = stats.copy(
             currentStreak = newStreak,

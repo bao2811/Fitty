@@ -592,7 +592,14 @@ private fun MealsTab(
             }
         }
 
-        // ── Daily Summary Card ──
+        // ── Daily Summary Card ── (computed from today's scan history)
+        val todayDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        val todayScans = state.scanHistory.filter { it.dateKey == todayDate }
+        val todayMealCount = todayScans.size
+        val todayProtein = todayScans.sumOf { it.protein }
+        val todayCarbs = todayScans.sumOf { it.carbs }
+        val todayFat = todayScans.sumOf { it.fat }
+
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -609,13 +616,13 @@ private fun MealsTab(
                     }
                     Column {
                         Text("Tổng hôm nay", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(state.progressMeals, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$todayMealCount meals", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    MacroStatPill("Protein", state.statProteinAvg, Color(0xFF6C63FF))
-                    MacroStatPill("Carbs", state.statCarbsAvg, Color(0xFFFF9F43))
-                    MacroStatPill("Fat", state.statFatAvg, Color(0xFF2ED573))
+                    MacroStatPill("Protein", "${todayProtein}g", Color(0xFF6C63FF))
+                    MacroStatPill("Carbs", "${todayCarbs}g", Color(0xFFFF9F43))
+                    MacroStatPill("Fat", "${todayFat}g", Color(0xFF2ED573))
                 }
             }
         }

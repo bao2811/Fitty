@@ -1,6 +1,7 @@
 package com.example.fitty.domain.usecase.track
 
 import com.example.fitty.domain.model.BodyMeasurement
+import com.example.fitty.domain.model.DailySummary
 import com.example.fitty.domain.model.BodyScan
 import com.example.fitty.domain.model.BodyScanAnalysisEngine
 import com.example.fitty.domain.model.BodyScanAnalysisResult
@@ -67,17 +68,20 @@ class ConfirmMealLogUseCase @Inject constructor(
             )
             trackingRepository.saveMealScanRecord(uid, scanRecord)
 
-            // Update daily summary meal count
+            // Update daily summary: meal count + macro fields
             val summary = trackingRepository.getDailySummary(uid, today)
-            if (summary != null) {
-                val updated = summary.copy(
-                    mealsLoggedCount = summary.mealsLoggedCount + 1,
-                    progress = summary.progress.copy(
-                        caloriesConsumed = summary.progress.caloriesConsumed + finalLog.totalCalories
-                    )
+            val baseSummary = summary ?: DailySummary(dateKey = today)
+            val updated = baseSummary.copy(
+                mealsLoggedCount = baseSummary.mealsLoggedCount + 1,
+                progress = baseSummary.progress.copy(
+                    caloriesConsumed = baseSummary.progress.caloriesConsumed + finalLog.totalCalories,
+                    mealsLogged = baseSummary.progress.mealsLogged + 1,
+                    proteinGrams = baseSummary.progress.proteinGrams + finalLog.totalProtein,
+                    carbsGrams = baseSummary.progress.carbsGrams + finalLog.totalCarbs,
+                    fatGrams = baseSummary.progress.fatGrams + finalLog.totalFat
                 )
-                trackingRepository.updateDailySummary(uid, today, updated)
-            }
+            )
+            trackingRepository.updateDailySummary(uid, today, updated)
         }
         return saveResult
     }
@@ -98,7 +102,8 @@ class AnalyzeBodyScanUseCase @Inject constructor(
 
 class SaveBodyScanUseCase @Inject constructor(
     private val trackingRepository: TrackingRepository,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val userRepository: com.example.fitty.domain.repository.UserRepository
 ) {
     suspend operator fun invoke(bodyScan: BodyScan): Result<String> {
         val uid = sessionRepository.getCurrentUserId()
@@ -116,16 +121,25 @@ class SaveBodyScanUseCase @Inject constructor(
 
             // Update daily summary to reflect the body scan activity
             val summary = trackingRepository.getDailySummary(uid, today)
-            if (summary != null) {
-                val updated = summary.copy(
-                    progress = summary.progress.copy(
-                        mealsLogged = summary.progress.mealsLogged + 0 // keep as-is
-                    ),
-                    insightText = summary.insightText.ifBlank {
-                        bodyScan.summary.ifBlank { "Body scan completed." }
-                    }
-                )
-                trackingRepository.updateDailySummary(uid, today, updated)
+            val baseSummary = summary ?: DailySummary(dateKey = today)
+            val updated = baseSummary.copy(
+                insightText = baseSummary.insightText.ifBlank {
+                    bodyScan.summary.ifBlank { "Body scan completed." }
+                }
+            )
+            trackingRepository.updateDailySummary(uid, today, updated)
+
+            // Update user profile with latest body metrics from scan
+            runCatching {
+                val user = userRepository.getCurrentUser(uid)
+                if (user != null) {
+                    val updatedProfile = user.profile.copy(
+                        // Note: Body scan provides bodyFat%, not weight.
+                        // Weight is only updated manually via the Home edit dialog.
+                    )
+                    // Only update if profile actually changed (future: add bodyFatPercent to profile)
+                    userRepository.updateProfile(uid, updatedProfile)
+                }
             }
         }
         return result

@@ -236,6 +236,13 @@ class HomeViewModel @Inject constructor(
     init {
         observeTasks()
         observeNotifications()
+        refreshData()
+    }
+
+    /**
+     * Reload all dashboard data. Called on init and when returning to Home tab.
+     */
+    fun refreshData() {
         refreshUser()
         loadTodaySummary()
     }
@@ -508,51 +515,59 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadTodaySummary() {
+    internal fun loadTodaySummary() {
         viewModelScope.launch {
             val uid = sessionRepository.getCurrentUserId() ?: return@launch
-            runCatching {
-                val summary = trackingRepository.getDailySummary(uid, todayDateKey)
-                val mealLogs = trackingRepository.getMealLogs(uid, todayDateKey)
-                val workoutsCompleted = summary?.progress?.workoutsCompleted ?: 0
-                val workoutTarget = summary?.targets?.workouts ?: 1
-                val mealsLogged = mealLogs.size
-                val waterMl = summary?.progress?.waterMl ?: 0
-                val waterTarget = summary?.targets?.waterMl ?: 2500
-                val waterL = "%.1f".format(waterMl / 1000f)
-                val waterTL = "%.1f".format(waterTarget / 1000f)
 
-                // Build real nutrition from meal logs
-                val nutritionUi = buildNutritionFromMealLogs(
+            // Fetch daily summary and meal logs independently so one failure doesn't block the other
+            val summary = runCatching { trackingRepository.getDailySummary(uid, todayDateKey) }.getOrNull()
+            val mealLogs = runCatching { trackingRepository.getMealLogs(uid, todayDateKey) }.getOrDefault(emptyList())
+
+            val workoutsCompleted = summary?.progress?.workoutsCompleted ?: 0
+            val workoutTarget = summary?.targets?.workouts ?: 1
+            val waterMl = summary?.progress?.waterMl ?: 0
+            val waterTarget = summary?.targets?.waterMl ?: 2500
+            val waterL = "%.1f".format(waterMl / 1000f)
+            val waterTL = "%.1f".format(waterTarget / 1000f)
+            val caloriesTarget = summary?.targets?.calories ?: 2100
+
+            // Build nutrition: prefer meal logs, fall back to daily summary data
+            val nutritionUi = if (mealLogs.isNotEmpty()) {
+                buildNutritionFromMealLogs(
                     mealLogs = mealLogs,
-                    caloriesTarget = summary?.targets?.calories ?: 2100
+                    caloriesTarget = caloriesTarget
                 )
+            } else if (summary != null && summary.progress.caloriesConsumed > 0) {
+                // Fallback: build from daily summary when meal logs query returned empty
+                buildNutritionFromDailySummary(
+                    summary = summary
+                )
+            } else {
+                emptyNutrition(context = context, caloriesTarget = caloriesTarget)
+            }
 
-                // Build focus description from real data
-                val workoutDuration = summary?.todayWorkoutTitle?.let {
-                    // Extract duration if available from summary
-                    summary.targets.workouts
-                } ?: 1
+            // Use mealsLogged from daily summary if meal logs are empty (query may have failed)
+            val mealsLogged = if (mealLogs.isNotEmpty()) mealLogs.size
+                else summary?.progress?.mealsLogged ?: 0
 
-                _uiState.update { current ->
-                    current.copy(
-                        focusMetrics = listOf(
-                            HomeFocusMetricUi(
-                                label = context.getString(R.string.home_metric_workout),
-                                value = "$workoutsCompleted/$workoutTarget"
-                            ),
-                            HomeFocusMetricUi(
-                                label = context.getString(R.string.home_metric_meals_logged),
-                                value = "$mealsLogged/3"
-                            ),
-                            HomeFocusMetricUi(
-                                label = context.getString(R.string.home_metric_water),
-                                value = "$waterL/$waterTL L"
-                            )
+            _uiState.update { current ->
+                current.copy(
+                    focusMetrics = listOf(
+                        HomeFocusMetricUi(
+                            label = context.getString(R.string.home_metric_workout),
+                            value = "$workoutsCompleted/$workoutTarget"
                         ),
-                        nutrition = nutritionUi
-                    )
-                }
+                        HomeFocusMetricUi(
+                            label = context.getString(R.string.home_metric_meals_logged),
+                            value = "$mealsLogged/3"
+                        ),
+                        HomeFocusMetricUi(
+                            label = context.getString(R.string.home_metric_water),
+                            value = "$waterL/$waterTL L"
+                        )
+                    ),
+                    nutrition = nutritionUi
+                )
             }
         }
     }
@@ -610,6 +625,54 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Fallback: build nutrition UI from DailySummary when meal_logs query fails
+     * but daily summary has aggregated data (written by ConfirmMealLogUseCase).
+     */
+    private fun buildNutritionFromDailySummary(
+        summary: com.example.fitty.domain.model.DailySummary
+    ): HomeNutritionUi {
+        val totalCalories = summary.progress.caloriesConsumed
+        val totalProtein = summary.progress.proteinGrams
+        val totalCarbs = summary.progress.carbsGrams
+        val totalFat = summary.progress.fatGrams
+        val totalMacroGrams = (totalProtein + totalCarbs + totalFat).coerceAtLeast(1)
+        val caloriesTarget = summary.targets.calories
+
+        val proteinRatio = totalProtein.toFloat() / totalMacroGrams
+        val carbsRatio = totalCarbs.toFloat() / totalMacroGrams
+        val fatRatio = totalFat.toFloat() / totalMacroGrams
+
+        val mealsCount = summary.progress.mealsLogged
+        val mealRows = if (mealsCount > 0) {
+            listOf(
+                HomeMealUi(
+                    label = context.getString(R.string.home_meal_breakfast),
+                    calories = "$totalCalories kcal"
+                )
+            )
+        } else {
+            listOf(
+                HomeMealUi(context.getString(R.string.home_meal_breakfast), "—"),
+                HomeMealUi(context.getString(R.string.home_meal_lunch), "—"),
+                HomeMealUi(context.getString(R.string.home_meal_snack), "—")
+            )
+        }
+
+        return HomeNutritionUi(
+            sectionTitle = context.getString(R.string.home_nutrition_section_title),
+            summary = "$totalCalories / $caloriesTarget kcal",
+            macros = listOf(
+                HomeMacroProgressUi(context.getString(R.string.home_macro_protein), proteinRatio),
+                HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), carbsRatio),
+                HomeMacroProgressUi(context.getString(R.string.home_macro_fat), fatRatio)
+            ),
+            meals = mealRows,
+            primaryActionLabel = context.getString(R.string.home_action_log_meal),
+            secondaryActionLabel = context.getString(R.string.home_action_details)
+        )
+    }
+
 }
 
 @Composable
@@ -617,12 +680,26 @@ fun HomeRoute(
     onNavigateToPlan: () -> Unit = {},
     onNavigateToTrack: () -> Unit = {},
     onNavigateToCoach: () -> Unit = {},
+    onStartWorkout: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+
+    // Refresh data every time the Home tab becomes visible (e.g. after Track meal)
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshData()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     HomeScreen(
         state = state,
-        onStartWorkout = onNavigateToPlan,
+        onStartWorkout = onStartWorkout,
         onWorkoutDetails = onNavigateToPlan,
         onLogMeal = onNavigateToTrack,
         onNutritionDetails = onNavigateToTrack,
@@ -1921,7 +1998,11 @@ private fun HomeUiState.preserveDynamicState(current: HomeUiState): HomeUiState 
     tasks = current.tasks,
     notifications = current.notifications,
     unreadNotificationCount = current.unreadNotificationCount,
-    showNotifications = current.showNotifications
+    showNotifications = current.showNotifications,
+    // Always preserve real tracking data loaded by loadTodaySummary so refreshUser doesn't overwrite
+    focusMetrics = current.focusMetrics,
+    nutrition = current.nutrition,
+    streak = current.streak
 )
 
 private fun HomeTaskStatus.toDisplayLabel(): String = when (this) {

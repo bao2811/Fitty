@@ -300,8 +300,31 @@ private fun ExerciseGifDialog(
 ) {
     val imageLoader = rememberGifImageLoader()
 
+    // Timer state
+    var isTimerRunning by rememberSaveable { mutableStateOf(false) }
+    var isPaused by rememberSaveable { mutableStateOf(false) }
+    var elapsedSeconds by rememberSaveable { mutableStateOf(0) }
+    var isCompleted by rememberSaveable { mutableStateOf(false) }
+
+    val requiredSeconds = exercise.defaultDurationSeconds
+        ?: exercise.durationSeconds.takeIf { it > 0 }
+        ?: 30
+    val progress = (elapsedSeconds.toFloat() / requiredSeconds).coerceAtMost(1f)
+    val canComplete = elapsedSeconds >= requiredSeconds
+
+    // Timer tick
+    androidx.compose.runtime.LaunchedEffect(isTimerRunning, isPaused) {
+        while (isTimerRunning && !isPaused) {
+            kotlinx.coroutines.delay(1000L)
+            elapsedSeconds++
+        }
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            isTimerRunning = false
+            onDismiss()
+        },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
@@ -331,7 +354,10 @@ private fun ExerciseGifDialog(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(
-                        onClick = onDismiss,
+                        onClick = {
+                            isTimerRunning = false
+                            onDismiss()
+                        },
                         modifier = Modifier
                             .size(36.dp)
                             .background(
@@ -359,7 +385,7 @@ private fun ExerciseGifDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1f)
+                        .aspectRatio(1.2f)
                         .clip(RoundedCornerShape(18.dp))
                         .background(Color(0xFFE8DEF8)),
                     contentAlignment = Alignment.Center
@@ -437,16 +463,125 @@ private fun ExerciseGifDialog(
                     }
                 }
 
-                // Instructions if available
-                val descText = exercise.instructions.ifBlank { exercise.description }
-                if (descText.isNotBlank()) {
-                    Text(
-                        text = descText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                // ── Timer Section ──
+                if (isTimerRunning || isCompleted) {
+                    val elapsedMin = elapsedSeconds / 60
+                    val elapsedSec = elapsedSeconds % 60
+                    val reqMin = requiredSeconds / 60
+                    val reqSec = requiredSeconds % 60
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = if (canComplete) Color(0xFF2ED573).copy(alpha = 0.08f)
+                                else FittyPink.copy(alpha = 0.06f),
+                                shape = RoundedCornerShape(14.dp)
+                            )
+                            .padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "%02d:%02d / %02d:%02d".format(elapsedMin, elapsedSec, reqMin, reqSec),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (canComplete) Color(0xFF2ED573) else FittyPink
+                        )
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = if (canComplete) Color(0xFF2ED573) else FittyPink,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        Text(
+                            text = if (isCompleted) "✅ Hoàn thành!"
+                            else if (canComplete) "Đủ thời gian! Bấm Done"
+                            else "Đang tập...",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // ── Action Buttons ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    when {
+                        isCompleted -> {
+                            // Already completed — just show close
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    isTimerRunning = false
+                                    onDismiss()
+                                },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2ED573)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
+                                Text(" Hoàn thành!", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        !isTimerRunning -> {
+                            // Not started — show Start button
+                            androidx.compose.material3.Button(
+                                onClick = { isTimerRunning = true; isPaused = false },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = FittyPink
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Outlined.PlayArrow, null, modifier = Modifier.size(20.dp))
+                                Text(
+                                    " Bắt đầu tập · ${requiredSeconds}s",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        else -> {
+                            // Running — show Pause + Done
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = { isPaused = !isPaused },
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    if (isPaused) Icons.Outlined.PlayArrow
+                                    else Icons.Outlined.Pause,
+                                    null, modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    if (isPaused) " Tiếp" else " Dừng",
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    isTimerRunning = false
+                                    isCompleted = true
+                                },
+                                enabled = canComplete,
+                                shape = RoundedCornerShape(14.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF2ED573),
+                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
+                                Text(" Done", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
         }

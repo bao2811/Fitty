@@ -75,27 +75,25 @@ class CompleteWorkoutSessionUseCase @Inject constructor(
             planRepository.updateScheduledWorkoutStatus(uid, planId, scheduledWorkoutId, "completed")
         }
 
-        // 3. Update daily summary
+        // 3. Update daily summary (create if not exists)
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val existing = trackingRepository.getDailySummary(uid, today)
-        if (existing != null) {
-            val updated = existing.copy(
-                progress = existing.progress.copy(
-                    workoutsCompleted = existing.progress.workoutsCompleted + 1
-                ),
-                todayWorkoutTitle = "",
-                currentStreak = existing.currentStreak + 1
+        val baseSummary = existing ?: com.example.fitty.domain.model.DailySummary(dateKey = today)
+        val updated = baseSummary.copy(
+            progress = baseSummary.progress.copy(
+                workoutsCompleted = baseSummary.progress.workoutsCompleted + 1,
+                caloriesBurned = baseSummary.progress.caloriesBurned + caloriesBurned
             )
-            trackingRepository.updateDailySummary(uid, today, updated)
-        }
+        )
+        trackingRepository.updateDailySummary(uid, today, updated)
 
-        // 4. Update user stats
+        // 4. Update user stats (increment totalWorkouts)
         val user = userRepository.getCurrentUser(uid)
         if (user != null) {
-            val newStreak = user.stats.currentStreak + 1
-            val newBest = maxOf(user.stats.bestStreak, newStreak)
-            val updatedProfile = user.profile
-            userRepository.updateProfile(uid, updatedProfile)
+            val updatedStats = user.stats.copy(
+                totalWorkouts = user.stats.totalWorkouts + 1
+            )
+            userRepository.updateStats(uid, updatedStats)
         }
 
         return Result.success(Unit)

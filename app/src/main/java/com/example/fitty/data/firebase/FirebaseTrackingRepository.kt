@@ -26,7 +26,7 @@ class FirebaseTrackingRepository @Inject constructor(
     @Suppress("UNCHECKED_CAST")
     override suspend fun getMealLogs(uid: String, dateKey: String): List<MealLog> =
         userDoc(uid).collection("meal_logs").whereEqualTo("dateKey", dateKey)
-            .orderBy("loggedAt", Query.Direction.DESCENDING).get().await()
+            .get().await()
             .documents.mapNotNull { it.toMealLog() }
 
     override suspend fun getMealLog(uid: String, mealId: String): MealLog? {
@@ -113,13 +113,23 @@ class FirebaseTrackingRepository @Inject constructor(
         val statsMap = user.get("stats") as? Map<*, *> ?: emptyMap<String, Any>()
         val measurements = getBodyMeasurements(uid, days)
         val latestWeight = measurements.firstOrNull()?.weightKg
-        val targetWeightVal = (user.getDouble("targetWeightKg"))?.toFloat()
-        val heightCm = (user.getDouble("heightCm"))?.toFloat()
+        val profileMap = user.get("profile") as? Map<*, *>
+        val targetWeightVal = (profileMap?.get("targetWeightKg") as? Number)?.toFloat()
+            ?: (user.getDouble("targetWeightKg"))?.toFloat()
+        val heightCm = (profileMap?.get("heightCm") as? Number)?.toFloat()
+            ?: (user.getDouble("heightCm"))?.toFloat()
         val bmiVal = if (latestWeight != null && heightCm != null && heightCm > 0) {
             val heightM = heightCm / 100f
             latestWeight / (heightM * heightM)
         } else null
+
+        // Load daily summaries for the requested period
+        val toDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        val fromDate = java.time.LocalDate.now().minusDays(days.toLong()).format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+        val dailySummaries = getDailySummaries(uid, fromDate, toDate)
+
         return ProgressStats(
+            dailySummaries = dailySummaries,
             totalWorkouts = (statsMap["totalWorkouts"] as? Number)?.toInt() ?: 0,
             totalMealsLogged = (statsMap["mealsLogged"] as? Number)?.toInt() ?: 0,
             currentStreak = (statsMap["currentStreak"] as? Number)?.toInt() ?: 0,
@@ -211,8 +221,13 @@ class FirebaseTrackingRepository @Inject constructor(
                 waterMl = (t["waterMl"] as? Number)?.toInt() ?: 2500, workouts = (t["workouts"] as? Number)?.toInt() ?: 1,
                 steps = (t["steps"] as? Number)?.toInt() ?: 8000),
             progress = DailySummaryProgress(caloriesConsumed = (p["caloriesConsumed"] as? Number)?.toInt() ?: 0,
+                caloriesBurned = (p["caloriesBurned"] as? Number)?.toInt() ?: 0,
                 waterMl = (p["waterMl"] as? Number)?.toInt() ?: 0, workoutsCompleted = (p["workoutsCompleted"] as? Number)?.toInt() ?: 0,
-                steps = (p["steps"] as? Number)?.toInt() ?: 0),
+                mealsLogged = (p["mealsLogged"] as? Number)?.toInt() ?: 0,
+                steps = (p["steps"] as? Number)?.toInt() ?: 0,
+                proteinGrams = (p["proteinGrams"] as? Number)?.toInt() ?: 0,
+                carbsGrams = (p["carbsGrams"] as? Number)?.toInt() ?: 0,
+                fatGrams = (p["fatGrams"] as? Number)?.toInt() ?: 0),
             todayWorkoutTitle = s["todayWorkoutTitle"] as? String ?: "",
             mealsLoggedCount = (s["mealsLoggedCount"] as? Number)?.toInt() ?: 0,
             currentStreak = (s["currentStreak"] as? Number)?.toInt() ?: 0,
@@ -254,7 +269,10 @@ class FirebaseTrackingRepository @Inject constructor(
 
     private fun DailySummary.toMap(): Map<String, Any?> = mapOf("dateKey" to dateKey,
         "targets" to mapOf("calories" to targets.calories, "waterMl" to targets.waterMl, "workouts" to targets.workouts, "steps" to targets.steps),
-        "progress" to mapOf("caloriesConsumed" to progress.caloriesConsumed, "waterMl" to progress.waterMl, "workoutsCompleted" to progress.workoutsCompleted, "steps" to progress.steps),
+        "progress" to mapOf("caloriesConsumed" to progress.caloriesConsumed, "caloriesBurned" to progress.caloriesBurned,
+            "waterMl" to progress.waterMl, "workoutsCompleted" to progress.workoutsCompleted,
+            "mealsLogged" to progress.mealsLogged, "steps" to progress.steps,
+            "proteinGrams" to progress.proteinGrams, "carbsGrams" to progress.carbsGrams, "fatGrams" to progress.fatGrams),
         "summaries" to mapOf("todayWorkoutTitle" to todayWorkoutTitle, "mealsLoggedCount" to mealsLoggedCount, "currentStreak" to currentStreak, "insightText" to insightText),
         "updatedAt" to FieldValue.serverTimestamp())
 }
