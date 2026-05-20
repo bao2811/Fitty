@@ -169,6 +169,7 @@ class PlanViewModel @Inject constructor(
 @Composable
 fun PlanRoute(
     onCategorySelected: (categoryId: String, categoryLabel: String, bodyPartKeys: List<String>) -> Unit = { _, _, _ -> },
+    onStartQuickWorkout: () -> Unit = {},
     viewModel: PlanViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -180,7 +181,8 @@ fun PlanRoute(
                 category.def.label,
                 category.def.bodyPartKeys
             )
-        }
+        },
+        onStartQuickWorkout = onStartQuickWorkout
     )
 }
 
@@ -189,7 +191,8 @@ fun PlanRoute(
 @Composable
 private fun PracticeScreen(
     state: PracticeUiState,
-    onCategoryClicked: (PracticeCategoryUi) -> Unit
+    onCategoryClicked: (PracticeCategoryUi) -> Unit,
+    onStartQuickWorkout: () -> Unit = {}
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -211,6 +214,41 @@ private fun PracticeScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Spacer(modifier = Modifier.height(4.dp))
+            }
+        }
+
+        // ── Quick Workout Card ───────────────────────────────────
+        item(span = { GridItemSpan(2) }) {
+            Card(
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = FittyPink),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onStartQuickWorkout)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.FitnessCenter,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        "Bắt đầu tập nhanh",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        "Bắt đầu một buổi tập tự do với đồng hồ bấm giờ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
             }
         }
 

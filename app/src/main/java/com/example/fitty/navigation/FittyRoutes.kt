@@ -9,9 +9,13 @@ object FittyRoutes {
     const val Onboarding = "onboarding"
     const val PlanPreview = "plan_preview"
     const val Main = "main"
-    const val WorkoutSession = "workout_session/{sessionId}"
+    const val WorkoutSession = "workout_session/{sessionId}/{planId}/{scheduledWorkoutId}"
 
-    fun workoutSession(sessionId: String) = "workout_session/$sessionId"
+    fun workoutSession(
+        sessionId: String,
+        planId: String = "",
+        scheduledWorkoutId: String = ""
+    ) = "workout_session/$sessionId/$planId/$scheduledWorkoutId"
 }
 
 object MainRoutes {

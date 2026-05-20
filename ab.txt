@@ -1499,3 +1499,27 @@ TrainingStyleSelector()
 CustomPlannerWeekView()
 WorkoutBuilderList()
 ExerciseAdderBottomSheet()
+
+
+
+kiểm tra lại phần track meal và track body đã gọi đến api để chấm điểm và lấy dữ liệu chưa và dữ liệu đã được lưu lại để sử dụng cho các field thông tin ở home chưa.
+
+kiểm tra chỗ trackmeal sao giá trị trả về mặc định là vậy, ảnh nào kết quả cũng giống nhau và chưa cập nhật cho trang home, trang home có phần today's forcus có phần logged meal chưa cập nhật mặc dù đã trackmeal rồi và phần today's nutrition cũng đang là 0 hết
+
+tại sao ở trang trackmeal tông số meal vẫn bằng 0 và dữ liệu ở trang home chưa cập nhật theo, tất cả đều là 0.
+
+ở trang progress trong phần track này dữ liệu được lấy từ đâu, và làm sao để đo được tiến độ có tập bài nào hay ko, tôi chưa thấy có phần nào để xác định được người dùng đã tập 1 bài tập cả.
+
+Vấn đề chính: Không có đường đi để người dùng tập workout
+Hiện tại có 4 lỗ hổng nghiêm trọng:
+
+Home "Start" chỉ chuyển sang tab Plan — không mở WorkoutSession. Plan screen cũng không có nút "Bắt đầu tập" → người dùng không thể bắt đầu workout.
+WorkoutSession luôn truyền planId = "", scheduledWorkoutId = "" → không liên kết được với plan.
+CompleteWorkoutSessionUseCase chỉ update daily summary nếu nó đã tồn tại → bỏ qua nếu chưa có.
+stats.totalWorkouts trên user document không bao giờ được increment → Progress luôn hiện "0 total".
+
+Thêm nút "Bắt đầu tập" trên Plan screen → navigate đến WorkoutSession
+Truyền đúng planId/workoutId vào navigation
+Fix CompleteWorkoutSessionUseCase để tạo daily summary mới và increment stats.totalWorkouts
+
+có thể cải tiến ở các bài tập trong phần practice, khi bấm vào  xem gif thì ko chỉ hiển thị mỗi gif mà hiện thị luôn các nút bấm bắt đầu tạp, có thời  gian tập luyện và tính thời gian tập xem có đạt so với bài tập không, ở phần bài tập nhanh thì chưa có bài tập nào cả, chỉ có đồng hồ đếm thời gian, hãy thiết kế bài tập nhanh có thể hiển thị nhiều danh sách bài tập nhanh phía dưới khi người dùng chọn sẽ được truyền lên phía trên và có cả gif hiển thị cùng với thời gian đo nếu đủ thời gian thì có thể click dấu done còn không thì không lưu dữ liệu, và dữ liệu sẽ dược sử dụng cho các phần thông tin ở home và trang progress cùng với stats. 

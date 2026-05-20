@@ -60,7 +60,7 @@ private const val SCROLL_THRESHOLD = 5f
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun MainScaffold(onLogout: () -> Unit) {
+fun MainScaffold(onLogout: () -> Unit, onStartWorkout: () -> Unit = {}) {
     val tabNavController = rememberNavController()
     val backStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -182,7 +182,8 @@ fun MainScaffold(onLogout: () -> Unit) {
                     HomeRoute(
                         onNavigateToPlan = { navigateToTab(MainRoutes.Plan) },
                         onNavigateToTrack = { navigateToTab(MainRoutes.Track) },
-                        onNavigateToCoach = { navigateToTab(MainRoutes.Coach) }
+                        onNavigateToCoach = { navigateToTab(MainRoutes.Coach) },
+                        onStartWorkout = onStartWorkout
                     )
                 }
                 composable(MainRoutes.Plan) {
@@ -191,7 +192,8 @@ fun MainScaffold(onLogout: () -> Unit) {
                             tabNavController.navigate(
                                 MainRoutes.categoryExerciseList(categoryId, categoryLabel, bodyPartKeys)
                             )
-                        }
+                        },
+                        onStartQuickWorkout = onStartWorkout
                     )
                 }
                 composable(

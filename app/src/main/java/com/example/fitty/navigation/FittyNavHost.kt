@@ -135,16 +135,27 @@ fun FittyNavHost(navController: NavHostController) {
                         popUpTo(FittyRoutes.Main) { inclusive = true }
                         launchSingleTop = true
                     }
+                },
+                onStartWorkout = {
+                    navController.navigate(FittyRoutes.workoutSession("quick"))
                 }
             )
         }
         composable(
             route = FittyRoutes.WorkoutSession,
-            arguments = listOf(navArgument("sessionId") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType },
+                navArgument("planId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("scheduledWorkoutId") { type = NavType.StringType; defaultValue = "" }
+            )
         ) { backStackEntry ->
             val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
+            val planId = backStackEntry.arguments?.getString("planId") ?: ""
+            val scheduledWorkoutId = backStackEntry.arguments?.getString("scheduledWorkoutId") ?: ""
             WorkoutSessionRoute(
                 sessionId = sessionId,
+                planId = planId,
+                scheduledWorkoutId = scheduledWorkoutId,
                 onBack = { navController.popBackStack() }
             )
         }
