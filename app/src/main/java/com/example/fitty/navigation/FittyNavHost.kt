@@ -10,8 +10,12 @@ import com.example.fitty.feature_auth.ForgotPasswordRoute
 import com.example.fitty.feature_auth.SignInRoute
 import com.example.fitty.feature_auth.SignUpRoute
 import com.example.fitty.feature_entry.SplashRoute
+import com.example.fitty.feature_exercise.ExerciseDetailRoute
+import com.example.fitty.feature_exercise.ExerciseVideoPlayerRoute
+import com.example.fitty.feature_entry.WelcomeRoute
 import com.example.fitty.feature_onboarding.OnboardingRoute
 import com.example.fitty.feature_onboarding.PlanPreviewRoute
+import com.example.fitty.feature_workout.WorkoutDetailsRoute
 import com.example.fitty.feature_workout.WorkoutSessionRoute
 
 @Composable
@@ -23,7 +27,12 @@ fun FittyNavHost(navController: NavHostController) {
         composable(FittyRoutes.Splash) {
             SplashRoute(
                 onOpenWelcome = {
-                    // Skip Welcome, go directly to SignIn
+                    navController.navigate(FittyRoutes.Welcome) {
+                        popUpTo(FittyRoutes.Splash) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onOpenSignIn = {
                     navController.navigate(FittyRoutes.SignIn) {
                         popUpTo(FittyRoutes.Splash) { inclusive = true }
                         launchSingleTop = true
@@ -38,6 +47,18 @@ fun FittyNavHost(navController: NavHostController) {
                 onOpenMain = {
                     navController.navigate(FittyRoutes.Main) {
                         popUpTo(FittyRoutes.Splash) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+        composable(FittyRoutes.Welcome) {
+            WelcomeRoute(
+                onCreateAccount = { navController.navigate(FittyRoutes.SignUp) },
+                onSignIn = { navController.navigate(FittyRoutes.SignIn) },
+                onContinueAsGuest = {
+                    navController.navigate(FittyRoutes.Onboarding) {
+                        popUpTo(FittyRoutes.Welcome) { inclusive = true }
                         launchSingleTop = true
                     }
                 }
@@ -136,10 +157,71 @@ fun FittyNavHost(navController: NavHostController) {
                         launchSingleTop = true
                     }
                 },
-                onStartWorkout = {
+                onStartQuickWorkout = {
                     navController.navigate(FittyRoutes.workoutSession("quick"))
+                },
+                onStartScheduledWorkout = { planId, scheduledWorkoutId ->
+                    navController.navigate(
+                        FittyRoutes.workoutSession(
+                            sessionId = "scheduled",
+                            planId = planId,
+                            scheduledWorkoutId = scheduledWorkoutId
+                        )
+                    )
+                },
+                onOpenWorkoutDetails = { planId, scheduledWorkoutId ->
+                    navController.navigate(
+                        FittyRoutes.workoutDetails(
+                            planId = planId,
+                            scheduledWorkoutId = scheduledWorkoutId
+                        )
+                    )
                 }
             )
+        }
+        composable(
+            route = FittyRoutes.WorkoutDetails,
+            arguments = listOf(
+                navArgument("planId") { type = NavType.StringType },
+                navArgument("scheduledWorkoutId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val planId = backStackEntry.arguments?.getString("planId") ?: ""
+            val scheduledWorkoutId = backStackEntry.arguments?.getString("scheduledWorkoutId") ?: ""
+            WorkoutDetailsRoute(
+                planId = planId,
+                scheduledWorkoutId = scheduledWorkoutId,
+                onBack = { navController.popBackStack() },
+                onStartWorkout = {
+                    navController.navigate(
+                        FittyRoutes.workoutSession(
+                            sessionId = "scheduled",
+                            planId = planId,
+                            scheduledWorkoutId = scheduledWorkoutId
+                        )
+                    )
+                },
+                onOpenExercise = { exerciseId ->
+                    navController.navigate(FittyRoutes.exerciseDetail(exerciseId))
+                }
+            )
+        }
+        composable(
+            route = FittyRoutes.ExerciseDetail,
+            arguments = listOf(navArgument("exerciseId") { type = NavType.StringType })
+        ) {
+            ExerciseDetailRoute(
+                onBack = { navController.popBackStack() },
+                onPlayVideo = { exerciseId ->
+                    navController.navigate(FittyRoutes.exerciseVideo(exerciseId))
+                }
+            )
+        }
+        composable(
+            route = FittyRoutes.ExerciseVideo,
+            arguments = listOf(navArgument("exerciseId") { type = NavType.StringType })
+        ) {
+            ExerciseVideoPlayerRoute(onBack = { navController.popBackStack() })
         }
         composable(
             route = FittyRoutes.WorkoutSession,

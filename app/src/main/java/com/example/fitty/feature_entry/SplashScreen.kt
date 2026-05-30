@@ -85,6 +85,7 @@ class SplashViewModel @Inject constructor(
 @Composable
 fun SplashRoute(
     onOpenWelcome: () -> Unit,
+    onOpenSignIn: () -> Unit,
     onOpenOnboarding: () -> Unit,
     onOpenMain: () -> Unit,
     viewModel: SplashViewModel = hiltViewModel()
@@ -94,6 +95,7 @@ fun SplashRoute(
     LaunchedEffect(state.destination) {
         when (state.destination) {
             StartupDestination.Welcome -> onOpenWelcome()
+            StartupDestination.SignIn -> onOpenSignIn()
             StartupDestination.Onboarding -> onOpenOnboarding()
             StartupDestination.Main -> onOpenMain()
             null -> Unit

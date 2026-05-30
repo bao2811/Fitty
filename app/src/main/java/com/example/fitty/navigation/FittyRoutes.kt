@@ -1,5 +1,9 @@
 package com.example.fitty.navigation
 
+import android.net.Uri
+import androidx.annotation.StringRes
+import com.example.fitty.R
+
 object FittyRoutes {
     const val Splash = "splash"
     const val Welcome = "welcome"
@@ -9,13 +13,25 @@ object FittyRoutes {
     const val Onboarding = "onboarding"
     const val PlanPreview = "plan_preview"
     const val Main = "main"
+    const val WorkoutDetails = "workout_details/{planId}/{scheduledWorkoutId}"
     const val WorkoutSession = "workout_session/{sessionId}/{planId}/{scheduledWorkoutId}"
+    const val ExerciseDetail = "exercise_detail/{exerciseId}"
+    const val ExerciseVideo = "exercise_video/{exerciseId}"
 
     fun workoutSession(
         sessionId: String,
         planId: String = "",
         scheduledWorkoutId: String = ""
     ) = "workout_session/$sessionId/$planId/$scheduledWorkoutId"
+
+    fun workoutDetails(
+        planId: String,
+        scheduledWorkoutId: String
+    ) = "workout_details/$planId/$scheduledWorkoutId"
+
+    fun exerciseDetail(exerciseId: String) = "exercise_detail/$exerciseId"
+
+    fun exerciseVideo(exerciseId: String) = "exercise_video/$exerciseId"
 }
 
 object MainRoutes {
@@ -31,21 +47,23 @@ object MainRoutes {
         categoryLabel: String,
         bodyPartKeys: List<String>
     ): String {
-        val keys = bodyPartKeys.joinToString(",")
-        return "category_exercises/$categoryId/$categoryLabel/$keys"
+        val encodedCategoryId = Uri.encode(categoryId)
+        val encodedLabel = Uri.encode(categoryLabel)
+        val encodedKeys = Uri.encode(bodyPartKeys.joinToString(","))
+        return "category_exercises/$encodedCategoryId/$encodedLabel/$encodedKeys"
     }
 }
 
 data class MainTab(
     val route: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val iconLabel: String
 )
 
 val MainTabs = listOf(
-    MainTab(MainRoutes.Home, "Home", "H"),
-    MainTab(MainRoutes.Plan, "Practice", "P"),
-    MainTab(MainRoutes.Track, "Track", "T"),
-    MainTab(MainRoutes.Coach, "Coach", "C"),
-    MainTab(MainRoutes.Profile, "Profile", "U")
+    MainTab(MainRoutes.Home, R.string.nav_tab_home, "H"),
+    MainTab(MainRoutes.Plan, R.string.nav_tab_practice, "P"),
+    MainTab(MainRoutes.Track, R.string.nav_tab_track, "T"),
+    MainTab(MainRoutes.Coach, R.string.nav_tab_coach, "C"),
+    MainTab(MainRoutes.Profile, R.string.nav_tab_profile, "U")
 )

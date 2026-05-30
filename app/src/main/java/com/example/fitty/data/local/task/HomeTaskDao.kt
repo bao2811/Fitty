@@ -22,6 +22,24 @@ interface HomeTaskDao {
     @Query("SELECT * FROM home_tasks WHERE id = :taskId LIMIT 1")
     suspend fun getTaskById(taskId: Long): HomeTaskEntity?
 
+    @Query(
+        """
+        SELECT * FROM home_tasks
+        WHERE ownerId = :ownerId AND dateKey = :dateKey
+        ORDER BY timeMinutes ASC, createdAt ASC
+        """
+    )
+    suspend fun getTasksForDate(ownerId: String, dateKey: String): List<HomeTaskEntity>
+
+    @Query(
+        """
+        SELECT * FROM home_tasks
+        WHERE reminderEnabled = 1 AND status != 'Completed'
+        ORDER BY dateKey ASC, timeMinutes ASC, createdAt ASC
+        """
+    )
+    suspend fun getActiveReminderTasks(): List<HomeTaskEntity>
+
     @Query("SELECT EXISTS(SELECT 1 FROM home_task_day_seed WHERE ownerId = :ownerId AND dateKey = :dateKey)")
     suspend fun hasSeed(ownerId: String, dateKey: String): Boolean
 

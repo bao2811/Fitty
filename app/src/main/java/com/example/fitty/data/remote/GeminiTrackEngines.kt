@@ -23,6 +23,50 @@ import java.net.URL
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private data class GeminiImagePayload(
+    val base64: String,
+    val mimeType: String
+)
+
+private class GeminiRetryableException(message: String) : RuntimeException(message)
+
+private fun mapGeminiError(responseCode: Int, responseText: String): String {
+    val detail = runCatching {
+        JSONObject(responseText)
+            .optJSONObject("error")
+            ?.optString("message")
+            .orEmpty()
+    }.getOrDefault("").ifBlank { responseText.take(220) }
+
+    return when (responseCode) {
+        400 -> "Request Gemini không hợp lệ: $detail"
+        401, 403 -> "API key Gemini không hợp lệ, bị giới hạn quyền, hoặc Generative Language API chưa bật."
+        429 -> "Gemini hết quota hoặc bị rate limit. Kiểm tra billing/quota trong Google AI Studio."
+        503 -> "Gemini đang quá tải. Thử lại sau hoặc đổi model."
+        else -> "Gemini lỗi HTTP $responseCode: $detail"
+    }
+}
+
+private fun Throwable.userFacingMessage(): String {
+    val root = generateSequence(this) { it.cause }.last()
+    return root.message?.takeIf { it.isNotBlank() } ?: message ?: "Lỗi không xác định."
+}
+
+private fun extractStringField(source: String, field: String): String? {
+    val pattern = Regex("\"$field\"\\s*:\\s*\"([^\"]*)\"")
+    return pattern.find(source)?.groupValues?.getOrNull(1)
+}
+
+private fun extractIntField(source: String, field: String): Int? {
+    val pattern = Regex("\"$field\"\\s*:\\s*(-?\\d+)")
+    return pattern.find(source)?.groupValues?.getOrNull(1)?.toIntOrNull()
+}
+
+private fun extractFloatField(source: String, field: String): Float? {
+    val pattern = Regex("\"$field\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)")
+    return pattern.find(source)?.groupValues?.getOrNull(1)?.toFloatOrNull()
+}
+
 @Singleton
 class GeminiMealAnalysisEngine @Inject constructor(
     @ApplicationContext private val context: Context
@@ -30,8 +74,13 @@ class GeminiMealAnalysisEngine @Inject constructor(
 
     companion object {
         private const val API_KEY = BuildConfig.GEMINI_API_KEY
-        private const val BASE_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        private val MODELS = listOf(
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite"
+        )
+        private const val BASE_URL_TEMPLATE =
+            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent"
     }
 
     override suspend fun analyzeMealImage(imageUri: String): MealAnalysisResult =
@@ -54,51 +103,43 @@ class GeminiMealAnalysisEngine @Inject constructor(
                     append("  ]\n")
                     append("}\n")
                     append("Analyze the actual food in the photo. Determine mealType from time context or food type (breakfast/lunch/dinner/snack). List each distinct food item you can identify.")
+                    append(" If there is no visible food, still return valid JSON with total values 0, confidence 0.1, and an empty foodItems array.")
                 }
 
-                // Read image from content:// URI and encode as base64
-                val imageBase64 = readImageAsBase64(imageUri)
-
-                val responseText = if (imageBase64 != null) {
-                    callGeminiWithImage(prompt, imageBase64)
-                } else {
-                    callGeminiTextOnly(prompt)
-                }
+                val image = readImagePayload(imageUri)
+                val responseText = callGeminiWithImage(prompt, image)
                 parseMealResponse(responseText, imageUri)
             } catch (e: Exception) {
-                // Fallback to a basic result on API failure
-                MealAnalysisResult(
-                    mealLog = MealLog(
-                        mealType = "meal", source = "gemini", imageUrl = imageUri,
-                        totalCalories = 500, totalProtein = 30, totalCarbs = 55, totalFat = 15,
-                        confidence = 0.70f,
-                        foodItems = listOf(
-                            FoodItem(name = "Mixed meal", quantity = 300, unit = "g",
-                                calories = 500, protein = 30, carbs = 55, fat = 15, confidence = 0.70f)
-                        )
-                    ),
-                    confidence = 0.70f
+                throw IllegalStateException(
+                    "Không phân tích được ảnh bữa ăn: ${e.userFacingMessage()}",
+                    e
                 )
             }
         }
 
-    private fun readImageAsBase64(imageUri: String): String? {
+    private fun readImagePayload(imageUri: String): GeminiImagePayload {
         return try {
             val uri = Uri.parse(imageUri)
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val inputStream = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("Không mở được file ảnh.")
             val bytes = inputStream.use { it.readBytes() }
-            Base64.encodeToString(bytes, Base64.NO_WRAP)
+            if (bytes.isEmpty()) throw IllegalStateException("File ảnh rỗng.")
+            GeminiImagePayload(
+                base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                mimeType = context.contentResolver.getType(uri)?.takeIf { it.startsWith("image/") }
+                    ?: "image/jpeg"
+            )
         } catch (e: Exception) {
-            null
+            throw IllegalStateException("Không đọc được ảnh đã chụp. Hãy chụp lại hoặc chọn ảnh khác.", e)
         }
     }
 
-    private fun callGeminiWithImage(prompt: String, imageBase64: String): String {
+    private fun callGeminiWithImage(prompt: String, image: GeminiImagePayload): String {
         val parts = JSONArray().apply {
             put(JSONObject().put("text", prompt))
             put(JSONObject().put("inlineData", JSONObject().apply {
-                put("mimeType", "image/jpeg")
-                put("data", imageBase64)
+                put("mimeType", image.mimeType)
+                put("data", image.base64)
             }))
         }
 
@@ -111,7 +152,9 @@ class GeminiMealAnalysisEngine @Inject constructor(
             ))
             put("generationConfig", JSONObject().apply {
                 put("temperature", 0.4)
-                put("maxOutputTokens", 800)
+                put("maxOutputTokens", 1400)
+                put("responseMimeType", "application/json")
+                put("responseSchema", mealResponseSchema())
             })
         }
 
@@ -129,14 +172,67 @@ class GeminiMealAnalysisEngine @Inject constructor(
             put("generationConfig", JSONObject().apply {
                 put("temperature", 0.8)
                 put("maxOutputTokens", 500)
+                put("responseMimeType", "application/json")
+                put("responseSchema", mealResponseSchema())
             })
         }
 
         return executeGeminiRequest(requestBody)
     }
 
+    private fun mealResponseSchema(): JSONObject = JSONObject().apply {
+        put("type", "object")
+        put("properties", JSONObject().apply {
+            put("mealType", JSONObject().put("type", "string"))
+            put("totalCalories", JSONObject().put("type", "integer"))
+            put("totalProtein", JSONObject().put("type", "integer"))
+            put("totalCarbs", JSONObject().put("type", "integer"))
+            put("totalFat", JSONObject().put("type", "integer"))
+            put("confidence", JSONObject().put("type", "number"))
+            put("foodItems", JSONObject().apply {
+                put("type", "array")
+                put("items", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("name", JSONObject().put("type", "string"))
+                        put("quantity", JSONObject().put("type", "integer"))
+                        put("unit", JSONObject().put("type", "string"))
+                        put("calories", JSONObject().put("type", "integer"))
+                        put("protein", JSONObject().put("type", "integer"))
+                        put("carbs", JSONObject().put("type", "integer"))
+                        put("fat", JSONObject().put("type", "integer"))
+                        put("confidence", JSONObject().put("type", "number"))
+                    })
+                    put(
+                        "required",
+                        JSONArray().put("name").put("quantity").put("unit").put("calories")
+                            .put("protein").put("carbs").put("fat").put("confidence")
+                    )
+                })
+            })
+        })
+        put(
+            "required",
+            JSONArray().put("mealType").put("totalCalories").put("totalProtein")
+                .put("totalCarbs").put("totalFat").put("confidence").put("foodItems")
+        )
+    }
+
     private fun executeGeminiRequest(requestBody: JSONObject): String {
-        val url = URL("$BASE_URL?key=$API_KEY")
+        require(API_KEY.isNotBlank()) { "Thiếu GEMINI_API_KEY trong file .env." }
+        var lastException: Exception? = null
+        for (model in MODELS) {
+            try {
+                return executeGeminiRequest(model, requestBody)
+            } catch (e: GeminiRetryableException) {
+                lastException = e
+            }
+        }
+        throw lastException ?: RuntimeException("All Gemini image analysis models failed")
+    }
+
+    private fun executeGeminiRequest(model: String, requestBody: JSONObject): String {
+        val url = URL(String.format(BASE_URL_TEMPLATE, model) + "?key=$API_KEY")
         val connection = url.openConnection() as HttpURLConnection
         connection.apply {
             requestMethod = "POST"
@@ -150,9 +246,13 @@ class GeminiMealAnalysisEngine @Inject constructor(
         val responseCode = connection.responseCode
         val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
         val responseText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
-        if (responseCode !in 200..299) throw RuntimeException("Gemini API error ($responseCode)")
+        if (responseCode in 200..299) return responseText
 
-        return responseText
+        val mappedError = mapGeminiError(responseCode, responseText)
+        if (responseCode == 429 || responseCode == 503) {
+            throw GeminiRetryableException(mappedError)
+        }
+        throw RuntimeException(mappedError)
     }
 
     private fun parseMealResponse(responseJson: String, imageUri: String): MealAnalysisResult {
@@ -160,9 +260,20 @@ class GeminiMealAnalysisEngine @Inject constructor(
         val text = json.optJSONArray("candidates")
             ?.optJSONObject(0)?.optJSONObject("content")
             ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+        if (text.isBlank()) {
+            val finishReason = json.optJSONArray("candidates")
+                ?.optJSONObject(0)?.optString("finishReason", "").orEmpty()
+            throw IllegalStateException(
+                if (finishReason.isNotBlank()) "Gemini không trả nội dung phân tích. finishReason=$finishReason."
+                else "Gemini không trả nội dung phân tích."
+            )
+        }
 
         // Extract JSON from response (may be wrapped in markdown code block)
         val cleanJson = text.replace("```json", "").replace("```", "").trim()
+        if (cleanJson.isBlank()) {
+            throw IllegalStateException("Gemini returned an empty meal analysis payload.")
+        }
 
         return try {
             val meal = JSONObject(cleanJson)
@@ -197,18 +308,36 @@ class GeminiMealAnalysisEngine @Inject constructor(
                 confidence = confidence
             )
         } catch (e: Exception) {
-            // If JSON parsing fails, use text as summary
-            MealAnalysisResult(
-                mealLog = MealLog(
-                    mealType = "meal", source = "gemini", imageUrl = imageUri,
-                    totalCalories = 480, totalProtein = 28, totalCarbs = 52, totalFat = 16,
-                    confidence = 0.72f,
-                    foodItems = listOf(FoodItem(name = "Detected meal", quantity = 300, unit = "g",
-                        calories = 480, protein = 28, carbs = 52, fat = 16, confidence = 0.72f))
-                ),
-                confidence = 0.72f
-            )
+            parsePartialMealResponse(cleanJson, imageUri)
+                ?: throw IllegalStateException(
+                    "Gemini trả kết quả dinh dưỡng không hoàn chỉnh. Hãy bấm Phân tích lại.",
+                    e
+                )
         }
+    }
+
+    private fun parsePartialMealResponse(cleanJson: String, imageUri: String): MealAnalysisResult? {
+        val mealType = extractStringField(cleanJson, "mealType") ?: return null
+        val totalCalories = extractIntField(cleanJson, "totalCalories") ?: return null
+        val totalProtein = extractIntField(cleanJson, "totalProtein") ?: 0
+        val totalCarbs = extractIntField(cleanJson, "totalCarbs") ?: 0
+        val totalFat = extractIntField(cleanJson, "totalFat") ?: 0
+        val confidence = extractFloatField(cleanJson, "confidence") ?: 0.5f
+
+        return MealAnalysisResult(
+            mealLog = MealLog(
+                mealType = mealType,
+                source = "gemini_partial",
+                imageUrl = imageUri,
+                totalCalories = totalCalories,
+                totalProtein = totalProtein,
+                totalCarbs = totalCarbs,
+                totalFat = totalFat,
+                confidence = confidence,
+                foodItems = emptyList()
+            ),
+            confidence = confidence
+        )
     }
 }
 
@@ -219,66 +348,65 @@ class GeminiBodyScanAnalysisEngine @Inject constructor(
 
     companion object {
         private const val API_KEY = BuildConfig.GEMINI_API_KEY
-        private const val BASE_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        private val MODELS = listOf(
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite"
+        )
+        private const val BASE_URL_TEMPLATE =
+            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent"
     }
 
     override suspend fun analyzeBodyScan(frontImageUri: String, sideImageUri: String?): BodyScanAnalysisResult =
         withContext(Dispatchers.IO) {
             try {
                 val prompt = buildString {
-                    append("You are a body composition analysis AI. Analyze this body progress photo.\n")
-                    append("Evaluate the person's physique, estimate body fat percentage, and assess posture.\n")
-                    append("Respond ONLY with valid JSON in this exact format (no markdown, no explanation):\n")
+                    append("You are a body composition analysis AI for a Vietnamese fitness app.\n")
+                    append("Analyze this body progress photo, evaluate the physique, estimate body fat percentage, and assess posture.\n")
+                    append("Respond ONLY with valid JSON in Vietnamese, with no markdown and no explanation.\n")
                     append("{\n")
-                    append("  \"summary\": \"Good overall posture. Upper body shows balanced muscle development.\",\n")
+                    append("  \"summary\": \"Tư thế tổng thể khá tốt, phần thân trên phát triển tương đối cân đối.\",\n")
                     append("  \"estimatedBodyFatPercent\": 18.5,\n")
                     append("  \"postureScore\": 75,\n")
                     append("  \"confidence\": 0.78\n")
                     append("}\n")
-                    append("Analyze the actual body in the photo. Provide realistic body fat estimate (12-30%), posture score (50-95), and a detailed summary of observations.")
+                    append("The summary field must be written in Vietnamese. Provide a realistic body fat estimate (12-30%), posture score (50-95), and a concise Vietnamese observation summary.")
                 }
 
-                // Read image from content:// URI and encode as base64
-                val imageBase64 = readImageAsBase64(frontImageUri)
-
-                val responseText = if (imageBase64 != null) {
-                    callGeminiWithImage(prompt, imageBase64)
-                } else {
-                    callGeminiTextOnly(prompt)
-                }
+                val image = readImagePayload(frontImageUri)
+                val responseText = callGeminiWithImage(prompt, image)
                 parseBodyResponse(responseText, frontImageUri, sideImageUri)
             } catch (e: Exception) {
-                BodyScanAnalysisResult(
-                    bodyScan = BodyScan(
-                        capturedAt = System.currentTimeMillis(),
-                        frontImageUrl = frontImageUri, sideImageUrl = sideImageUri,
-                        summary = "Analysis complete. Please try again for more accurate results.",
-                        confidence = 0.65f, estimatedBodyFatPercent = 20.0f,
-                        postureScore = 68, status = "processed"
-                    ),
-                    confidence = 0.65f
+                throw IllegalStateException(
+                    "Không phân tích được ảnh cơ thể: ${e.userFacingMessage()}",
+                    e
                 )
             }
         }
 
-    private fun readImageAsBase64(imageUri: String): String? {
+    private fun readImagePayload(imageUri: String): GeminiImagePayload {
         return try {
             val uri = Uri.parse(imageUri)
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val inputStream = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("Không mở được file ảnh.")
             val bytes = inputStream.use { it.readBytes() }
-            Base64.encodeToString(bytes, Base64.NO_WRAP)
+            if (bytes.isEmpty()) throw IllegalStateException("File ảnh rỗng.")
+            GeminiImagePayload(
+                base64 = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                mimeType = context.contentResolver.getType(uri)?.takeIf { it.startsWith("image/") }
+                    ?: "image/jpeg"
+            )
         } catch (e: Exception) {
-            null
+            throw IllegalStateException("Không đọc được ảnh đã chụp. Hãy chụp lại hoặc chọn ảnh khác.", e)
         }
     }
 
-    private fun callGeminiWithImage(prompt: String, imageBase64: String): String {
+    private fun callGeminiWithImage(prompt: String, image: GeminiImagePayload): String {
         val parts = JSONArray().apply {
             put(JSONObject().put("text", prompt))
             put(JSONObject().put("inlineData", JSONObject().apply {
-                put("mimeType", "image/jpeg")
-                put("data", imageBase64)
+                put("mimeType", image.mimeType)
+                put("data", image.base64)
             }))
         }
 
@@ -291,7 +419,9 @@ class GeminiBodyScanAnalysisEngine @Inject constructor(
             ))
             put("generationConfig", JSONObject().apply {
                 put("temperature", 0.4)
-                put("maxOutputTokens", 500)
+                put("maxOutputTokens", 900)
+                put("responseMimeType", "application/json")
+                put("responseSchema", bodyScanResponseSchema())
             })
         }
 
@@ -309,14 +439,43 @@ class GeminiBodyScanAnalysisEngine @Inject constructor(
             put("generationConfig", JSONObject().apply {
                 put("temperature", 0.8)
                 put("maxOutputTokens", 300)
+                put("responseMimeType", "application/json")
+                put("responseSchema", bodyScanResponseSchema())
             })
         }
 
         return executeGeminiRequest(requestBody)
     }
 
+    private fun bodyScanResponseSchema(): JSONObject = JSONObject().apply {
+        put("type", "object")
+        put("properties", JSONObject().apply {
+            put("summary", JSONObject().put("type", "string"))
+            put("estimatedBodyFatPercent", JSONObject().put("type", "number"))
+            put("postureScore", JSONObject().put("type", "integer"))
+            put("confidence", JSONObject().put("type", "number"))
+        })
+        put(
+            "required",
+            JSONArray().put("summary").put("estimatedBodyFatPercent").put("postureScore").put("confidence")
+        )
+    }
+
     private fun executeGeminiRequest(requestBody: JSONObject): String {
-        val url = URL("$BASE_URL?key=$API_KEY")
+        require(API_KEY.isNotBlank()) { "Thiếu GEMINI_API_KEY trong file .env." }
+        var lastException: Exception? = null
+        for (model in MODELS) {
+            try {
+                return executeGeminiRequest(model, requestBody)
+            } catch (e: GeminiRetryableException) {
+                lastException = e
+            }
+        }
+        throw lastException ?: RuntimeException("All Gemini body scan models failed")
+    }
+
+    private fun executeGeminiRequest(model: String, requestBody: JSONObject): String {
+        val url = URL(String.format(BASE_URL_TEMPLATE, model) + "?key=$API_KEY")
         val connection = url.openConnection() as HttpURLConnection
         connection.apply {
             requestMethod = "POST"
@@ -330,9 +489,13 @@ class GeminiBodyScanAnalysisEngine @Inject constructor(
         val responseCode = connection.responseCode
         val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
         val responseText = BufferedReader(InputStreamReader(stream)).use { it.readText() }
-        if (responseCode !in 200..299) throw RuntimeException("Gemini API error ($responseCode)")
+        if (responseCode in 200..299) return responseText
 
-        return responseText
+        val mappedError = mapGeminiError(responseCode, responseText)
+        if (responseCode == 429 || responseCode == 503) {
+            throw GeminiRetryableException(mappedError)
+        }
+        throw RuntimeException(mappedError)
     }
 
     private fun parseBodyResponse(responseJson: String, frontUri: String, sideUri: String?): BodyScanAnalysisResult {
@@ -340,8 +503,19 @@ class GeminiBodyScanAnalysisEngine @Inject constructor(
         val text = json.optJSONArray("candidates")
             ?.optJSONObject(0)?.optJSONObject("content")
             ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+        if (text.isBlank()) {
+            val finishReason = json.optJSONArray("candidates")
+                ?.optJSONObject(0)?.optString("finishReason", "").orEmpty()
+            throw IllegalStateException(
+                if (finishReason.isNotBlank()) "Gemini không trả nội dung phân tích. finishReason=$finishReason."
+                else "Gemini không trả nội dung phân tích."
+            )
+        }
 
         val cleanJson = text.replace("```json", "").replace("```", "").trim()
+        if (cleanJson.isBlank()) {
+            throw IllegalStateException("Gemini returned an empty body scan payload.")
+        }
 
         return try {
             val body = JSONObject(cleanJson)
@@ -359,15 +533,9 @@ class GeminiBodyScanAnalysisEngine @Inject constructor(
                 confidence = confidence
             )
         } catch (e: Exception) {
-            BodyScanAnalysisResult(
-                bodyScan = BodyScan(
-                    capturedAt = System.currentTimeMillis(),
-                    frontImageUrl = frontUri, sideImageUrl = sideUri,
-                    summary = "Body analysis processed via AI.",
-                    confidence = 0.72f, estimatedBodyFatPercent = 19.5f,
-                    postureScore = 70, status = "processed"
-                ),
-                confidence = 0.72f
+            throw IllegalStateException(
+                "Gemini trả kết quả body scan không hoàn chỉnh. Hãy bấm Phân tích lại.",
+                e
             )
         }
     }

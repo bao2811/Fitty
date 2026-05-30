@@ -28,7 +28,10 @@ class UpdateStreakUseCase @Inject constructor(
     /**
      * @param reason The type of activity: "login", "workout", "meal", or "body_scan"
      */
-    suspend operator fun invoke(reason: String): Result<Unit> {
+    suspend operator fun invoke(
+        reason: String,
+        incrementActivityCounters: Boolean = true
+    ): Result<Unit> {
         val uid = sessionRepository.getCurrentUserId()
             ?: return Result.failure(IllegalStateException("Not signed in"))
 
@@ -39,8 +42,16 @@ class UpdateStreakUseCase @Inject constructor(
         val stats = user.stats
 
         // Always increment activity counters regardless of streak status
-        val newTotalWorkouts = if (reason == "workout") stats.totalWorkouts + 1 else stats.totalWorkouts
-        val newMealsLogged = if (reason == "meal") stats.mealsLogged + 1 else stats.mealsLogged
+        val newTotalWorkouts = if (incrementActivityCounters && reason == "workout") {
+            stats.totalWorkouts + 1
+        } else {
+            stats.totalWorkouts
+        }
+        val newMealsLogged = if (incrementActivityCounters && reason == "meal") {
+            stats.mealsLogged + 1
+        } else {
+            stats.mealsLogged
+        }
 
         // If already active today, only update counters — skip streak recalculation
         if (stats.lastActiveDate == today) {

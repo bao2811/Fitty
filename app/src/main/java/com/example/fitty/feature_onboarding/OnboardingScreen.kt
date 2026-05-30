@@ -40,12 +40,21 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitty.BuildConfig
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittyChoiceCard
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySectionBlock
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
+import com.example.fitty.core.ui.ContentDebugSource
+import com.example.fitty.core.ui.ContentDiagnosticsCard
+import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.content.LocalContentFallbacks
+import com.example.fitty.domain.model.OnboardingChoiceContent
+import com.example.fitty.domain.model.OnboardingContentConfig
+import com.example.fitty.domain.repository.ContentRepository
+import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.model.FittyOnboardingAnswers
 import com.example.fitty.domain.usecase.onboarding.SaveOnboardingAnswersUseCase
 import com.example.fitty.ui.theme.FittyPink
@@ -66,21 +75,54 @@ data class OnboardingUiState(
     val workoutDays: Set<String> = emptySet(), val duration: String = "", val preferredTime: String = "",
     val equipment: String = "", val injuryNote: String = "", val nutrition: String = "",
     val restrictions: Set<String> = emptySet(), val reminders: Set<String> = emptySet(),
-    val errorMessage: String? = null
-)
-
-private data class OnboardingChoiceOption(
-    val title: String,
-    val description: String
+    val errorMessage: String? = null,
+    val content: OnboardingContentConfig? = null,
+    val contentSources: List<ContentDebugSource> = emptyList()
 )
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val saveOnboardingAnswersUseCase: SaveOnboardingAnswersUseCase,
+    private val localContentFallbacks: LocalContentFallbacks,
+    private val contentRepository: ContentRepository,
+    private val sessionRepository: SessionRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(OnboardingUiState())
+    private val fallbackContent = localContentFallbacks.onboarding(java.util.Locale.getDefault().language)
+    private val _uiState = MutableStateFlow(
+        OnboardingUiState(
+            content = fallbackContent,
+            contentSources = listOf(
+                ContentDebugSource("Onboarding content", ContentSourceState.Fallback, "Using local fallback until remote load completes")
+            )
+        )
+    )
     val uiState: StateFlow<OnboardingUiState> = _uiState
+
+    init {
+        loadContent()
+    }
+
+    private fun loadContent() {
+        viewModelScope.launch {
+            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
+            val content = contentRepository.getOnboardingContent(language)
+            val usedFallback = contentRepository.usedFallbackFor("onboarding_content")
+            _uiState.update {
+                it.copy(
+                    content = content,
+                    contentSources = listOf(
+                        ContentDebugSource(
+                            "Onboarding content",
+                            if (usedFallback) ContentSourceState.Fallback else ContentSourceState.Remote,
+                            contentRepository.fallbackDetailFor("onboarding_content")
+                                ?: if (usedFallback) "Using local fallback" else "Loaded language=$language from Firebase"
+                        )
+                    )
+                )
+            }
+        }
+    }
 
     fun selectGoal(value: String) = update { copy(goal = value) }
     fun updateAge(value: String) = update { copy(age = value.filter(Char::isDigit)) }
@@ -174,6 +216,7 @@ fun OnboardingScreen(
     onNutritionSelected: (String) -> Unit, onRestrictionToggled: (String) -> Unit, onReminderToggled: (String) -> Unit,
     onBack: () -> Unit, onExit: () -> Unit, onNext: () -> Unit
 ) {
+    val content = state.content ?: return
     FittyLazyScreen {
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -194,18 +237,29 @@ fun OnboardingScreen(
                 )
             }
         }
-        item { Text(text = stepTitle(state.step), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        item {
+            Text(
+                text = content.stepTitles.getOrElse(state.step) { content.stepTitles.lastOrNull().orEmpty() },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
+            item {
+                ContentDiagnosticsCard(sources = state.contentSources)
+            }
+        }
         item {
             when (state.step) {
-                0 -> ChoiceList(goalOptions(), state.goal, onGoalSelected)
+                0 -> ChoiceList(content.goals, state.goal, onGoalSelected)
                 1 -> BodyMetricsStep(state, onAgeChanged, onHeightChanged, onWeightChanged, onTargetWeightChanged)
-                2 -> ChoiceList(fitnessOptions(), state.fitnessLevel, onFitnessLevelSelected)
-                3 -> WorkoutDaysStep(state, onWorkoutDayToggled)
-                4 -> WorkoutTimeStep(state, onPreferredTimeSelected)
-                5 -> WorkoutDurationStep(state, onDurationSelected)
-                6 -> EquipmentStep(state, onEquipmentSelected, onInjuryNoteChanged)
-                7 -> NutritionStep(state, onNutritionSelected, onRestrictionToggled)
-                8 -> ReminderStep(state, onReminderToggled)
+                2 -> ChoiceList(content.fitnessLevels, state.fitnessLevel, onFitnessLevelSelected)
+                3 -> WorkoutDaysStep(state, content.workoutDays, onWorkoutDayToggled)
+                4 -> WorkoutTimeStep(state, content.preferredTimes, onPreferredTimeSelected)
+                5 -> WorkoutDurationStep(state, content.durations, onDurationSelected)
+                6 -> EquipmentStep(state, content.equipments, onEquipmentSelected, onInjuryNoteChanged)
+                7 -> NutritionStep(state, content.nutritionStyles, content.restrictions, onNutritionSelected, onRestrictionToggled)
+                8 -> ReminderStep(state, content.reminders, onReminderToggled)
             }
         }
         item { state.errorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium) } }
@@ -216,17 +270,17 @@ fun OnboardingScreen(
 @Composable private fun BodyMetricsStep(state: OnboardingUiState, onAgeChanged: (String) -> Unit, onHeightChanged: (String) -> Unit, onWeightChanged: (String) -> Unit, onTargetWeightChanged: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { NumberField(stringResource(R.string.onboarding_age), state.age, onAgeChanged); NumberField(stringResource(R.string.onboarding_height_cm), state.height, onHeightChanged); NumberField(stringResource(R.string.onboarding_weight_kg), state.weight, onWeightChanged); NumberField(stringResource(R.string.onboarding_target_weight_kg), state.targetWeight, onTargetWeightChanged) }
 }
-@Composable private fun WorkoutDaysStep(state: OnboardingUiState, onWorkoutDayToggled: (String) -> Unit) {
-    MultiChoiceList(stringResource(R.string.onboarding_training_days), Icons.Outlined.CalendarMonth, workoutDayOptions(), state.workoutDays, onWorkoutDayToggled)
+@Composable private fun WorkoutDaysStep(state: OnboardingUiState, values: List<OnboardingChoiceContent>, onWorkoutDayToggled: (String) -> Unit) {
+    MultiChoiceList(stringResource(R.string.onboarding_training_days), Icons.Outlined.CalendarMonth, values, state.workoutDays, onWorkoutDayToggled)
 }
-@Composable private fun WorkoutTimeStep(state: OnboardingUiState, onPreferredTimeSelected: (String) -> Unit) {
+@Composable private fun WorkoutTimeStep(state: OnboardingUiState, values: List<OnboardingChoiceContent>, onPreferredTimeSelected: (String) -> Unit) {
     FittySectionBlock(title = stringResource(R.string.onboarding_preferred_workout_time), icon = Icons.Outlined.Schedule) {
-        ChoiceList(timeOptions(), state.preferredTime, onPreferredTimeSelected)
+        ChoiceList(values, state.preferredTime, onPreferredTimeSelected)
     }
 }
-@Composable private fun WorkoutDurationStep(state: OnboardingUiState, onDurationSelected: (String) -> Unit) {
+@Composable private fun WorkoutDurationStep(state: OnboardingUiState, values: List<OnboardingChoiceContent>, onDurationSelected: (String) -> Unit) {
     FittySectionBlock(title = stringResource(R.string.onboarding_session_duration), icon = Icons.Outlined.Timer) {
-        ChoiceList(durationOptions(), state.duration, onDurationSelected)
+        ChoiceList(values, state.duration, onDurationSelected)
     }
 }
 @Composable private fun OnboardingActions(step: Int, onBack: () -> Unit, onNext: () -> Unit) {
@@ -235,28 +289,44 @@ fun OnboardingScreen(
         FittyPrimaryButton(text = if (step == LastStep) stringResource(R.string.onboarding_preview_plan) else stringResource(R.string.onboarding_continue), onClick = onNext, modifier = Modifier.weight(1f))
     }
 }
-@Composable private fun EquipmentStep(state: OnboardingUiState, onEquipmentSelected: (String) -> Unit, onInjuryNoteChanged: (String) -> Unit) {
+@Composable private fun EquipmentStep(state: OnboardingUiState, values: List<OnboardingChoiceContent>, onEquipmentSelected: (String) -> Unit, onInjuryNoteChanged: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ChoiceList(equipmentOptions(), state.equipment, onEquipmentSelected)
+        ChoiceList(values, state.equipment, onEquipmentSelected)
         OutlinedTextField(value = state.injuryNote, onValueChange = onInjuryNoteChanged, label = { Text(stringResource(R.string.onboarding_injury_optional)) },
             shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, cursorColor = FittyPink), modifier = Modifier.fillMaxWidth())
     }
 }
-@Composable private fun NutritionStep(state: OnboardingUiState, onNutritionSelected: (String) -> Unit, onRestrictionToggled: (String) -> Unit) {
+@Composable private fun NutritionStep(state: OnboardingUiState, nutritionValues: List<OnboardingChoiceContent>, restrictionValues: List<OnboardingChoiceContent>, onNutritionSelected: (String) -> Unit, onRestrictionToggled: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ChoiceList(nutritionOptions(), state.nutrition, onNutritionSelected)
-        MultiChoiceList(stringResource(R.string.onboarding_optional_restrictions), null, restrictionOptions(), state.restrictions, onRestrictionToggled)
+        ChoiceList(nutritionValues, state.nutrition, onNutritionSelected)
+        MultiChoiceList(stringResource(R.string.onboarding_optional_restrictions), null, restrictionValues, state.restrictions, onRestrictionToggled)
     }
 }
-@Composable private fun ReminderStep(state: OnboardingUiState, onReminderToggled: (String) -> Unit) {
-    MultiChoiceList(stringResource(R.string.onboarding_set_reminders), null, reminderOptions(), state.reminders, onReminderToggled)
+@Composable private fun ReminderStep(state: OnboardingUiState, values: List<OnboardingChoiceContent>, onReminderToggled: (String) -> Unit) {
+    MultiChoiceList(stringResource(R.string.onboarding_set_reminders), null, values, state.reminders, onReminderToggled)
 }
-@Composable private fun ChoiceList(values: List<OnboardingChoiceOption>, selected: String, onSelected: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { values.forEach { value -> FittyChoiceCard(title = value.title, body = value.description, selected = selected == value.title, onClick = { onSelected(value.title) }) } }
+@Composable private fun ChoiceList(values: List<OnboardingChoiceContent>, selected: String, onSelected: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        values.forEach { value ->
+            FittyChoiceCard(
+                title = value.label,
+                body = value.description,
+                selected = selected == value.value,
+                onClick = { onSelected(value.value) }
+            )
+        }
+    }
 }
-@Composable private fun MultiChoiceList(title: String, icon: ImageVector? = null, values: List<String>, selected: Set<String>, onToggle: (String) -> Unit) {
+@Composable private fun MultiChoiceList(title: String, icon: ImageVector? = null, values: List<OnboardingChoiceContent>, selected: Set<String>, onToggle: (String) -> Unit) {
     FittySectionBlock(title = title, icon = icon) {
-        values.forEach { value -> FittyChoiceCard(title = value, body = if (selected.contains(value)) stringResource(R.string.onboarding_selected) else stringResource(R.string.onboarding_tap_to_select), selected = selected.contains(value), onClick = { onToggle(value) }) }
+        values.forEach { value ->
+            FittyChoiceCard(
+                title = value.label,
+                body = if (selected.contains(value.value)) stringResource(R.string.onboarding_selected) else stringResource(R.string.onboarding_tap_to_select),
+                selected = selected.contains(value.value),
+                onClick = { onToggle(value.value) }
+            )
+        }
     }
 }
 @Composable private fun NumberField(label: String, value: String, onValueChange: (String) -> Unit) {
@@ -264,91 +334,3 @@ fun OnboardingScreen(
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink), modifier = Modifier.fillMaxWidth())
 }
-@Composable
-private fun stepTitle(step: Int): String = when (step) {
-    0 -> stringResource(R.string.onboarding_step_title_goal)
-    1 -> stringResource(R.string.onboarding_step_title_body)
-    2 -> stringResource(R.string.onboarding_step_title_fitness)
-    3 -> stringResource(R.string.onboarding_step_title_days)
-    4 -> stringResource(R.string.onboarding_step_title_time)
-    5 -> stringResource(R.string.onboarding_step_title_duration)
-    6 -> stringResource(R.string.onboarding_step_title_location)
-    7 -> stringResource(R.string.onboarding_step_title_nutrition)
-    else -> stringResource(R.string.onboarding_step_title_reminders)
-}
-
-@Composable
-private fun goalOptions(): List<OnboardingChoiceOption> = listOf(
-    OnboardingChoiceOption(stringResource(R.string.onboarding_goal_lose_weight), stringResource(R.string.onboarding_goal_lose_weight_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_goal_gain_muscle), stringResource(R.string.onboarding_goal_gain_muscle_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_goal_maintain_fitness), stringResource(R.string.onboarding_goal_maintain_fitness_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_goal_improve_endurance), stringResource(R.string.onboarding_goal_improve_endurance_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_goal_improve_flexibility), stringResource(R.string.onboarding_goal_improve_flexibility_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_goal_build_habits), stringResource(R.string.onboarding_goal_build_habits_desc))
-)
-
-@Composable
-private fun fitnessOptions(): List<OnboardingChoiceOption> = listOf(
-    OnboardingChoiceOption(stringResource(R.string.onboarding_fitness_beginner), stringResource(R.string.onboarding_fitness_beginner_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_fitness_intermediate), stringResource(R.string.onboarding_fitness_intermediate_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_fitness_advanced), stringResource(R.string.onboarding_fitness_advanced_desc))
-)
-
-@Composable
-private fun timeOptions(): List<OnboardingChoiceOption> = listOf(
-    OnboardingChoiceOption(stringResource(R.string.onboarding_time_morning), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_time_afternoon), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_time_evening), stringResource(R.string.onboarding_choice_generic_desc))
-)
-
-@Composable
-private fun durationOptions(): List<OnboardingChoiceOption> = listOf(
-    OnboardingChoiceOption(stringResource(R.string.onboarding_duration_20), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_duration_30), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_duration_45), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_duration_60), stringResource(R.string.onboarding_choice_generic_desc))
-)
-
-@Composable
-private fun equipmentOptions(): List<OnboardingChoiceOption> = listOf(
-    OnboardingChoiceOption(stringResource(R.string.onboarding_equipment_home_none), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_equipment_home_basic), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_equipment_gym), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_equipment_mix), stringResource(R.string.onboarding_choice_generic_desc))
-)
-
-@Composable
-private fun nutritionOptions(): List<OnboardingChoiceOption> = listOf(
-    OnboardingChoiceOption(stringResource(R.string.onboarding_nutrition_standard), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_nutrition_high_protein), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_nutrition_vegetarian), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_nutrition_vegan), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_nutrition_low_carb), stringResource(R.string.onboarding_choice_generic_desc)),
-    OnboardingChoiceOption(stringResource(R.string.onboarding_nutrition_flexible), stringResource(R.string.onboarding_choice_generic_desc))
-)
-
-@Composable
-private fun workoutDayOptions(): List<String> = listOf(
-    stringResource(R.string.onboarding_day_mon),
-    stringResource(R.string.onboarding_day_tue),
-    stringResource(R.string.onboarding_day_wed),
-    stringResource(R.string.onboarding_day_thu),
-    stringResource(R.string.onboarding_day_fri),
-    stringResource(R.string.onboarding_day_sat),
-    stringResource(R.string.onboarding_day_sun)
-)
-
-@Composable
-private fun restrictionOptions(): List<String> = listOf(
-    stringResource(R.string.onboarding_restriction_lactose_free),
-    stringResource(R.string.onboarding_restriction_nut_allergy),
-    stringResource(R.string.onboarding_restriction_avoid_seafood)
-)
-
-@Composable
-private fun reminderOptions(): List<String> = listOf(
-    stringResource(R.string.onboarding_reminder_workout),
-    stringResource(R.string.onboarding_reminder_meal),
-    stringResource(R.string.onboarding_reminder_water),
-    stringResource(R.string.onboarding_reminder_sleep)
-)

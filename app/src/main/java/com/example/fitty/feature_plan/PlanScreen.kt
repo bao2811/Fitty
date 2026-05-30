@@ -41,13 +41,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitty.R
+import com.example.fitty.core.ui.ContentDebugSource
+import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.core.ui.ExerciseSyncSuccessStyle
+import com.example.fitty.core.ui.toStatusText
+import com.example.fitty.data.content.LocalContentFallbacks
+import com.example.fitty.domain.model.PracticeCategoryContent
 import com.example.fitty.domain.model.ExerciseQuery
+import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.domain.repository.ExerciseCatalogRepository
+import com.example.fitty.domain.repository.SessionRepository
+import com.example.fitty.domain.usecase.exercise.ObserveExerciseSyncStateUseCase
 import com.example.fitty.domain.usecase.exercise.SyncExercisesUseCase
 import com.example.fitty.ui.theme.FittyPink
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -56,6 +68,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 // ── Category definition ─────────────────────────────────────────────
@@ -75,18 +88,7 @@ internal data class ExerciseCategoryDef(
 )
 
 /** The fixed category grid – order matches the reference design. */
-private val PRACTICE_CATEGORIES = listOf(
-    ExerciseCategoryDef("chest",      "Chest",      listOf("chest"),                       "chest.png"),
-    ExerciseCategoryDef("fullbody",   "Full Body",  listOf("chest", "back", "upper legs", "lower legs", "shoulders", "waist"), "fullbody.png"),
-    ExerciseCategoryDef("shoulder",   "Shoulder",   listOf("shoulders"),                   "shoulder.png"),
-    ExerciseCategoryDef("forearm",    "Forearm",    listOf("lower arms", "upper arms"),    "forearm.png"),
-    ExerciseCategoryDef("triceps",    "Triceps",    listOf("upper arms"),                  "triceps.png"),
-    ExerciseCategoryDef("abdominal",  "Abdominal",  listOf("waist"),                       "abdominal.png"),
-    ExerciseCategoryDef("leg",        "Leg",        listOf("upper legs", "lower legs"),    "leg.png"),
-    ExerciseCategoryDef("cardio",     "Cardio",     listOf("cardio"),                      "cardiac.png"),
-    ExerciseCategoryDef("back",       "Back",       listOf("back"),                        "back.png"),
-    ExerciseCategoryDef("warmup",     "Warm Up",    listOf("neck"),                        "warmup.png")
-)
+private val PRACTICE_CATEGORIES = emptyList<ExerciseCategoryDef>()
 
 // ── UI state ─────────────────────────────────────────────────────────
 
@@ -99,7 +101,9 @@ internal data class PracticeUiState(
     val categories: List<PracticeCategoryUi> = emptyList(),
     val isLoading: Boolean = true,
     val isSyncing: Boolean = false,
-    val syncMessage: String? = null
+    val syncStatusCode: String? = null,
+    val syncMessage: String? = null,
+    val contentSources: List<ContentDebugSource> = emptyList()
 )
 
 // ── ViewModel ────────────────────────────────────────────────────────
@@ -107,22 +111,60 @@ internal data class PracticeUiState(
 @HiltViewModel
 class PlanViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val localContentFallbacks: LocalContentFallbacks,
+    private val contentRepository: ContentRepository,
     private val exerciseRepository: ExerciseCatalogRepository,
+    private val sessionRepository: SessionRepository,
+    private val observeExerciseSyncStateUseCase: ObserveExerciseSyncStateUseCase,
     private val syncExercisesUseCase: SyncExercisesUseCase
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(PracticeUiState())
+    private var practiceCategories: List<ExerciseCategoryDef> = localContentFallbacks.practiceCategories().map { it.toUiCategory() }
+    private val _uiState = MutableStateFlow(
+        PracticeUiState(
+            categories = practiceCategories.map { PracticeCategoryUi(it, 0) },
+            contentSources = listOf(
+                ContentDebugSource("Practice categories", ContentSourceState.Fallback, "Using local fallback until remote load completes")
+            )
+        )
+    )
     internal val uiState: StateFlow<PracticeUiState> = _uiState
 
     init {
+        loadContent()
         observeExercises()
+        observeSyncState()
         syncMetadata()
+    }
+
+    private fun loadContent() {
+        viewModelScope.launch {
+            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
+            practiceCategories = contentRepository.getPracticeCategories(language).map { it.toUiCategory() }
+            val usedFallback = contentRepository.usedFallbackFor("practice_categories")
+            _uiState.update { state ->
+                state.copy(
+                    categories = practiceCategories.map { category ->
+                        val existingCount = state.categories.firstOrNull { it.def.id == category.id }?.exerciseCount ?: 0
+                        PracticeCategoryUi(category, existingCount)
+                    },
+                    contentSources = listOf(
+                        ContentDebugSource(
+                            "Practice categories",
+                            if (usedFallback) ContentSourceState.Fallback else ContentSourceState.Remote,
+                            contentRepository.fallbackDetailFor("practice_categories")
+                                ?: if (usedFallback) "Using local fallback" else "Loaded language=$language from Firebase"
+                        )
+                    )
+                )
+            }
+        }
     }
 
     private fun observeExercises() {
         viewModelScope.launch {
             exerciseRepository.observeExercises(ExerciseQuery(limit = 500)).collect { exercises ->
-                val categoryUis = PRACTICE_CATEGORIES.map { def ->
+                val categoryUis = practiceCategories.map { def ->
                     val matching = exercises.filter { exercise ->
                         def.bodyPartKeys.any { key ->
                             exercise.bodyPart.equals(key, ignoreCase = true)
@@ -143,19 +185,36 @@ class PlanViewModel @Inject constructor(
         }
     }
 
+    private fun observeSyncState() {
+        viewModelScope.launch {
+            observeExerciseSyncStateUseCase().collect { syncState ->
+                _uiState.update { state ->
+                    state.copy(
+                        isSyncing = syncState.isSyncing,
+                        syncStatusCode = syncState.statusCode,
+                        syncMessage = syncState.toStatusText(
+                            context = context,
+                            successStyle = ExerciseSyncSuccessStyle.Count
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     private fun syncMetadata() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true, syncMessage = null) }
+            _uiState.update { it.copy(isSyncing = true, syncStatusCode = null, syncMessage = null) }
             val result = syncExercisesUseCase(force = false)
             _uiState.update { state ->
                 state.copy(
                     isSyncing = false,
                     syncMessage = result.fold(
                         onSuccess = { report ->
-                            "Synced ${report.fetched} exercises."
+                            context.getString(R.string.plan_sync_success, report.usable)
                         },
                         onFailure = { error ->
-                            error.message ?: "Using cached data."
+                            error.message ?: context.getString(R.string.plan_sync_cached_fallback)
                         }
                     )
                 )
@@ -208,12 +267,20 @@ private fun PracticeScreen(
             Column {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Exercises",
+                    text = stringResource(R.string.plan_practice_title),
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Spacer(modifier = Modifier.height(4.dp))
+                state.syncMessage?.let { syncMessage ->
+                    Text(
+                        text = syncMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
             }
         }
 
@@ -238,15 +305,19 @@ private fun PracticeScreen(
                         modifier = Modifier.size(28.dp)
                     )
                     Text(
-                        "Bắt đầu tập nhanh",
+                        text = stringResource(R.string.plan_quick_workout_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "Bắt đầu một buổi tập tự do với đồng hồ bấm giờ",
+                        text = stringResource(R.string.plan_quick_workout_body),
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f)
+                        color = Color.White.copy(alpha = 0.85f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -289,6 +360,7 @@ private fun PracticeCategoryCard(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val categoryLabel = category.def.label
     val assetBitmap = remember(category.def.assetImage) {
         try {
             context.assets.open(category.def.assetImage).use { stream ->
@@ -315,7 +387,7 @@ private fun PracticeCategoryCard(
             if (assetBitmap != null) {
                 Image(
                     bitmap = assetBitmap,
-                    contentDescription = category.def.label,
+                    contentDescription = categoryLabel,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxSize()
@@ -352,10 +424,12 @@ private fun PracticeCategoryCard(
 
             // Category label at top-left
             Text(
-                text = category.def.label,
+                text = categoryLabel,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (assetBitmap != null) Color.White else Color(0xFF1C1B2B),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(14.dp)
@@ -364,10 +438,12 @@ private fun PracticeCategoryCard(
             // Exercise count badge at bottom-right
             if (category.exerciseCount > 0) {
                 Text(
-                    text = "${category.exerciseCount} exercises",
+                    text = stringResource(R.string.plan_category_exercise_count, category.exerciseCount),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(14.dp)
@@ -380,4 +456,19 @@ private fun PracticeCategoryCard(
             }
         }
     }
+}
+
+private fun PracticeCategoryContent.toUiCategory(): ExerciseCategoryDef {
+    return ExerciseCategoryDef(
+        id = id,
+        label = label,
+        bodyPartKeys = bodyPartKeys,
+        assetImage = assetImage,
+        cardColor = cardColorHex.toColorOrDefault()
+    )
+}
+
+private fun String.toColorOrDefault(): Color {
+    return runCatching { Color(android.graphics.Color.parseColor(this)) }
+        .getOrDefault(Color(0xFFE8DEF8))
 }

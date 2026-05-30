@@ -21,6 +21,7 @@ data class ExerciseSyncState(
     val downloadedGifs: Int = 0,
     val downloadedVideos: Int = 0,
     val progress: Float = 0f,
+    val statusCode: String? = null,
     val lastErrorMessage: String? = null
 )
 
@@ -28,6 +29,11 @@ data class ExerciseSyncReport(
     val fetched: Int = 0,
     val inserted: Int = 0,
     val updated: Int = 0,
+    val usable: Int = 0,
+    val droppedMissingId: Int = 0,
+    val droppedMissingName: Int = 0,
+    val droppedMissingBodyPart: Int = 0,
+    val droppedInvalidBodyPart: Int = 0,
     val mediaDownloaded: Int = 0,
     val failedMediaDownloads: Int = 0,
     val nextDeltaToken: String? = null,

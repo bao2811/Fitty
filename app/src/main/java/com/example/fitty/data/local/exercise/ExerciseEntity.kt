@@ -88,6 +88,8 @@ data class ExerciseSyncStateEntity(
     val downloadedVideos: Int = 0,
     @ColumnInfo(name = "progress")
     val progress: Float = 0f,
+    @ColumnInfo(name = "statusCode")
+    val statusCode: String? = null,
     @ColumnInfo(name = "lastErrorMessage")
     val lastErrorMessage: String? = null
 )

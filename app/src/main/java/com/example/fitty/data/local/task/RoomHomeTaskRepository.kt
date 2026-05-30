@@ -7,12 +7,16 @@ import com.example.fitty.domain.model.HomeTaskStatus
 import com.example.fitty.domain.repository.HomeTaskRepository
 import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.notifications.TaskReminderScheduler
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
+@OptIn(ExperimentalCoroutinesApi::class)
 class RoomHomeTaskRepository @Inject constructor(
     private val taskDao: HomeTaskDao,
     private val sessionRepository: SessionRepository,
@@ -20,10 +24,13 @@ class RoomHomeTaskRepository @Inject constructor(
 ) : HomeTaskRepository {
 
     override fun observeTasks(dateKey: String): Flow<List<HomeTask>> {
-        val ownerId = sessionRepositoryOwner()
-        return taskDao.observeTasks(ownerId = ownerId, dateKey = dateKey).map { tasks ->
-            tasks.map { task -> task.toDomain() }
-        }
+        return sessionRepository.observeCurrentUserId()
+            .map { ownerIdOrNull -> ownerIdOrNull.orEmpty().ifBlank { GUEST_OWNER_ID } }
+            .distinctUntilChanged()
+            .flatMapLatest { ownerId ->
+                taskDao.observeTasks(ownerId = ownerId, dateKey = dateKey)
+            }
+            .map { tasks -> tasks.map { task -> task.toDomain() } }
     }
 
     override suspend fun ensureTasks(dateKey: String, defaults: List<HomeTaskDraft>) {
@@ -45,6 +52,9 @@ class RoomHomeTaskRepository @Inject constructor(
             )
         }
         taskDao.seedTasksIfNeeded(ownerId = ownerId, dateKey = dateKey, tasks = entities, nowMillis = now)
+        taskDao.getTasksForDate(ownerId = ownerId, dateKey = dateKey).forEach { task ->
+            syncReminder(task)
+        }
     }
 
     override suspend fun addTask(task: HomeTaskDraft) {
@@ -106,11 +116,6 @@ class RoomHomeTaskRepository @Inject constructor(
             reminderScheduler.cancel(task.id)
         }
     }
-
-    private fun sessionRepositoryOwner(): String = runCatching {
-        // observeTasks is not suspend; resolve to guest-scoped stream when session is unavailable.
-        kotlinx.coroutines.runBlocking { currentOwnerId() }
-    }.getOrDefault(GUEST_OWNER_ID)
 
     private suspend fun currentOwnerId(): String = sessionRepository.getCurrentUserId().orEmpty().ifBlank { GUEST_OWNER_ID }
 

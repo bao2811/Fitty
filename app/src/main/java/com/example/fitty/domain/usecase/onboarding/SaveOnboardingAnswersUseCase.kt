@@ -12,7 +12,6 @@ class SaveOnboardingAnswersUseCase @Inject constructor(
     suspend operator fun invoke(answers: FittyOnboardingAnswers): Result<Unit> {
         val uid = sessionRepository.getCurrentUserId()
             ?: return Result.failure(IllegalStateException("Start a session before saving onboarding"))
-        onboardingRepository.saveOnboardingAnswers(uid, answers)
-        return Result.success(Unit)
+        return onboardingRepository.saveOnboardingAnswers(uid, answers)
     }
 }

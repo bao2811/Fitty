@@ -1,5 +1,6 @@
 package com.example.fitty.data.firebase
 
+import com.example.fitty.data.exercise.ExerciseCatalogSyncPolicy
 import com.example.fitty.domain.model.*
 import com.example.fitty.domain.repository.PlanRepository
 import com.google.firebase.auth.FirebaseAuth
@@ -118,7 +119,11 @@ class FirebasePlanRepository @Inject constructor(
         if (!exists()) return null
         val exList = (get("exercises") as? List<Map<String, Any?>>)?.map { m ->
             WorkoutExercise(exerciseId = m["exerciseId"] as? String ?: "", name = m["name"] as? String ?: "",
-                sets = (m["sets"] as? Number)?.toInt() ?: 3, reps = m["reps"] as? String, durationSeconds = (m["durationSeconds"] as? Number)?.toInt())
+                sets = (m["sets"] as? Number)?.toInt() ?: 3,
+                reps = m["reps"] as? String,
+                durationSeconds = (m["durationSeconds"] as? Number)?.toInt(),
+                targetWeightKg = (m["targetWeightKg"] as? Number)?.toFloat()
+            )
         } ?: emptyList()
         return ScheduledWorkout(id = id, planId = planId, dateKey = getString("dateKey").orEmpty(),
             weekNumber = getLong("weekNumber")?.toInt() ?: 1, orderInWeek = getLong("orderInWeek")?.toInt() ?: 1,
@@ -130,39 +135,19 @@ class FirebasePlanRepository @Inject constructor(
 
     private fun DocumentSnapshot.toExercise(): Exercise? {
         if (!exists()) return null
-        val bodyPart = getString("bodyPart").orEmpty().ifBlank { getString("primaryMuscleGroup").orEmpty() }
-        val target = getString("target").orEmpty()
-        val gifUrl = getString("gifUrl").orEmpty().ifBlank { getString("mediaUrl").orEmpty() }
-        val updatedAt = when (val raw = get("updatedAt")) {
-            is String -> raw
-            is com.google.firebase.Timestamp -> raw.toDate().toInstant().toString()
-            else -> ""
-        }
-        return Exercise(
-            id = getString("id").orEmpty().ifBlank { id },
-            name = getString("name").orEmpty(),
-            bodyPart = bodyPart,
-            target = target,
-            description = getString("description").orEmpty(),
-            difficulty = getString("difficulty").orEmpty(),
-            primaryMuscleGroup = bodyPart,
+        val normalized = toExerciseFirestoreDocument()
+            ?.let(ExerciseCatalogSyncPolicy::validate)
+            ?.normalized
+            ?: return null
+        val domain = normalized.toDomain()
+        return domain.copy(
             targetMuscles = (get("targetMuscles") as? List<*>)?.filterIsInstance<String>()
-                ?: listOf(target).filter { it.isNotBlank() },
-            equipment = getString("equipment").orEmpty(),
-            thumbnailUrl = getString("thumbnailUrl").orEmpty(),
-            thumbnailStoragePath = getString("thumbnailStoragePath").orEmpty(),
-            gifUrl = gifUrl,
-            gifStoragePath = getString("gifStoragePath").orEmpty(),
-            gifVersion = getLong("gifVersion")?.toInt() ?: 0,
-            updatedAt = updatedAt,
-            defaultRepsText = getString("defaultRepsText").orEmpty(),
-            defaultDurationSeconds = getLong("defaultDurationSeconds")?.toInt(),
-            mediaUrl = gifUrl,
-            mediaType = "gif",
+                ?: domain.targetMuscles,
             steps = (get("steps") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
             mistakes = (get("mistakes") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
             tips = (get("tips") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
-            variations = (get("variations") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+            variations = (get("variations") as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+            mediaUrl = normalized.gifUrl.ifBlank { getString("mediaUrl").orEmpty() }
         )
     }
 
@@ -183,6 +168,15 @@ class FirebasePlanRepository @Inject constructor(
     private fun ScheduledWorkout.toMap(): Map<String, Any?> = mapOf("dateKey" to dateKey, "weekNumber" to weekNumber, "orderInWeek" to orderInWeek,
         "title" to title, "durationMinutes" to durationMinutes, "estimatedCalories" to estimatedCalories, "difficulty" to difficulty,
         "equipment" to equipment, "status" to status, "explanation" to explanation, "replacedFromWorkoutId" to replacedFromWorkoutId,
-        "exercises" to exercises.map { mapOf("exerciseId" to it.exerciseId, "name" to it.name, "sets" to it.sets, "reps" to it.reps, "durationSeconds" to it.durationSeconds) },
+        "exercises" to exercises.map {
+            mapOf(
+                "exerciseId" to it.exerciseId,
+                "name" to it.name,
+                "sets" to it.sets,
+                "reps" to it.reps,
+                "durationSeconds" to it.durationSeconds,
+                "targetWeightKg" to it.targetWeightKg
+            )
+        },
         "updatedAt" to FieldValue.serverTimestamp())
 }

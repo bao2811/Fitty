@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -42,8 +43,24 @@ object FittyNotificationManager {
     }
 
     fun canPostNotifications(context: Context): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        val runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        return runtimeGranted && NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    fun openNotificationSettings(context: Context) {
+        val intent = Intent().apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                action = Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL_ID)
+            } else {
+                action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+                data = android.net.Uri.fromParts("package", context.packageName, null)
+            }
+        }
+        context.startActivity(intent)
     }
 
     fun showWelcomeBackNotification(
@@ -61,7 +78,7 @@ object FittyNotificationManager {
         val pendingIntent = openAppPendingIntent(context, WELCOME_NOTIFICATION_ID)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_notification_small)
             .setContentTitle(title)
             .setContentText(message)
             .setStyle(
@@ -72,6 +89,8 @@ object FittyNotificationManager {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
@@ -155,13 +174,15 @@ object FittyNotificationManager {
         body: String
     ) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_notification_small)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(openAppPendingIntent(context, notificationId))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
         if (

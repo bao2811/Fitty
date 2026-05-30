@@ -10,6 +10,22 @@ const GOOGLE_OAUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const FIRESTORE_BASE = "https://firestore.googleapis.com/v1";
 const STORAGE_UPLOAD_BASE = "https://storage.googleapis.com/upload/storage/v1";
 const STORAGE_OBJECT_BASE = "https://storage.googleapis.com/storage/v1";
+const SUPPORTED_BODY_PARTS = new Set([
+  "chest",
+  "back",
+  "shoulders",
+  "upper legs",
+  "lower legs",
+  "upper arms",
+  "lower arms",
+  "waist",
+  "cardio",
+  "neck"
+]);
+const BODY_PART_ALIASES = new Map([
+  ["abs", "waist"],
+  ["core", "waist"]
+]);
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -40,6 +56,8 @@ async function main() {
 
   let uploadedThumbnails = 0;
   let uploadedGifs = 0;
+  let skippedInvalidMapping = 0;
+  let skippedMissingBodyPart = 0;
 
   for (let index = 0; index < exercises.length; index += 1) {
     const exercise = exercises[index];
@@ -48,11 +66,28 @@ async function main() {
       console.warn(`Skipping exercise at index ${index}: missing id.`);
       continue;
     }
+    const normalizedBodyPart = normalizeExerciseBodyPart(exercise);
+    if (!normalizedBodyPart) {
+      const rawBodyPart = String(exercise.bodyPart || exercise.muscleGroup || "").trim();
+      if (!rawBodyPart) {
+        skippedMissingBodyPart += 1;
+        console.warn(`[${index + 1}/${exercises.length}] skipped ${exerciseId}: missing bodyPart/muscleGroup.`);
+      } else {
+        skippedInvalidMapping += 1;
+        console.warn(`[${index + 1}/${exercises.length}] skipped ${exerciseId}: unsupported bodyPart "${rawBodyPart}".`);
+      }
+      continue;
+    }
+    const normalizedExercise = {
+      ...exercise,
+      bodyPart: normalizedBodyPart,
+      muscleGroup: String(exercise.muscleGroup || normalizedBodyPart).trim() || normalizedBodyPart
+    };
     const thumbnailUpload = await uploadThumbnailAsset({
       accessToken,
       bucket,
       exerciseId,
-      exercise,
+      exercise: normalizedExercise,
       workoutBaseUrl,
       workoutApiKey,
       workoutGate
@@ -63,8 +98,8 @@ async function main() {
       ? await uploadRemoteAssetIfPresent({
           accessToken,
           bucket,
-          objectPath: buildGifObjectPath(exercise, exercise.gifUrl),
-          remoteUrl: exercise.gifUrl,
+          objectPath: buildGifObjectPath(normalizedExercise, normalizedExercise.gifUrl),
+          remoteUrl: normalizedExercise.gifUrl,
           workoutBaseUrl,
           workoutApiKey,
           workoutGate
@@ -78,7 +113,7 @@ async function main() {
     if (gifUpload.uploaded) uploadedGifs += 1;
 
     const firestoreDocument = buildExerciseFirestoreDocument({
-      exercise,
+      exercise: normalizedExercise,
       fetchedAt: new Date().toISOString(),
       thumbnailUpload,
       gifUpload
@@ -95,7 +130,10 @@ async function main() {
     console.log(`[${index + 1}/${exercises.length}] synced ${exerciseId}`);
   }
 
-  console.log(`Done. Uploaded ${uploadedThumbnails} thumbnails and ${uploadedGifs} gifs.`);
+  console.log(
+    `Done. Uploaded ${uploadedThumbnails} thumbnails and ${uploadedGifs} gifs. ` +
+      `Skipped ${skippedMissingBodyPart} missing bodyPart and ${skippedInvalidMapping} unsupported bodyPart exercises.`
+  );
 }
 
 function parseArgs(argv) {
@@ -591,7 +629,7 @@ function inferContentType(objectPath) {
 
 function buildExerciseFirestoreDocument({ exercise, fetchedAt, thumbnailUpload, gifUpload }) {
   const target = stringOrEmpty(exercise.target);
-  const bodyPart = stringOrEmpty(exercise.bodyPart || exercise.muscleGroup);
+  const bodyPart = stringOrEmpty(normalizeExerciseBodyPart(exercise) || exercise.bodyPart || exercise.muscleGroup);
   const gifVersion = numberOrZero(exercise.gifVersion);
 
   return {
@@ -629,6 +667,17 @@ function buildExerciseFirestoreDocument({ exercise, fetchedAt, thumbnailUpload, 
     sourceFetchedAt: fetchedAt,
     sourcePayload: exercise
   };
+}
+
+function normalizeExerciseBodyPart(exercise) {
+  const raw = String(exercise.bodyPart || exercise.muscleGroup || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ");
+  if (!raw) return "";
+  const resolved = BODY_PART_ALIASES.get(raw) || raw;
+  return SUPPORTED_BODY_PARTS.has(resolved) ? resolved : "";
 }
 
 async function upsertFirestoreDocument({ accessToken, projectId, collection, documentId, fields }) {

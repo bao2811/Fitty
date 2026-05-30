@@ -8,9 +8,12 @@ class CompleteOnboardingUseCase @Inject constructor(
     private val onboardingRepository: OnboardingRepository,
     private val sessionRepository: SessionRepository
 ) {
-    suspend operator fun invoke() {
-        val uid = sessionRepository.getCurrentUserId() ?: return
-        onboardingRepository.markOnboardingCompleted(uid)
+    suspend operator fun invoke(): Result<Unit> {
+        val uid = sessionRepository.getCurrentUserId()
+            ?: return Result.failure(IllegalStateException("Not signed in"))
+        val result = onboardingRepository.markOnboardingCompleted(uid)
+        if (result.isFailure) return result
         sessionRepository.setOnboardingCompleted(true)
+        return Result.success(Unit)
     }
 }

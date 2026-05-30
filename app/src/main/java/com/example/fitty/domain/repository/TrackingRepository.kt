@@ -18,6 +18,7 @@ interface TrackingRepository {
     suspend fun saveMealScanRecord(uid: String, record: MealScanRecord): Result<String>
     suspend fun getMealScanHistory(uid: String, limit: Int = 20): List<MealScanRecord>
     suspend fun uploadScanImage(uid: String, localImageUri: String): Result<String>
+    suspend fun uploadBodyScanImage(uid: String, localImageUri: String): Result<String>
 
     // Body scans
     suspend fun saveBodyScan(uid: String, bodyScan: BodyScan): Result<String>

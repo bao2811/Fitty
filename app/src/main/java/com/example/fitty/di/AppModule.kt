@@ -6,9 +6,12 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.work.WorkManager
 import com.example.fitty.BuildConfig
+import com.example.fitty.data.exercise.ExerciseGifDownloadManager
+import com.example.fitty.data.exercise.ExerciseGifDownloader
 import com.example.fitty.data.exercise.OfflineFirstExerciseRepository
 import com.example.fitty.data.firebase.FirebaseAuthRepository
 import com.example.fitty.data.firebase.FirebaseCoachRepository
+import com.example.fitty.data.firebase.FirebaseContentRepository
 import com.example.fitty.data.firebase.FirebaseNotificationTokenRepository
 import com.example.fitty.data.firebase.FirebaseOnboardingRepository
 import com.example.fitty.data.firebase.FirebasePlanRepository
@@ -36,6 +39,7 @@ import com.example.fitty.domain.model.CoachEngine
 import com.example.fitty.domain.model.MealAnalysisEngine
 import com.example.fitty.domain.repository.AuthRepository
 import com.example.fitty.domain.repository.CoachRepository
+import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.domain.repository.ExerciseCatalogRepository
 import com.example.fitty.domain.repository.HomeTaskRepository
 import com.example.fitty.domain.repository.NotificationTokenRepository
@@ -91,6 +95,9 @@ abstract class RepositoryModule {
     abstract fun bindExerciseCatalogRepository(impl: OfflineFirstExerciseRepository): ExerciseCatalogRepository
 
     @Binds @Singleton
+    abstract fun bindExerciseGifDownloader(impl: ExerciseGifDownloadManager): ExerciseGifDownloader
+
+    @Binds @Singleton
     abstract fun bindSessionRepository(impl: PreferencesSessionRepository): SessionRepository
 
     @Binds @Singleton
@@ -101,6 +108,9 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindCoachRepository(impl: FirebaseCoachRepository): CoachRepository
+
+    @Binds @Singleton
+    abstract fun bindContentRepository(impl: FirebaseContentRepository): ContentRepository
 
     @Binds @Singleton
     abstract fun bindWorkoutSessionRepository(impl: FirebaseWorkoutSessionRepository): WorkoutSessionRepository
@@ -130,7 +140,7 @@ object AppModule {
         context,
         FittyDatabase::class.java,
         "fitty.db"
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).build()
 
     @Provides
     fun provideHomeTaskDao(database: FittyDatabase): HomeTaskDao = database.homeTaskDao()
@@ -335,6 +345,17 @@ object AppModule {
                 """
                 ALTER TABLE exercises
                 ADD COLUMN thumbnailStoragePath TEXT NOT NULL DEFAULT ''
+                """.trimIndent()
+            )
+        }
+    }
+
+    private val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                ALTER TABLE exercise_sync_state
+                ADD COLUMN statusCode TEXT
                 """.trimIndent()
             )
         }

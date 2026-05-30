@@ -20,11 +20,11 @@ sealed interface GifDownloadState {
 class ExerciseGifDownloadManager @Inject constructor(
     private val mediaDownloadManager: ExerciseMediaDownloadManager,
     private val exerciseDao: ExerciseDao
-) {
+) : ExerciseGifDownloader {
     private val _state = MutableStateFlow<GifDownloadState>(GifDownloadState.Idle)
     val state: StateFlow<GifDownloadState> = _state.asStateFlow()
 
-    suspend fun download(exercise: Exercise): Result<String> = runCatching {
+    override suspend fun download(exercise: Exercise): Result<String> = runCatching {
         if (exercise.localGifPath.isNotBlank()) {
             _state.value = GifDownloadState.Completed(exercise.id, exercise.localGifPath)
             return@runCatching exercise.localGifPath

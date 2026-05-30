@@ -8,12 +8,17 @@ data class ExerciseFirestoreDocument(
     val id: String,
     val name: String,
     val bodyPart: String,
+    val muscleGroup: String,
     val target: String,
     val equipment: String,
+    val difficulty: String,
+    val description: String,
+    val instructions: String,
     val thumbnailUrl: String,
     val thumbnailStoragePath: String,
     val gifUrl: String,
     val gifStoragePath: String,
+    val videoUrl: String,
     val gifVersion: Int,
     val updatedAt: String
 ) {
@@ -22,13 +27,18 @@ data class ExerciseFirestoreDocument(
         name = name,
         bodyPart = bodyPart,
         target = target,
-        primaryMuscleGroup = bodyPart,
+        muscleGroup = muscleGroup.ifBlank { bodyPart },
+        difficulty = difficulty,
+        description = description,
+        instructions = instructions.ifBlank { description },
+        primaryMuscleGroup = muscleGroup.ifBlank { bodyPart },
         targetMuscles = listOf(target).filter { it.isNotBlank() },
         equipment = equipment,
         thumbnailUrl = thumbnailUrl,
         thumbnailStoragePath = thumbnailStoragePath,
         gifUrl = gifUrl,
         gifStoragePath = gifStoragePath,
+        videoUrl = videoUrl,
         gifVersion = gifVersion,
         updatedAt = updatedAt,
         mediaUrl = gifUrl,
@@ -45,19 +55,21 @@ fun DocumentSnapshot.toExerciseFirestoreDocument(): ExerciseFirestoreDocument? {
         else -> ""
     }
 
-    val resolvedId = getString("id").orEmpty().ifBlank { id }
-    if (resolvedId.isBlank()) return null
-
     return ExerciseFirestoreDocument(
-        id = resolvedId,
+        id = getString("id").orEmpty().ifBlank { id },
         name = getString("name").orEmpty(),
         bodyPart = getString("bodyPart").orEmpty(),
+        muscleGroup = getString("muscleGroup").orEmpty(),
         target = getString("target").orEmpty(),
         equipment = getString("equipment").orEmpty(),
+        difficulty = getString("difficulty").orEmpty(),
+        description = getString("description").orEmpty(),
+        instructions = getString("instructions").orEmpty(),
         thumbnailUrl = getString("thumbnailUrl").orEmpty(),
         thumbnailStoragePath = getString("thumbnailStoragePath").orEmpty(),
         gifUrl = getString("gifUrl").orEmpty(),
         gifStoragePath = getString("gifStoragePath").orEmpty(),
+        videoUrl = getString("videoUrl").orEmpty(),
         gifVersion = getLong("gifVersion")?.toInt() ?: 0,
         updatedAt = updatedAtText
     )
