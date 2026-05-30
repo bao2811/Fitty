@@ -31,8 +31,16 @@ class AppPreferencesDataSource(
         preferences[CURRENT_USER_ID]
     }
 
+    val appLanguage: Flow<String?> = context.fittyDataStore.data.map { preferences ->
+        preferences[APP_LANGUAGE]
+    }
+
     val lastWelcomeNotificationAt: Flow<Long?> = context.fittyDataStore.data.map { preferences ->
         preferences[LAST_WELCOME_NOTIFICATION_AT]
+    }
+
+    val lastSignedInAt: Flow<Long?> = context.fittyDataStore.data.map { preferences ->
+        preferences[LAST_SIGNED_IN_AT]
     }
 
     val exerciseGifPreloadCompleted: Flow<Boolean> = context.fittyDataStore.data.map { preferences ->
@@ -67,12 +75,33 @@ class AppPreferencesDataSource(
         }
     }
 
+    suspend fun setAppLanguage(language: String?) {
+        context.fittyDataStore.edit { preferences ->
+            if (language.isNullOrBlank()) {
+                preferences.remove(APP_LANGUAGE)
+            } else {
+                preferences[APP_LANGUAGE] = language
+            }
+        }
+    }
+
+    suspend fun setLastSignedInAt(timestampMillis: Long?) {
+        context.fittyDataStore.edit { preferences ->
+            if (timestampMillis == null) {
+                preferences.remove(LAST_SIGNED_IN_AT)
+            } else {
+                preferences[LAST_SIGNED_IN_AT] = timestampMillis
+            }
+        }
+    }
+
     suspend fun clearSession() {
         context.fittyDataStore.edit { preferences ->
             preferences[GUEST_MODE_ENABLED] = false
             preferences[SIGNED_IN] = false
             preferences[ONBOARDING_COMPLETED] = false
             preferences.remove(CURRENT_USER_ID)
+            preferences.remove(LAST_SIGNED_IN_AT)
         }
     }
 
@@ -98,14 +127,26 @@ class AppPreferencesDataSource(
         return lastShownAt == null || nowMillis - lastShownAt >= cooldownMillis
     }
 
+    suspend fun isSignedInSessionExpired(
+        nowMillis: Long,
+        maxAgeMillis: Long
+    ): Boolean {
+        val lastSignedIn = lastSignedInAt.first() ?: return true
+        return nowMillis - lastSignedIn >= maxAgeMillis
+    }
+
     suspend fun currentUserId(): String? = currentUserId.first()
+
+    suspend fun appLanguage(): String? = appLanguage.first()
 
     private companion object {
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val GUEST_MODE_ENABLED = booleanPreferencesKey("guest_mode_enabled")
         val SIGNED_IN = booleanPreferencesKey("signed_in")
         val CURRENT_USER_ID = stringPreferencesKey("current_user_id")
+        val APP_LANGUAGE = stringPreferencesKey("app_language")
         val LAST_WELCOME_NOTIFICATION_AT = longPreferencesKey("last_welcome_notification_at")
+        val LAST_SIGNED_IN_AT = longPreferencesKey("last_signed_in_at")
         val EXERCISE_GIF_PRELOAD_COMPLETED = booleanPreferencesKey("exercise_gif_preload_completed")
     }
 }

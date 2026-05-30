@@ -234,7 +234,7 @@ fun SignUpScreen(
                 ) {
                     Image(
                         painter = painterResource(R.drawable.ic_fitty_logo),
-                        contentDescription = "Fitty",
+                        contentDescription = stringResource(R.string.auth_logo_content_desc),
                         modifier = Modifier.size(84.dp),
                         contentScale = ContentScale.Crop
                     )
@@ -246,7 +246,7 @@ fun SignUpScreen(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    text = "Join Fitty and start your transformation",
+                    text = stringResource(R.string.auth_sign_up_subtitle),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -286,7 +286,7 @@ fun SignUpScreen(
                     onCheckedChange = { acceptedTerms = it }
                 )
                 Text(
-                    text = "I agree to the Terms of Service and Privacy Policy",
+                    text = stringResource(R.string.auth_terms_acceptance),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 12.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -297,7 +297,7 @@ fun SignUpScreen(
             }
             if (!acceptedTerms) {
                 Text(
-                    text = "Please accept the terms to continue.",
+                    text = stringResource(R.string.auth_terms_required),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium
                 )

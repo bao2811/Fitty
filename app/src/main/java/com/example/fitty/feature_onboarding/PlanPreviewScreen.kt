@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -42,18 +44,21 @@ import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
-import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.core.ui.toDisplaySummary
+import com.example.fitty.data.content.StarterPlanBuilder
 import com.example.fitty.domain.usecase.onboarding.CompleteOnboardingUseCase
 import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
+import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.ui.theme.FittyGradientEnd
 import com.example.fitty.ui.theme.FittyGradientStart
 import com.example.fitty.ui.theme.FittyPink
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Locale
+import android.content.Context
 import javax.inject.Inject
 
 data class PlanPreviewDetailUi(
@@ -62,18 +67,34 @@ data class PlanPreviewDetailUi(
     val body: String
 )
 
+data class PlanPreviewExerciseUi(
+    val name: String,
+    val prescription: String
+)
+
 data class PlanPreviewUiState(
-    val title: String = "Your Fitty Starter Plan",
-    val subtitle: String = "Personalized based on your answers",
-    val details: List<PlanPreviewDetailUi> = defaultPlanPreviewDetails()
+    val title: String = "",
+    val subtitle: String = "",
+    val details: List<PlanPreviewDetailUi> = emptyList(),
+    val exercises: List<PlanPreviewExerciseUi> = emptyList(),
+    val errorMessage: String? = null
 )
 
 @HiltViewModel
 class PlanPreviewViewModel @Inject constructor(
     private val completeOnboardingUseCase: CompleteOnboardingUseCase,
-    private val getCurrentUserUseCase: GetCurrentUserUseCase
+    private val getCurrentUserUseCase: GetCurrentUserUseCase,
+    private val sessionRepository: SessionRepository,
+    private val starterPlanBuilder: StarterPlanBuilder,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(PlanPreviewUiState())
+    private val _uiState = MutableStateFlow(
+        PlanPreviewUiState(
+            title = "Fitty Plan Preview",
+            subtitle = "Preview based on your onboarding answers.",
+            details = emptyList()
+        )
+    )
     val uiState: StateFlow<PlanPreviewUiState> = _uiState
 
     init {
@@ -83,14 +104,39 @@ class PlanPreviewViewModel @Inject constructor(
     fun startPlan(onComplete: () -> Unit) {
         viewModelScope.launch {
             completeOnboardingUseCase()
-            onComplete()
+                .onSuccess { onComplete() }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = error.message ?: appContext.getString(R.string.onboarding_save_failed)
+                        )
+                    }
+                }
         }
     }
 
     private fun refreshPreview() {
         viewModelScope.launch {
             val user = getCurrentUserUseCase() ?: return@launch
-            _uiState.update { user.toPlanPreviewUiState() }
+            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
+            val preview = starterPlanBuilder.buildForUser(user, language).preview
+            _uiState.update {
+                PlanPreviewUiState(
+                    title = preview.title,
+                    subtitle = preview.subtitle,
+                    details = preview.details.map { detail ->
+                        PlanPreviewDetailUi(
+                            icon = detail.iconKey.toPreviewIcon(),
+                            title = detail.title,
+                            body = detail.body
+                        )
+                    },
+                    exercises = preview.exercises.map { exercise ->
+                        PlanPreviewExerciseUi(exercise.name, exercise.toDisplaySummary(appContext))
+                    },
+                    errorMessage = null
+                )
+            }
         }
     }
 }
@@ -146,10 +192,61 @@ fun PlanPreviewScreen(
         state.details.forEach { detail ->
             item { PlanDetailCard(detail = detail) }
         }
+        if (state.exercises.isNotEmpty()) {
+            item {
+                PlanExercisePreviewCard(exercises = state.exercises)
+            }
+        }
+        state.errorMessage?.let { error ->
+            item {
+                Text(
+                    text = error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
         item { Spacer(modifier = Modifier.height(8.dp)) }
         item { FittyPrimaryButton(text = stringResource(R.string.plan_preview_start_plan), onClick = onStartPlan) }
         item { FittySecondaryButton(text = stringResource(R.string.plan_preview_adjust_preferences), onClick = onAdjustPreferences) }
         item { FittySecondaryButton(text = stringResource(R.string.plan_preview_back_to_onboarding), onClick = onBack) }
+    }
+}
+
+@Composable
+private fun PlanExercisePreviewCard(exercises: List<PlanPreviewExerciseUi>) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = FittyPink)
+                Text(
+                    stringResource(R.string.plan_preview_exercises_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            exercises.forEach { exercise ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(exercise.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        exercise.prescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -188,79 +285,10 @@ private fun PlanDetailCard(detail: PlanPreviewDetailUi) {
     }
 }
 
-private fun FittyUser.toPlanPreviewUiState(): PlanPreviewUiState {
-    val goalLabel = profile.primaryGoal.toDisplayLabel("Balanced Progress")
-    val calorieTarget = when {
-        profile.weightKg == null -> "Start with a practical daily target and adjust after the first week."
-        profile.primaryGoal == "gain_muscle" -> "${profile.weightKg * 34} kcal target to support muscle gain."
-        profile.primaryGoal == "lose_weight" -> "${profile.weightKg * 28} kcal target to create a steady deficit."
-        else -> "${profile.weightKg * 30} kcal target to support consistent training."
-    }
-    val schedule = onboarding.workoutDays
-        .ifEmpty { listOf("mon", "wed", "fri", "sat") }
-        .mapIndexed { index, day ->
-            "${day.toDisplayLabel(day)}: ${starterWorkoutName(index)}"
-        }
-        .joinToString("\n")
-    val why = buildString {
-        append("This first version matches your ")
-        append(profile.fitnessLevel.toDisplayLabel("current level").lowercase(Locale.US))
-        append(" level, ")
-        append(onboarding.equipmentAccess.toDisplayLabel("available setup").lowercase(Locale.US))
-        append(", and preferred ")
-        append(onboarding.preferredTime.toDisplayLabel("training time").lowercase(Locale.US))
-        append(" rhythm.")
-    }
-
-    return PlanPreviewUiState(
-        title = "$goalLabel Starter Plan",
-        subtitle = "Personalized from your onboarding profile and ready to activate.",
-        details = listOf(
-            PlanPreviewDetailUi(
-                icon = Icons.Outlined.TrackChanges,
-                title = "Goal",
-                body = "Your first week is tuned for $goalLabel with manageable intensity and a clear routine."
-            ),
-            PlanPreviewDetailUi(
-                icon = Icons.Outlined.Restaurant,
-                title = "Calories target",
-                body = calorieTarget
-            ),
-            PlanPreviewDetailUi(
-                icon = Icons.Outlined.CalendarMonth,
-                title = "Your first week",
-                body = schedule
-            ),
-            PlanPreviewDetailUi(
-                icon = Icons.Outlined.Lightbulb,
-                title = "Why this plan?",
-                body = why
-            )
-        )
-    )
-}
-
-private fun defaultPlanPreviewDetails(): List<PlanPreviewDetailUi> = listOf(
-    PlanPreviewDetailUi(Icons.Outlined.TrackChanges, "Goal", "A balanced first week built from your onboarding choices."),
-    PlanPreviewDetailUi(Icons.Outlined.Restaurant, "Calories target", "Start with a practical daily target and adjust after the first week."),
-    PlanPreviewDetailUi(Icons.Outlined.CalendarMonth, "Your first week", "Monday: Full body\nWednesday: Cardio + core\nFriday: Strength\nSaturday: Mobility"),
-    PlanPreviewDetailUi(Icons.Outlined.Lightbulb, "Why this plan?", "The first version keeps intensity manageable, gives recovery space, and leaves room for meal tracking.")
-)
-
-private fun starterWorkoutName(index: Int): String = when (index % 4) {
-    0 -> "Full Body Basics"
-    1 -> "Cardio + Core"
-    2 -> "Strength Foundations"
-    else -> "Mobility Reset"
-}
-
-private fun String.toDisplayLabel(defaultValue: String): String {
-    if (isBlank()) return defaultValue
-    return split('_', ' ')
-        .filter { it.isNotBlank() }
-        .joinToString(" ") { part ->
-            part.replaceFirstChar { char ->
-                if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
-            }
-        }
+private fun String.toPreviewIcon(): ImageVector = when (this) {
+    "goal" -> Icons.Outlined.TrackChanges
+    "calories" -> Icons.Outlined.Restaurant
+    "workout_days" -> Icons.Outlined.CalendarMonth
+    "duration" -> Icons.Outlined.Schedule
+    else -> Icons.Outlined.Lightbulb
 }

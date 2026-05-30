@@ -37,7 +37,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -60,7 +62,12 @@ private const val SCROLL_THRESHOLD = 5f
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun MainScaffold(onLogout: () -> Unit, onStartWorkout: () -> Unit = {}) {
+fun MainScaffold(
+    onLogout: () -> Unit,
+    onStartQuickWorkout: () -> Unit = {},
+    onStartScheduledWorkout: (planId: String, scheduledWorkoutId: String) -> Unit = { _, _ -> },
+    onOpenWorkoutDetails: (planId: String, scheduledWorkoutId: String) -> Unit = { _, _ -> }
+) {
     val tabNavController = rememberNavController()
     val backStackEntry by tabNavController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -146,9 +153,11 @@ fun MainScaffold(onLogout: () -> Unit, onStartWorkout: () -> Unit = {}) {
                             icon = { MainTabIcon(tab.route) },
                             label = {
                                 Text(
-                                    tab.label,
+                                    text = stringResource(tab.labelRes),
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    style = MaterialTheme.typography.labelSmall
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             },
                             colors = NavigationBarItemDefaults.colors(
@@ -180,10 +189,22 @@ fun MainScaffold(onLogout: () -> Unit, onStartWorkout: () -> Unit = {}) {
             ) {
                 composable(MainRoutes.Home) {
                     HomeRoute(
-                        onNavigateToPlan = { navigateToTab(MainRoutes.Plan) },
+                        onNavigateToPlan = { planId, scheduledWorkoutId ->
+                            if (planId.isNotBlank() && scheduledWorkoutId.isNotBlank()) {
+                                onOpenWorkoutDetails(planId, scheduledWorkoutId)
+                            } else {
+                                navigateToTab(MainRoutes.Plan)
+                            }
+                        },
                         onNavigateToTrack = { navigateToTab(MainRoutes.Track) },
                         onNavigateToCoach = { navigateToTab(MainRoutes.Coach) },
-                        onStartWorkout = onStartWorkout
+                        onStartWorkout = { planId, scheduledWorkoutId ->
+                            if (planId.isNotBlank() && scheduledWorkoutId.isNotBlank()) {
+                                onStartScheduledWorkout(planId, scheduledWorkoutId)
+                            } else {
+                                onStartQuickWorkout()
+                            }
+                        }
                     )
                 }
                 composable(MainRoutes.Plan) {
@@ -193,7 +214,7 @@ fun MainScaffold(onLogout: () -> Unit, onStartWorkout: () -> Unit = {}) {
                                 MainRoutes.categoryExerciseList(categoryId, categoryLabel, bodyPartKeys)
                             )
                         },
-                        onStartQuickWorkout = onStartWorkout
+                        onStartQuickWorkout = onStartQuickWorkout
                     )
                 }
                 composable(

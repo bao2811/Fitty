@@ -23,7 +23,7 @@ import com.example.fitty.data.local.task.HomeTaskEntity
         ExerciseSyncStateEntity::class,
         ExerciseHistoryEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class FittyDatabase : RoomDatabase() {

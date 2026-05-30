@@ -1,5 +1,6 @@
 package com.example.fitty.feature_coach
 
+import android.content.Context
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,7 +66,15 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitty.BuildConfig
+import com.example.fitty.R
+import com.example.fitty.core.ui.ContentDebugSource
+import com.example.fitty.core.ui.ContentDiagnosticsCard
+import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.data.content.LocalContentFallbacks
 import com.example.fitty.domain.model.CoachSuggestion
+import com.example.fitty.domain.repository.ContentRepository
+import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.usecase.coach.ApplyCoachSuggestionUseCase
 import com.example.fitty.domain.usecase.coach.SendCoachMessageUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
@@ -73,6 +82,7 @@ import com.example.fitty.ui.theme.FittyGradientStart
 import com.example.fitty.ui.theme.FittyPink
 import com.example.fitty.ui.theme.FittyPinkLight
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -91,7 +101,11 @@ fun CoachRoute(viewModel: CoachViewModel = hiltViewModel()) {
     )
 }
 
-internal data class CoachMessageUi(val sender: String, val body: String, val suggestions: List<CoachSuggestionUi> = emptyList())
+internal data class CoachMessageUi(
+    val sender: String,
+    val body: String,
+    val suggestions: List<CoachSuggestionUi> = emptyList()
+)
 
 internal enum class CoachSuggestionType { Workout, Meal, General }
 
@@ -104,32 +118,73 @@ internal data class CoachSuggestionUi(
 )
 
 internal data class CoachUiState(
-    val messages: List<CoachMessageUi> = listOf(
-        CoachMessageUi(
-            sender = "Fitty Coach",
-            body = "Chào bạn! Tôi là Fitty Coach — trợ lý AI của bạn về tập luyện, dinh dưỡng và hồi phục. Hãy hỏi tôi bất cứ điều gì! 💪"
-        )
-    ),
-    val prompts: List<String> = listOf(
-        "Bữa sau tập",
-        "Điều chỉnh hôm nay",
-        "Tôi bỏ buổi tập",
-        "Ý tưởng bữa tối"
-    ),
+    val messages: List<CoachMessageUi> = emptyList(),
+    val prompts: List<String> = emptyList(),
     val input: String = "",
     val isSending: Boolean = false,
     val isApplying: Boolean = false,
     val error: String? = null,
-    val threadId: String? = null
+    val threadId: String? = null,
+    val contentSources: List<ContentDebugSource> = emptyList()
 )
 
 @HiltViewModel
 class CoachViewModel @Inject constructor(
     private val sendCoachMessageUseCase: SendCoachMessageUseCase,
-    private val applyCoachSuggestionUseCase: ApplyCoachSuggestionUseCase
+    private val applyCoachSuggestionUseCase: ApplyCoachSuggestionUseCase,
+    private val localContentFallbacks: LocalContentFallbacks,
+    private val contentRepository: ContentRepository,
+    private val sessionRepository: SessionRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(CoachUiState())
+    private val fallbackContent = localContentFallbacks.coach()
+    private val _uiState = MutableStateFlow(
+        CoachUiState(
+            messages = listOf(
+                CoachMessageUi(
+                    sender = context.getString(R.string.coach_sender_fitty),
+                    body = fallbackContent.welcomeMessage
+                )
+            ),
+            prompts = fallbackContent.promptChips,
+            contentSources = listOf(
+                ContentDebugSource("Coach content", ContentSourceState.Fallback, "Using local fallback until remote load completes")
+            )
+        )
+    )
     internal val uiState: StateFlow<CoachUiState> = _uiState
+
+    init {
+        loadContent()
+    }
+
+    private fun loadContent() {
+        viewModelScope.launch {
+            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
+            val content = contentRepository.getCoachContent(language)
+            val usedFallback = contentRepository.usedFallbackFor("coach_content")
+            _uiState.update { state ->
+                state.copy(
+                    messages = state.messages.mapIndexed { index, message ->
+                        if (index == 0 && state.threadId == null && message.sender == context.getString(R.string.coach_sender_fitty)) {
+                            message.copy(body = content.welcomeMessage)
+                        } else {
+                            message
+                        }
+                    },
+                    prompts = content.promptChips,
+                    contentSources = listOf(
+                        ContentDebugSource(
+                            "Coach content",
+                            if (usedFallback) ContentSourceState.Fallback else ContentSourceState.Remote,
+                            contentRepository.fallbackDetailFor("coach_content")
+                                ?: if (usedFallback) "Using local fallback" else "Loaded language=$language from Firebase"
+                        )
+                    )
+                )
+            }
+        }
+    }
 
     internal fun selectPrompt(prompt: String) {
         _uiState.update { it.copy(input = prompt) }
@@ -145,7 +200,10 @@ class CoachViewModel @Inject constructor(
 
         _uiState.update { state ->
             state.copy(
-                messages = state.messages + CoachMessageUi("You", currentInput),
+                messages = state.messages + CoachMessageUi(
+                    context.getString(R.string.coach_sender_you),
+                    currentInput
+                ),
                 input = "",
                 isSending = true,
                 error = null
@@ -159,7 +217,7 @@ class CoachViewModel @Inject constructor(
                     _uiState.update { state ->
                         state.copy(
                             messages = state.messages + CoachMessageUi(
-                                sender = "Fitty Coach",
+                                sender = context.getString(R.string.coach_sender_fitty),
                                 body = aiResponse.text,
                                 suggestions = suggestions
                             ),
@@ -168,12 +226,12 @@ class CoachViewModel @Inject constructor(
                         )
                     }
                 }
-                .onFailure { e ->
-                    val displayError = e.message.toCoachErrorMessage()
+                .onFailure { error ->
+                    val displayError = error.message.toCoachErrorMessage(context)
                     _uiState.update { state ->
                         state.copy(
                             messages = state.messages + CoachMessageUi(
-                                "Fitty Coach",
+                                context.getString(R.string.coach_sender_fitty),
                                 displayError
                             ),
                             isSending = false,
@@ -196,50 +254,63 @@ class CoachViewModel @Inject constructor(
                     _uiState.update { state ->
                         state.copy(
                             messages = state.messages + CoachMessageUi(
-                                "Fitty Coach",
-                                "Done! \"${suggestion.title}\" has been applied. ✅"
+                                context.getString(R.string.coach_sender_fitty),
+                                context.getString(R.string.coach_apply_done, suggestion.title)
                             ),
                             isApplying = false
                         )
                     }
                 }
-                .onFailure { e ->
-                    _uiState.update { it.copy(isApplying = false, error = e.message) }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isApplying = false, error = error.message) }
                 }
         }
     }
 
     private fun CoachSuggestion.toUi(): CoachSuggestionUi = when (this) {
         is CoachSuggestion.PlanAdjustment -> CoachSuggestionUi(
-            type = CoachSuggestionType.Workout, title = title, body = "Reschedule workout from $moveFromDate to $moveToDate",
-            action = actionLabel, domainSuggestion = this
+            type = CoachSuggestionType.Workout,
+            title = title,
+            body = context.getString(R.string.coach_plan_adjustment_summary, moveFromDate, moveToDate),
+            action = actionLabel,
+            domainSuggestion = this
         )
         is CoachSuggestion.MealIdea -> CoachSuggestionUi(
-            type = CoachSuggestionType.Meal, title = title, body = "$description (~${estimatedCalories} kcal, ${estimatedProtein}g protein)",
-            action = actionLabel, domainSuggestion = this
+            type = CoachSuggestionType.Meal,
+            title = title,
+            body = context.getString(
+                R.string.coach_meal_suggestion_summary,
+                description,
+                estimatedCalories,
+                estimatedProtein
+            ),
+            action = actionLabel,
+            domainSuggestion = this
         )
         is CoachSuggestion.General -> CoachSuggestionUi(
-            type = CoachSuggestionType.General, title = title, body = "", action = actionLabel, domainSuggestion = this
+            type = CoachSuggestionType.General,
+            title = title,
+            body = "",
+            action = actionLabel,
+            domainSuggestion = this
         )
     }
 }
 
-private fun String?.toCoachErrorMessage(): String {
+private fun String?.toCoachErrorMessage(context: Context): String {
     val message = this.orEmpty()
     return when {
         message.contains("quota exceeded", ignoreCase = true) || message.contains("429", ignoreCase = true) ->
-            "⚠️ Gemini API đã hết quota. Vui lòng kiểm tra billing hoặc đổi API key."
+            context.getString(R.string.coach_error_quota)
         message.contains("api key", ignoreCase = true) && message.contains("invalid", ignoreCase = true) ->
-            "🔑 Gemini API key không hợp lệ hoặc chưa được cấp quyền."
+            context.getString(R.string.coach_error_api_key)
         message.contains("not signed in", ignoreCase = true) ->
-            "🔒 Bạn cần đăng nhập để dùng Fitty Coach."
+            context.getString(R.string.coach_error_sign_in)
         message.isBlank() ->
-            "❌ Không thể kết nối Gemini lúc này. Thử lại sau."
+            context.getString(R.string.coach_error_generic)
         else -> message
     }
 }
-
-// ─── UI Composables ──────────────────────────────────────────────────────────
 
 @Composable
 private fun CoachScreen(
@@ -251,7 +322,9 @@ private fun CoachScreen(
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.size - 1)
+        if (state.messages.isNotEmpty()) {
+            listState.animateScrollToItem(state.messages.size - 1)
+        }
     }
 
     Column(
@@ -259,18 +332,21 @@ private fun CoachScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // ── Header ───────────────────────────────────────────────
         CoachHeader()
 
-        // ── Error Banner ─────────────────────────────────────────
-        state.error?.let { errorMsg ->
-            ErrorBanner(errorMsg)
+        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
+            ContentDiagnosticsCard(
+                sources = state.contentSources,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
 
-        // ── Quick Prompts ────────────────────────────────────────
+        state.error?.let { errorMessage ->
+            ErrorBanner(errorMessage)
+        }
+
         PromptRow(prompts = state.prompts, onPromptSelected = onPromptSelected)
 
-        // ── Messages ─────────────────────────────────────────────
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -299,7 +375,6 @@ private fun CoachScreen(
             }
         }
 
-        // ── Input Bar ────────────────────────────────────────────
         ChatInputBar(
             input = state.input,
             onInputChanged = onInputChanged,
@@ -325,7 +400,6 @@ private fun CoachHeader() {
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // AI Avatar
             Box(
                 modifier = Modifier
                     .size(52.dp)
@@ -343,7 +417,7 @@ private fun CoachHeader() {
             }
             Column {
                 Text(
-                    "Fitty Coach",
+                    stringResource(R.string.coach_sender_fitty),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
@@ -359,7 +433,7 @@ private fun CoachHeader() {
                             .background(Color(0xFF4ADE80))
                     )
                     Text(
-                        "Online • AI-powered",
+                        stringResource(R.string.coach_status_online),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.85f)
                     )
@@ -430,7 +504,7 @@ private fun PromptRow(prompts: List<String>, onPromptSelected: (String) -> Unit)
 
 @Composable
 private fun ChatBubble(message: CoachMessageUi) {
-    val isUser = message.sender == "You"
+    val isUser = message.sender == stringResource(R.string.coach_sender_you)
 
     Column(
         modifier = Modifier
@@ -438,7 +512,6 @@ private fun ChatBubble(message: CoachMessageUi) {
             .padding(vertical = 4.dp),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
-        // Sender label
         Text(
             text = message.sender,
             style = MaterialTheme.typography.labelSmall,
@@ -447,26 +520,20 @@ private fun ChatBubble(message: CoachMessageUi) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
         )
 
-        // Bubble
-        Box(
-            modifier = Modifier.fillMaxWidth(0.85f)
-        ) {
+        Box(modifier = Modifier.fillMaxWidth(0.85f)) {
             if (isUser) {
-                // User bubble — gradient pink
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(
                             RoundedCornerShape(
-                                topStart = 20.dp, topEnd = 20.dp,
-                                bottomStart = 20.dp, bottomEnd = 6.dp
+                                topStart = 20.dp,
+                                topEnd = 20.dp,
+                                bottomStart = 20.dp,
+                                bottomEnd = 6.dp
                             )
                         )
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(FittyPink, FittyGradientEnd)
-                            )
-                        )
+                        .background(Brush.horizontalGradient(listOf(FittyPink, FittyGradientEnd)))
                         .padding(14.dp)
                 ) {
                     Text(
@@ -477,20 +544,17 @@ private fun ChatBubble(message: CoachMessageUi) {
                     )
                 }
             } else {
-                // Coach bubble — elevated card
                 Card(
                     shape = RoundedCornerShape(
-                        topStart = 6.dp, topEnd = 20.dp,
-                        bottomStart = 20.dp, bottomEnd = 20.dp
+                        topStart = 6.dp,
+                        topEnd = 20.dp,
+                        bottomStart = 20.dp,
+                        bottomEnd = 20.dp
                     ),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp)
-                    ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Text(
                             message.body,
                             style = MaterialTheme.typography.bodyMedium,
@@ -508,17 +572,20 @@ private fun ChatBubble(message: CoachMessageUi) {
 private fun TypingIndicator() {
     val transition = rememberInfiniteTransition(label = "typing")
     val dot1 = transition.animateFloat(
-        initialValue = 0f, targetValue = -6f,
+        initialValue = 0f,
+        targetValue = -6f,
         animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse),
         label = "dot1"
     )
     val dot2 = transition.animateFloat(
-        initialValue = 0f, targetValue = -6f,
+        initialValue = 0f,
+        targetValue = -6f,
         animationSpec = infiniteRepeatable(tween(400, delayMillis = 100), RepeatMode.Reverse),
         label = "dot2"
     )
     val dot3 = transition.animateFloat(
-        initialValue = 0f, targetValue = -6f,
+        initialValue = 0f,
+        targetValue = -6f,
         animationSpec = infiniteRepeatable(tween(400, delayMillis = 200), RepeatMode.Reverse),
         label = "dot3"
     )
@@ -562,7 +629,13 @@ private fun suggestionIcon(type: CoachSuggestionType): ImageVector {
 }
 
 @Composable
-private fun SuggestionCard(icon: ImageVector, title: String, body: String, action: String, onAction: () -> Unit) {
+private fun SuggestionCard(
+    icon: ImageVector,
+    title: String,
+    body: String,
+    action: String,
+    onAction: () -> Unit
+) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -571,7 +644,10 @@ private fun SuggestionCard(icon: ImageVector, title: String, body: String, actio
             .fillMaxWidth(0.85f)
             .padding(start = 4.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -613,7 +689,12 @@ private fun SuggestionCard(icon: ImageVector, title: String, body: String, actio
 }
 
 @Composable
-private fun ChatInputBar(input: String, onInputChanged: (String) -> Unit, onSend: () -> Unit, isSending: Boolean) {
+private fun ChatInputBar(
+    input: String,
+    onInputChanged: (String) -> Unit,
+    onSend: () -> Unit,
+    isSending: Boolean
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shadowElevation = 8.dp,
@@ -631,7 +712,7 @@ private fun ChatInputBar(input: String, onInputChanged: (String) -> Unit, onSend
                 onValueChange = onInputChanged,
                 placeholder = {
                     Text(
-                        "Hỏi Fitty Coach...",
+                        stringResource(R.string.coach_input_placeholder),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -648,13 +729,20 @@ private fun ChatInputBar(input: String, onInputChanged: (String) -> Unit, onSend
                 singleLine = true,
                 enabled = !isSending
             )
-            // Send button
             IconButton(
                 onClick = onSend,
                 enabled = input.isNotBlank() && !isSending,
                 colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = if (input.isNotBlank() && !isSending) FittyPink else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (input.isNotBlank() && !isSending) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    containerColor = if (input.isNotBlank() && !isSending) {
+                        FittyPink
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (input.isNotBlank() && !isSending) {
+                        Color.White
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    }
                 ),
                 modifier = Modifier
                     .size(44.dp)
@@ -669,7 +757,7 @@ private fun ChatInputBar(input: String, onInputChanged: (String) -> Unit, onSend
                 } else {
                     Icon(
                         Icons.AutoMirrored.Outlined.Send,
-                        contentDescription = "Send",
+                        contentDescription = stringResource(R.string.coach_send),
                         modifier = Modifier.size(20.dp)
                     )
                 }

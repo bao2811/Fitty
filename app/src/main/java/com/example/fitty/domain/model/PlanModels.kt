@@ -37,7 +37,8 @@ data class WorkoutExercise(
     val name: String = "",
     val sets: Int = 3,
     val reps: String? = null,
-    val durationSeconds: Int? = null
+    val durationSeconds: Int? = null,
+    val targetWeightKg: Float? = null
 )
 
 data class Exercise(

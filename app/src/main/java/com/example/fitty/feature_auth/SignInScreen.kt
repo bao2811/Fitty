@@ -234,7 +234,7 @@ fun SignInScreen(
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_fitty_logo),
-                    contentDescription = "Fitty",
+                    contentDescription = stringResource(R.string.auth_logo_content_desc),
                     modifier = Modifier.size(100.dp),
                     contentScale = ContentScale.Crop
                 )

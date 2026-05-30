@@ -1,5 +1,6 @@
 package com.example.fitty.data.firebase
 
+import com.example.fitty.data.content.StarterPlanBuilder
 import com.example.fitty.domain.model.FittyAuthResult
 import com.example.fitty.domain.model.FittyOnboarding
 import com.example.fitty.domain.model.FittyOnboardingAnswers
@@ -31,7 +32,9 @@ import javax.inject.Singleton
 @Singleton
 class FirebaseUserRemoteDataSource @Inject constructor(
     private val auth: FirebaseAuth,
-    private val firestore: FirebaseFirestore
+    private val firestore: FirebaseFirestore,
+    private val starterPlanBuilder: StarterPlanBuilder,
+    private val sessionRepository: com.example.fitty.domain.repository.SessionRepository
 ) {
     suspend fun createPasswordUser(
         username: String,
@@ -163,7 +166,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         userDocument(uid).set(userPayload, SetOptions.merge()).await()
 
         saveReminders(uid = uid, reminders = answers.reminders)
-        saveStarterPlan(uid = uid, answers = answers, normalizedWorkoutDays = normalizedWorkoutDays)
+        saveStarterPlan(uid = uid, answers = answers)
     }
 
     suspend fun markOnboardingCompleted(uid: String) {
@@ -312,60 +315,60 @@ class FirebaseUserRemoteDataSource @Inject constructor(
 
     private suspend fun saveStarterPlan(
         uid: String,
-        answers: FittyOnboardingAnswers,
-        normalizedWorkoutDays: List<String>
+        answers: FittyOnboardingAnswers
     ) {
+        val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { "en" }
+        val buildResult = starterPlanBuilder.buildForAnswers(answers, language)
         val planRef = userDocument(uid)
             .collection(COLLECTION_PLAN_INSTANCES)
             .document(STARTER_PLAN_ID)
-        val nextWorkoutDate = computeNextWorkoutDate(normalizedWorkoutDays)
         planRef.set(
             mapOf(
-                "sourceProgramId" to "starter_template",
-                "name" to "Starter Plan",
-                "goal" to answers.goal.toSchemaValue(),
-                "durationWeeks" to 4,
-                "workoutsPerWeek" to normalizedWorkoutDays.size.coerceAtLeast(1),
-                "equipment" to answers.equipment.toSchemaValue(),
-                "trainingStyle" to trainingStyleForGoal(answers.goal),
+                "sourceProgramId" to buildResult.plan.sourceProgramId,
+                "name" to buildResult.plan.name,
+                "goal" to buildResult.plan.goal,
+                "durationWeeks" to buildResult.plan.durationWeeks,
+                "workoutsPerWeek" to buildResult.plan.workoutsPerWeek,
+                "equipment" to buildResult.plan.equipment,
+                "trainingStyle" to buildResult.plan.trainingStyle,
                 "status" to PLAN_STATUS_DRAFT,
-                "explanation" to "Generated from onboarding answers.",
+                "explanation" to buildResult.plan.explanation,
                 "currentWeek" to 1,
-                "nextWorkoutDate" to nextWorkoutDate,
+                "nextWorkoutDate" to buildResult.plan.nextWorkoutDate,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             ),
             SetOptions.merge()
         ).await()
 
-        val scheduledWorkoutTitles = listOf(
-            "Full Body Basics",
-            "Cardio + Core",
-            "Strength Foundations",
-            "Mobility Reset"
-        )
         val scheduledCollection = planRef.collection(COLLECTION_SCHEDULED_WORKOUTS)
         val existingDocs = scheduledCollection.get().await()
         existingDocs.documents.forEach { it.reference.delete() }
 
-        val today = LocalDate.now(appZoneId())
-        normalizedWorkoutDays.forEachIndexed { index, day ->
-            val date = nextDateForDay(today, day)
-            val workoutId = "${date.format(DATE_KEY_FORMATTER)}_${day}"
-            scheduledCollection.document(workoutId).set(
+        buildResult.scheduledWorkouts.forEach { workout ->
+            scheduledCollection.document(workout.id).set(
                 mapOf(
-                    "dateKey" to date.format(DATE_KEY_FORMATTER),
-                    "weekNumber" to 1,
-                    "orderInWeek" to index + 1,
-                    "title" to scheduledWorkoutTitles[index % scheduledWorkoutTitles.size],
-                    "durationMinutes" to answers.durationMinutes,
-                    "estimatedCalories" to estimateCalories(answers.durationMinutes),
-                    "difficulty" to answers.fitnessLevel.toSchemaValue(),
-                    "equipment" to answers.equipment.toSchemaValue(),
-                    "status" to "scheduled",
-                    "explanation" to buildWorkoutExplanation(answers),
+                    "dateKey" to workout.dateKey,
+                    "weekNumber" to workout.weekNumber,
+                    "orderInWeek" to workout.orderInWeek,
+                    "title" to workout.title,
+                    "durationMinutes" to workout.durationMinutes,
+                    "estimatedCalories" to workout.estimatedCalories,
+                    "difficulty" to workout.difficulty,
+                    "equipment" to workout.equipment,
+                    "status" to workout.status,
+                    "explanation" to workout.explanation,
                     "replacedFromWorkoutId" to null,
-                    "exercises" to starterExercisesForGoal(answers.goal),
+                    "exercises" to workout.exercises.map { exercise ->
+                        mapOf(
+                            "exerciseId" to exercise.exerciseId,
+                            "name" to exercise.name,
+                            "sets" to exercise.sets,
+                            "reps" to exercise.reps,
+                            "durationSeconds" to exercise.durationSeconds,
+                            "targetWeightKg" to exercise.targetWeightKg
+                        )
+                    },
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 ),
@@ -466,55 +469,6 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         workoutDayCount >= 3 -> "moderate"
         workoutDayCount >= 1 -> "light"
         else -> "sedentary"
-    }
-
-    private fun trainingStyleForGoal(goal: String): String = when (goal.toSchemaValue()) {
-        "gain_muscle" -> "strength"
-        "improve_endurance" -> "cardio"
-        "improve_flexibility" -> "mobility"
-        else -> "full_body"
-    }
-
-    private fun buildWorkoutExplanation(answers: FittyOnboardingAnswers): String {
-        return "Selected for your ${answers.goal.lowercase(Locale.US)} goal, ${answers.fitnessLevel.lowercase(Locale.US)} level, and ${answers.preferredTime.lowercase(Locale.US)} schedule."
-    }
-
-    private fun estimateCalories(durationMinutes: Int): Int = (durationMinutes * 5.5).toInt()
-
-    private fun starterExercisesForGoal(goal: String): List<Map<String, Any?>> {
-        return when (goal.toSchemaValue()) {
-            "gain_muscle" -> listOf(
-                starterExercise("push_up", "Push Up", 3, "10"),
-                starterExercise("split_squat", "Split Squat", 3, "10"),
-                starterExercise("plank", "Plank", 3, durationSeconds = 30)
-            )
-            "improve_flexibility" -> listOf(
-                starterExercise("cat_cow", "Cat Cow", 2, "10"),
-                starterExercise("worlds_greatest_stretch", "World's Greatest Stretch", 2, "8"),
-                starterExercise("dead_bug", "Dead Bug", 3, "10")
-            )
-            else -> listOf(
-                starterExercise("bodyweight_squat", "Bodyweight Squat", 3, "12"),
-                starterExercise("incline_push_up", "Incline Push Up", 3, "10"),
-                starterExercise("marching_glute_bridge", "Marching Glute Bridge", 3, "12")
-            )
-        }
-    }
-
-    private fun starterExercise(
-        exerciseId: String,
-        name: String,
-        sets: Int,
-        reps: String? = null,
-        durationSeconds: Int? = null
-    ): Map<String, Any?> {
-        return mapOf(
-            "exerciseId" to exerciseId,
-            "name" to name,
-            "sets" to sets,
-            "reps" to reps,
-            "durationSeconds" to durationSeconds
-        )
     }
 
     private fun appZoneId(): ZoneId = ZoneId.systemDefault()

@@ -9,11 +9,9 @@ import javax.inject.Singleton
 class FirebaseOnboardingRepository @Inject constructor(
     private val remoteDataSource: FirebaseUserRemoteDataSource
 ) : OnboardingRepository {
-    override suspend fun saveOnboardingAnswers(uid: String, answers: FittyOnboardingAnswers) {
-        remoteDataSource.saveOnboardingAnswers(uid, answers)
-    }
+    override suspend fun saveOnboardingAnswers(uid: String, answers: FittyOnboardingAnswers): Result<Unit> =
+        runCatching { remoteDataSource.saveOnboardingAnswers(uid, answers) }
 
-    override suspend fun markOnboardingCompleted(uid: String) {
-        remoteDataSource.markOnboardingCompleted(uid)
-    }
+    override suspend fun markOnboardingCompleted(uid: String): Result<Unit> =
+        runCatching { remoteDataSource.markOnboardingCompleted(uid) }
 }

@@ -2,23 +2,31 @@ package com.example.fitty.feature_home
 
 import android.content.Context
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessibilityNew
 import androidx.compose.material.icons.outlined.BarChart
@@ -34,7 +42,6 @@ import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.SelfImprovement
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,8 +53,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,26 +74,36 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
-import coil.compose.AsyncImage
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewModelScope
+import coil.compose.AsyncImage
+import com.example.fitty.BuildConfig
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionHeader
+import com.example.fitty.core.ui.ContentDebugSource
+import com.example.fitty.core.ui.ContentDiagnosticsCard
+import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.AppNotificationType
 import com.example.fitty.domain.model.FittyUser
+import com.example.fitty.domain.model.HomeBehaviorConfig
+import com.example.fitty.domain.model.HomeContentConfig
 import com.example.fitty.domain.model.HomeTaskCategory
 import com.example.fitty.domain.model.HomeTaskDraft
 import com.example.fitty.domain.model.HomeTaskStatus
 import com.example.fitty.domain.model.preferredDisplayName
+import com.example.fitty.data.content.LocalContentFallbacks
 import com.example.fitty.domain.repository.AppNotificationRepository
+import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.domain.repository.HomeTaskRepository
 import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
 import com.example.fitty.ui.theme.FittyGradientEnd
@@ -122,6 +141,14 @@ data class HomeTaskUi(
     val reminderEnabled: Boolean
 )
 
+data class HomeTaskPresetUi(
+    val title: String,
+    val description: String,
+    val timeMinutes: Int,
+    val category: HomeTaskCategory,
+    val reminderEnabled: Boolean
+)
+
 data class HomeMacroProgressUi(
     val label: String,
     val progress: Float
@@ -148,9 +175,12 @@ data class HomeWorkoutUi(
     val sectionTitle: String,
     val name: String,
     val meta: String,
+    val exerciseSummaries: List<String> = emptyList(),
     val equipmentLabel: String,
     val primaryActionLabel: String,
-    val secondaryActionLabel: String
+    val secondaryActionLabel: String,
+    val planId: String = "",
+    val scheduledWorkoutId: String = ""
 )
 
 data class HomeNutritionUi(
@@ -195,18 +225,20 @@ data class HomeUiState(
     val tasksSectionActionLabel: String = "",
     val tasks: List<HomeTaskUi> = emptyList(),
     val streak: HomeStreakUi = HomeStreakUi("", "", "", "", emptyList(), emptyList(), 0),
-    val workout: HomeWorkoutUi = HomeWorkoutUi("", "", "", "", "", ""),
+    val workout: HomeWorkoutUi = HomeWorkoutUi("", "", "", emptyList(), "", "", ""),
     val nutrition: HomeNutritionUi = HomeNutritionUi("", "", emptyList(), emptyList(), "", ""),
     val insight: HomeInsightUi = HomeInsightUi("", "", emptyList()),
     val achievement: HomeAchievementPreviewUi = HomeAchievementPreviewUi("", "", "", ""),
     val showNotifications: Boolean = false,
     val notifications: List<HomeNotificationUi> = emptyList(),
     val unreadNotificationCount: Int = 0,
+    val presetTasks: List<HomeTaskPresetUi> = emptyList(),
     val heightCm: Int? = null,
     val weightKg: Int? = null,
     val targetWeightKg: Int? = null,
     val bmi: Float? = null,
-    val showEditBodyDialog: Boolean = false
+    val showEditBodyDialog: Boolean = false,
+    val contentSources: List<ContentDebugSource> = emptyList()
 )
 
 data class HomeNotificationUi(
@@ -222,21 +254,59 @@ data class HomeNotificationUi(
 class HomeViewModel @Inject constructor(
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
     private val getHomeDashboardUseCase: com.example.fitty.domain.usecase.home.GetHomeDashboardUseCase,
+    private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase,
     private val homeTaskRepository: HomeTaskRepository,
     private val appNotificationRepository: AppNotificationRepository,
+    private val localContentFallbacks: LocalContentFallbacks,
+    private val contentRepository: ContentRepository,
     private val userRepository: com.example.fitty.domain.repository.UserRepository,
     private val sessionRepository: com.example.fitty.domain.repository.SessionRepository,
     private val trackingRepository: com.example.fitty.domain.repository.TrackingRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(initialHomeUiState(context))
+    private var homeContentConfig: HomeContentConfig = localContentFallbacks.home(Locale.getDefault().language)
+    private var homeBehaviorConfig: HomeBehaviorConfig = localContentFallbacks.homeBehaviorConfig()
+    private val _uiState = MutableStateFlow(
+        initialHomeUiState(context, homeContentConfig).copy(
+            contentSources = listOf(
+                ContentDebugSource("Home content", ContentSourceState.Fallback, "Using local fallback until remote load completes"),
+                ContentDebugSource("Home behavior", ContentSourceState.Fallback, "Using local fallback until remote load completes")
+            )
+        )
+    )
     val uiState: StateFlow<HomeUiState> = _uiState
     private val todayDateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
 
     init {
         observeTasks()
         observeNotifications()
+        loadContent()
         refreshData()
+    }
+
+    private fun loadContent() {
+        viewModelScope.launch {
+            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
+            homeContentConfig = contentRepository.getHomeContent(language)
+            homeBehaviorConfig = contentRepository.getHomeBehaviorConfig()
+            val sources = listOf(
+                ContentDebugSource(
+                    "Home content",
+                    if (contentRepository.usedFallbackFor("home_content")) ContentSourceState.Fallback else ContentSourceState.Remote,
+                    contentRepository.fallbackDetailFor("home_content")
+                        ?: if (contentRepository.usedFallbackFor("home_content")) "Using local fallback" else "Loaded language=$language from Firebase"
+                ),
+                ContentDebugSource(
+                    "Home behavior",
+                    if (contentRepository.usedFallbackFor("home_behavior")) ContentSourceState.Fallback else ContentSourceState.Remote,
+                    contentRepository.fallbackDetailFor("home_behavior")
+                        ?: if (contentRepository.usedFallbackFor("home_behavior")) "Using local fallback" else "Loaded from Firebase"
+                )
+            )
+            _uiState.update { state ->
+                state.applyContent(context, homeContentConfig).copy(contentSources = sources)
+            }
+        }
     }
 
     /**
@@ -249,13 +319,11 @@ class HomeViewModel @Inject constructor(
 
     fun refreshUser() {
         viewModelScope.launch {
+            runCatching { updateStreakUseCase("login") }
+
             // Load user for profile display
             runCatching { getCurrentUserUseCase() }
                 .onSuccess { user ->
-                    val goalLabel = user?.profile?.primaryGoal?.toDisplayLabel(
-                        defaultValue = context.getString(R.string.home_goal_default)
-                    ) ?: context.getString(R.string.home_default_task_goal)
-                    ensureTodayTasks(goalLabel)
                     _uiState.update { current ->
                         if (user == null) current.copy(
                             isLoading = false,
@@ -263,8 +331,8 @@ class HomeViewModel @Inject constructor(
                                 R.string.home_greeting_default,
                                 context.getString(R.string.home_display_name_default)
                             )
-                        ) else {
-                            val withBody = user.toHomeUiState(context).preserveDynamicState(current)
+                        ).applyContent(context, homeContentConfig) else {
+                            val withBody = user.toHomeUiState(context, homeContentConfig).preserveDynamicState(current)
                             val h = user.profile.heightCm
                             val w = user.profile.weightKg
                             val bmi = if (h != null && h > 0 && w != null && w > 0) {
@@ -275,12 +343,14 @@ class HomeViewModel @Inject constructor(
                                 weightKg = w,
                                 targetWeightKg = user.profile.targetWeightKg,
                                 bmi = bmi
-                            )
+                            ).applyContent(context, homeContentConfig)
                         }
+                    }
+                    if (user != null) {
+                        ensureDefaultTasks(user = user, workoutTitle = null)
                     }
                 }
                 .onFailure {
-                    ensureTodayTasks(context.getString(R.string.home_default_task_goal))
                     _uiState.update { current ->
                         current.copy(
                             isLoading = false,
@@ -288,7 +358,7 @@ class HomeViewModel @Inject constructor(
                                 R.string.home_greeting_default,
                                 context.getString(R.string.home_display_name_default)
                             )
-                        )
+                        ).applyContent(context, homeContentConfig)
                     }
                 }
 
@@ -296,6 +366,10 @@ class HomeViewModel @Inject constructor(
             runCatching { getHomeDashboardUseCase() }
                 .onSuccess { dashboard ->
                     if (dashboard == null) return@onSuccess
+                    ensureDefaultTasks(
+                        user = dashboard.user,
+                        workoutTitle = dashboard.todayWorkout?.title
+                    )
                     _uiState.update { current ->
                         val summary = dashboard.dailySummary
                         val workout = dashboard.todayWorkout
@@ -311,16 +385,29 @@ class HomeViewModel @Inject constructor(
                                 ),
                                 HomeFocusMetricUi(
                                     context.getString(R.string.home_metric_water),
-                                    "${"%.1f".format((summary?.progress?.waterMl ?: 0) / 1000f)}/${"%.1f".format((summary?.targets?.waterMl ?: 2500) / 1000f)} L"
+                                    context.getString(
+                                        R.string.home_water_progress,
+                                        (summary?.progress?.waterMl ?: 0) / 1000f,
+                                        (summary?.targets?.waterMl ?: homeBehaviorConfig.waterTargetMl) / 1000f
+                                    )
                                 )
                             ),
                             workout = if (workout != null) HomeWorkoutUi(
                                 sectionTitle = context.getString(R.string.home_workout_section_title),
                                 name = workout.title.ifBlank { dashboard.activePlanName ?: "" },
-                                meta = "${workout.durationMinutes} min • ${workout.difficulty}",
+                                meta = context.getString(
+                                    R.string.home_workout_meta_live,
+                                    workout.durationMinutes,
+                                    workout.difficulty.toLocalizedToken(context)
+                                ),
+                                exerciseSummaries = workout.exercises.map { plannedExercise ->
+                                    plannedExercise.toHomeWorkoutExerciseSummary(context)
+                                },
                                 equipmentLabel = workout.equipment.ifBlank { context.getString(R.string.home_equipment_default) },
                                 primaryActionLabel = context.getString(R.string.home_action_start),
-                                secondaryActionLabel = context.getString(R.string.home_action_details)
+                                secondaryActionLabel = context.getString(R.string.home_action_details),
+                                planId = workout.planId.ifBlank { dashboard.user.stats.activePlanId },
+                                scheduledWorkoutId = workout.id
                             ) else current.workout,
                             nutrition = if (summary != null) {
                                 val uid = sessionRepository.getCurrentUserId()
@@ -341,16 +428,32 @@ class HomeViewModel @Inject constructor(
                                 context = context,
                                 currentStreak = dashboard.user.stats.currentStreak,
                                 bestStreak = dashboard.user.stats.bestStreak,
+                                lastActiveDate = dashboard.user.stats.lastActiveDate,
                                 activeDates = dashboard.user.stats.streakActiveDates
                             ),
                             insight = if (summary?.insightText?.isNotBlank() == true) HomeInsightUi(
                                 title = context.getString(R.string.home_insight_title),
                                 message = summary.insightText,
-                                actions = defaultInsightActions(context)
+                                actions = homeContentConfig.insightActions
                             ) else current.insight
-                        )
+                        ).applyContent(context, homeContentConfig)
                     }
                 }
+        }
+    }
+
+    private fun ensureDefaultTasks(user: FittyUser, workoutTitle: String?) {
+        viewModelScope.launch {
+            homeTaskRepository.ensureTasks(
+                dateKey = todayDateKey,
+                defaults = buildDefaultTasks(
+                    context = context,
+                    user = user,
+                    dateKey = todayDateKey,
+                    workoutTitle = workoutTitle,
+                    content = homeContentConfig
+                )
+            )
         }
     }
 
@@ -375,20 +478,21 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    internal fun setTaskInProgress(taskId: Long, enabled: Boolean) {
-        viewModelScope.launch {
-            homeTaskRepository.updateTaskStatus(
-                taskId = taskId,
-                status = if (enabled) HomeTaskStatus.InProgress else HomeTaskStatus.Todo
-            )
-        }
+    internal fun addPresetTask(preset: HomeTaskPresetUi) {
+        addTask(
+            title = preset.title,
+            description = preset.description,
+            timeMinutes = preset.timeMinutes,
+            category = preset.category,
+            reminderEnabled = preset.reminderEnabled
+        )
     }
 
-    internal fun setTaskCompleted(taskId: Long, enabled: Boolean) {
+    internal fun setTaskStatus(taskId: Long, status: HomeTaskStatus) {
         viewModelScope.launch {
             homeTaskRepository.updateTaskStatus(
                 taskId = taskId,
-                status = if (enabled) HomeTaskStatus.Completed else HomeTaskStatus.Todo
+                status = status
             )
         }
     }
@@ -461,7 +565,7 @@ class HomeViewModel @Inject constructor(
                                 id = notification.id,
                                 title = notification.title,
                                 message = notification.message,
-                                time = formatNotificationTime(notification.createdAt),
+                                time = formatNotificationTime(context, notification.createdAt),
                                 icon = notification.type.toNotificationIcon(),
                                 isRead = notification.isRead
                             )
@@ -475,13 +579,6 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(unreadNotificationCount = unreadCount) }
             }
         }
-    }
-
-    private suspend fun ensureTodayTasks(goalLabel: String) {
-        homeTaskRepository.ensureTasks(
-            dateKey = todayDateKey,
-            defaults = defaultTaskDrafts(context = context, goalLabel = goalLabel)
-        )
     }
 
     fun toggleEditBodyDialog(show: Boolean) {
@@ -498,6 +595,16 @@ class HomeViewModel @Inject constructor(
                 targetWeightKg = newTargetWeightKg ?: user.profile.targetWeightKg
             )
             userRepository.updateProfile(uid, updatedProfile)
+            if (newWeightKg != null && newWeightKg != user.profile.weightKg) {
+                trackingRepository.saveBodyMeasurement(
+                    uid = uid,
+                    measurement = com.example.fitty.domain.model.BodyMeasurement(
+                        dateKey = todayDateKey,
+                        weightKg = newWeightKg.toFloat(),
+                        source = "manual"
+                    )
+                )
+            }
             val h = updatedProfile.heightCm
             val w = updatedProfile.weightKg
             val bmi = if (h != null && h > 0 && w != null && w > 0) {
@@ -526,7 +633,7 @@ class HomeViewModel @Inject constructor(
             val workoutsCompleted = summary?.progress?.workoutsCompleted ?: 0
             val workoutTarget = summary?.targets?.workouts ?: 1
             val waterMl = summary?.progress?.waterMl ?: 0
-            val waterTarget = summary?.targets?.waterMl ?: 2500
+            val waterTarget = summary?.targets?.waterMl ?: homeBehaviorConfig.waterTargetMl
             val waterL = "%.1f".format(waterMl / 1000f)
             val waterTL = "%.1f".format(waterTarget / 1000f)
             val caloriesTarget = summary?.targets?.calories ?: 2100
@@ -563,7 +670,11 @@ class HomeViewModel @Inject constructor(
                         ),
                         HomeFocusMetricUi(
                             label = context.getString(R.string.home_metric_water),
-                            value = "$waterL/$waterTL L"
+                            value = context.getString(
+                                R.string.home_water_progress,
+                                waterL.toFloatOrNull() ?: 0f,
+                                waterTL.toFloatOrNull() ?: 0f
+                            )
                         )
                     ),
                     nutrition = nutritionUi
@@ -594,18 +705,18 @@ class HomeViewModel @Inject constructor(
                 HomeMealUi(context.getString(R.string.home_meal_snack), "—")
             )
         } else {
-            mealLogs.groupBy { it.mealType.ifBlank { "Other" } }.map { (type, logs) ->
+            mealLogs.groupBy { it.mealType.ifBlank { context.getString(R.string.home_meal_type_other) } }.map { (type, logs) ->
                 val cal = logs.sumOf { it.totalCalories }
                 HomeMealUi(
-                    label = type.replaceFirstChar { c -> c.uppercase() },
-                    calories = "$cal kcal"
+                    label = type.toLocalizedToken(context, defaultValue = context.getString(R.string.home_meal_type_other)),
+                    calories = context.getString(R.string.home_calories_value, cal)
                 )
             }
         }
 
         return HomeNutritionUi(
             sectionTitle = context.getString(R.string.home_nutrition_section_title),
-            summary = "$totalCalories / $caloriesTarget kcal",
+            summary = context.getString(R.string.home_nutrition_summary, totalCalories, caloriesTarget),
             macros = if (mealLogs.isEmpty()) {
                 listOf(
                     HomeMacroProgressUi(context.getString(R.string.home_macro_protein), 0f),
@@ -648,7 +759,7 @@ class HomeViewModel @Inject constructor(
             listOf(
                 HomeMealUi(
                     label = context.getString(R.string.home_meal_breakfast),
-                    calories = "$totalCalories kcal"
+                    calories = context.getString(R.string.home_calories_value, totalCalories)
                 )
             )
         } else {
@@ -661,7 +772,7 @@ class HomeViewModel @Inject constructor(
 
         return HomeNutritionUi(
             sectionTitle = context.getString(R.string.home_nutrition_section_title),
-            summary = "$totalCalories / $caloriesTarget kcal",
+            summary = context.getString(R.string.home_nutrition_summary, totalCalories, caloriesTarget),
             macros = listOf(
                 HomeMacroProgressUi(context.getString(R.string.home_macro_protein), proteinRatio),
                 HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), carbsRatio),
@@ -677,16 +788,16 @@ class HomeViewModel @Inject constructor(
 
 @Composable
 fun HomeRoute(
-    onNavigateToPlan: () -> Unit = {},
+    onNavigateToPlan: (planId: String, scheduledWorkoutId: String) -> Unit = { _, _ -> },
     onNavigateToTrack: () -> Unit = {},
     onNavigateToCoach: () -> Unit = {},
-    onStartWorkout: () -> Unit = {},
+    onStartWorkout: (planId: String, scheduledWorkoutId: String) -> Unit = { _, _ -> },
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
 
     // Refresh data every time the Home tab becomes visible (e.g. after Track meal)
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -699,16 +810,20 @@ fun HomeRoute(
 
     HomeScreen(
         state = state,
-        onStartWorkout = onStartWorkout,
-        onWorkoutDetails = onNavigateToPlan,
+        onStartWorkout = {
+            onStartWorkout(state.workout.planId, state.workout.scheduledWorkoutId)
+        },
+        onWorkoutDetails = {
+            onNavigateToPlan(state.workout.planId, state.workout.scheduledWorkoutId)
+        },
         onLogMeal = onNavigateToTrack,
         onNutritionDetails = onNavigateToTrack,
         onAskCoach = onNavigateToCoach,
         onToggleNotifications = viewModel::toggleNotifications,
         onDismissNotifications = viewModel::dismissNotifications,
         onAddTask = viewModel::addTask,
-        onSetTaskInProgress = viewModel::setTaskInProgress,
-        onSetTaskCompleted = viewModel::setTaskCompleted,
+        onAddPresetTask = viewModel::addPresetTask,
+        onSetTaskStatus = viewModel::setTaskStatus,
         onToggleTaskReminder = viewModel::toggleTaskReminder,
         onDeleteTask = viewModel::deleteTask,
         onMarkNotificationRead = viewModel::markNotificationRead,
@@ -731,8 +846,8 @@ fun HomeScreen(
     onToggleNotifications: () -> Unit = {},
     onDismissNotifications: () -> Unit = {},
     onAddTask: (String, String, Int, HomeTaskCategory, Boolean) -> Unit = { _, _, _, _, _ -> },
-    onSetTaskInProgress: (Long, Boolean) -> Unit = { _, _ -> },
-    onSetTaskCompleted: (Long, Boolean) -> Unit = { _, _ -> },
+    onAddPresetTask: (HomeTaskPresetUi) -> Unit = {},
+    onSetTaskStatus: (Long, HomeTaskStatus) -> Unit = { _, _ -> },
     onToggleTaskReminder: (Long, Boolean) -> Unit = { _, _ -> },
     onDeleteTask: (Long) -> Unit = {},
     onMarkNotificationRead: (Long) -> Unit = {},
@@ -766,6 +881,9 @@ fun HomeScreen(
 
     FittyLazyScreen {
         item { HomeTopBar(state = state, onNotificationClick = onToggleNotifications) }
+        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
+            item { ContentDiagnosticsCard(sources = state.contentSources) }
+        }
         item { TodaySummaryCard(state = state, onStartToday = onStartWorkout, onViewPlan = onWorkoutDetails) }
         // Quick Actions Row
         item {
@@ -790,8 +908,8 @@ fun HomeScreen(
             TodayTasksSection(
                 state = state,
                 onAddTask = { showAddTaskDialog = true },
-                onSetTaskInProgress = onSetTaskInProgress,
-                onSetTaskCompleted = onSetTaskCompleted,
+                onAddPresetTask = onAddPresetTask,
+                onSetTaskStatus = onSetTaskStatus,
                 onToggleTaskReminder = onToggleTaskReminder,
                 onDeleteTask = onDeleteTask
             )
@@ -854,7 +972,7 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
             }
             Column {
                 Text(
-                    text = state.greetingTitle.replace("Welcome", "Hi,").replace("hi,", "Hi,"),
+                    text = stringResource(R.string.home_greeting_hi_with_name, state.displayName),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
@@ -870,7 +988,7 @@ private fun HomeTopBar(state: HomeUiState, onNotificationClick: () -> Unit = {})
         // Notification bell — no border/background
         Box(modifier = Modifier.size(48.dp)) {
             IconButton(onClick = onNotificationClick) {
-                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = "Notifications", tint = MaterialTheme.colorScheme.onSurface)
+                Icon(imageVector = Icons.Outlined.Notifications, contentDescription = stringResource(R.string.home_notifications_content_desc), tint = MaterialTheme.colorScheme.onSurface)
             }
             if (state.unreadNotificationCount > 0) {
                 Box(
@@ -906,19 +1024,19 @@ private fun QuickActionsRow(
     ) {
         QuickActionChip(
             icon = Icons.Outlined.FitnessCenter,
-            label = "Workout",
+            label = stringResource(R.string.home_quick_workout),
             onClick = onWorkout,
             modifier = Modifier.weight(1f)
         )
         QuickActionChip(
             icon = Icons.Outlined.Restaurant,
-            label = "Scan Meal",
+            label = stringResource(R.string.home_quick_scan_meal),
             onClick = onScanMeal,
             modifier = Modifier.weight(1f)
         )
         QuickActionChip(
             icon = Icons.Outlined.BarChart,
-            label = "Progress",
+            label = stringResource(R.string.home_quick_progress),
             onClick = onTrackProgress,
             modifier = Modifier.weight(1f)
         )
@@ -957,7 +1075,14 @@ private fun QuickActionChip(
             ) {
                 Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(22.dp))
             }
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -1119,15 +1244,24 @@ private fun FocusMetric(label: String, value: String) {
 
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TodayTasksSection(
     state: HomeUiState,
     onAddTask: () -> Unit,
-    onSetTaskInProgress: (Long, Boolean) -> Unit,
-    onSetTaskCompleted: (Long, Boolean) -> Unit,
+    onAddPresetTask: (HomeTaskPresetUi) -> Unit,
+    onSetTaskStatus: (Long, HomeTaskStatus) -> Unit,
     onToggleTaskReminder: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit
 ) {
+    val presetTasks = remember(state.tasks, state.presetTasks) {
+        state.presetTasks.filterNot { preset ->
+            state.tasks.any { task ->
+                task.title.equals(preset.title, ignoreCase = true) &&
+                    task.time == formatTaskTime(preset.timeMinutes)
+            }
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1147,6 +1281,35 @@ private fun TodayTasksSection(
                 )
             }
         }
+        if (presetTasks.isNotEmpty()) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.home_task_quick_add_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetTasks.take(4).forEach { preset ->
+                            AssistChip(
+                                onClick = { onAddPresetTask(preset) },
+                                label = { Text("${preset.title} • ${formatTaskTime(preset.timeMinutes)}") }
+                            )
+                        }
+                    }
+                }
+            }
+        }
         if (state.tasks.isEmpty()) {
             Card(
                 shape = RoundedCornerShape(20.dp),
@@ -1161,27 +1324,29 @@ private fun TodayTasksSection(
                 )
             }
         } else {
-            state.tasks.forEach { task ->
-                TaskCard(
-                    task = task,
-                    onSetInProgress = { enabled -> onSetTaskInProgress(task.id, enabled) },
-                    onSetCompleted = { enabled -> onSetTaskCompleted(task.id, enabled) },
-                    onToggleReminder = { enabled -> onToggleTaskReminder(task.id, enabled) },
-                    onDelete = { onDeleteTask(task.id) }
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                state.tasks.forEach { task ->
+                    TaskCard(
+                        task = task,
+                        onSelectStatus = { status -> onSetTaskStatus(task.id, status) },
+                        onToggleReminder = { enabled -> onToggleTaskReminder(task.id, enabled) },
+                        onDelete = { onDeleteTask(task.id) }
+                    )
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TaskCard(
     task: HomeTaskUi,
-    onSetInProgress: (Boolean) -> Unit,
-    onSetCompleted: (Boolean) -> Unit,
+    onSelectStatus: (HomeTaskStatus) -> Unit,
     onToggleReminder: (Boolean) -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
     val icon = when (task.category) {
         HomeTaskCategory.Workout -> Icons.Outlined.FitnessCenter
         HomeTaskCategory.Meal -> Icons.Outlined.Restaurant
@@ -1189,11 +1354,10 @@ private fun TaskCard(
         HomeTaskCategory.Custom -> Icons.Outlined.SelfImprovement
     }
     val completed = task.status == HomeTaskStatus.Completed
-    val inProgress = task.status == HomeTaskStatus.InProgress
     Card(
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (inProgress) 5.dp else 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (task.status == HomeTaskStatus.InProgress) 5.dp else 2.dp),
         border = BorderStroke(
             width = 1.dp,
             color = if (completed) FittyPink.copy(alpha = 0.18f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
@@ -1232,41 +1396,68 @@ private fun TaskCard(
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    label = { Text(task.status.toDisplayLabel(), style = MaterialTheme.typography.labelSmall) },
+                    label = { Text(task.status.toDisplayLabel(context), style = MaterialTheme.typography.labelSmall) },
                     shape = RoundedCornerShape(14.dp)
                 )
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
                 }
             }
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Checkbox(
-                        checked = inProgress,
-                        onCheckedChange = onSetInProgress
+                    TaskStatusOption(
+                        selected = task.status == HomeTaskStatus.Todo,
+                        label = stringResource(R.string.home_task_status_todo),
+                        onClick = { onSelectStatus(HomeTaskStatus.Todo) }
                     )
-                    Text(stringResource(R.string.home_task_doing), style = MaterialTheme.typography.bodySmall)
-                    Checkbox(
-                        checked = completed,
-                        onCheckedChange = onSetCompleted
+                    TaskStatusOption(
+                        selected = task.status == HomeTaskStatus.InProgress,
+                        label = stringResource(R.string.home_task_status_in_progress),
+                        onClick = { onSelectStatus(HomeTaskStatus.InProgress) }
                     )
-                    Text(stringResource(R.string.home_task_completed), style = MaterialTheme.typography.bodySmall)
+                    TaskStatusOption(
+                        selected = task.status == HomeTaskStatus.Completed,
+                        label = stringResource(R.string.home_task_status_completed),
+                        onClick = { onSelectStatus(HomeTaskStatus.Completed) }
+                    )
                 }
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(stringResource(R.string.home_task_reminder), style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Notifications,
+                            contentDescription = null,
+                            tint = if (task.reminderEnabled) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            stringResource(R.string.home_task_reminder),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Switch(
                         checked = task.reminderEnabled,
-                        onCheckedChange = onToggleReminder
+                        onCheckedChange = onToggleReminder,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = FittyPink,
+                            uncheckedThumbColor = MaterialTheme.colorScheme.surface,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                            uncheckedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+                        )
                     )
                 }
             }
@@ -1336,6 +1527,23 @@ private fun WorkoutTodayCard(workout: HomeWorkoutUi, onStart: () -> Unit = {}, o
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(workout.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(workout.meta, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    if (workout.exerciseSummaries.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = stringResource(R.string.home_workout_plan_label),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            workout.exerciseSummaries.take(3).forEach { summary ->
+                                Text(
+                                    text = summary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
                     AssistChip(onClick = onDetails, label = { Text(workout.equipmentLabel) })
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = onStart, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) {
@@ -1451,7 +1659,7 @@ private fun AchievementPreviewCard(achievement: HomeAchievementPreviewUi) {
     }
 }
 
-private fun initialHomeUiState(context: Context): HomeUiState {
+private fun initialHomeUiState(context: Context, content: HomeContentConfig): HomeUiState {
     return HomeUiState(
         isLoading = true,
         displayName = context.getString(R.string.home_display_name_default),
@@ -1461,9 +1669,9 @@ private fun initialHomeUiState(context: Context): HomeUiState {
         focusTitle = context.getString(R.string.home_focus_title),
         focusDescription = context.getString(R.string.home_focus_description_default),
         focusMetrics = listOf(
-            HomeFocusMetricUi(context.getString(R.string.home_metric_workout), "0/1"),
-            HomeFocusMetricUi(context.getString(R.string.home_metric_meals_logged), "0/3"),
-            HomeFocusMetricUi(context.getString(R.string.home_metric_water), context.getString(R.string.home_water_target))
+            HomeFocusMetricUi(context.getString(R.string.home_metric_workout), "--"),
+            HomeFocusMetricUi(context.getString(R.string.home_metric_meals_logged), "--"),
+            HomeFocusMetricUi(context.getString(R.string.home_metric_water), "--")
         ),
         focusPrimaryActionLabel = context.getString(R.string.home_action_start_today),
         focusSecondaryActionLabel = context.getString(R.string.home_action_view_plan),
@@ -1474,12 +1682,14 @@ private fun initialHomeUiState(context: Context): HomeUiState {
             context = context,
             currentStreak = 0,
             bestStreak = 0,
+            lastActiveDate = "",
             activeDates = emptyList()
         ),
         workout = HomeWorkoutUi(
             sectionTitle = context.getString(R.string.home_workout_section_title),
-            name = context.getString(R.string.home_workout_complete_onboarding),
-            meta = context.getString(R.string.home_focus_description_default),
+            name = content.emptyState.workoutTitle,
+            meta = content.emptyState.workoutBody,
+            exerciseSummaries = emptyList(),
             equipmentLabel = context.getString(R.string.home_equipment_default),
             primaryActionLabel = context.getString(R.string.home_action_start),
             secondaryActionLabel = context.getString(R.string.home_action_details)
@@ -1487,20 +1697,21 @@ private fun initialHomeUiState(context: Context): HomeUiState {
         nutrition = emptyNutrition(context),
         insight = HomeInsightUi(
             title = context.getString(R.string.home_insight_title),
-            message = context.getString(R.string.home_insight_default, context.getString(R.string.home_goal_default)),
-            actions = defaultInsightActions(context)
+            message = content.emptyState.insightMessage,
+            actions = content.insightActions
         ),
         achievement = HomeAchievementPreviewUi(
             sectionTitle = context.getString(R.string.home_achievement_item_label),
             itemLabel = context.getString(R.string.home_achievement_item_label),
-            subtitle = context.getString(R.string.home_achievement_locked),
+            subtitle = content.emptyState.achievementMessage,
             actionLabel = context.getString(R.string.home_action_view_all)
         ),
-        notifications = emptyList()
+        notifications = emptyList(),
+        presetTasks = emptyList()
     )
 }
 
-private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
+private fun FittyUser.toHomeUiState(context: Context, content: HomeContentConfig): HomeUiState {
     val resolvedName = preferredDisplayName(
         defaultValue = context.getString(R.string.home_display_name_default)
     )
@@ -1530,9 +1741,9 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
             context.getString(R.string.home_focus_with_duration, it, goalLabel.lowercase(Locale.US))
         } ?: context.getString(R.string.home_focus_without_duration, goalLabel.lowercase(Locale.US)),
         focusMetrics = listOf(
-            HomeFocusMetricUi(label = context.getString(R.string.home_metric_workout), value = if (onboardingCompleted) "1/1" else "0/1"),
-            HomeFocusMetricUi(label = context.getString(R.string.home_metric_meals_logged), value = "${stats.mealsLogged}/3"),
-            HomeFocusMetricUi(label = context.getString(R.string.home_metric_water), value = context.getString(R.string.home_water_target))
+            HomeFocusMetricUi(label = context.getString(R.string.home_metric_workout), value = "--"),
+            HomeFocusMetricUi(label = context.getString(R.string.home_metric_meals_logged), value = "--"),
+            HomeFocusMetricUi(label = context.getString(R.string.home_metric_water), value = "--")
         ),
         focusPrimaryActionLabel = context.getString(R.string.home_action_start_today),
         focusSecondaryActionLabel = context.getString(R.string.home_action_view_plan),
@@ -1543,81 +1754,137 @@ private fun FittyUser.toHomeUiState(context: Context): HomeUiState {
             context = context,
             currentStreak = stats.currentStreak,
             bestStreak = stats.bestStreak,
+            lastActiveDate = stats.lastActiveDate,
             activeDates = stats.streakActiveDates
         ),
         workout = HomeWorkoutUi(
             sectionTitle = context.getString(R.string.home_workout_section_title),
-            name = if (onboardingCompleted) {
-                context.getString(R.string.home_workout_session_name, goalLabel)
+            name = content.emptyState.workoutTitle,
+            meta = if (onboardingCompleted) {
+                context.getString(
+                    R.string.home_workout_waiting_plan_body,
+                    workoutMetaParts[0],
+                    workoutMetaParts[1],
+                    workoutMetaParts[2]
+                )
             } else {
-                context.getString(R.string.home_workout_complete_onboarding)
+                context.getString(R.string.home_workout_empty_body)
             },
-            meta = context.getString(
-                R.string.home_workout_meta_format,
-                workoutMetaParts[0],
-                workoutMetaParts[1],
-                workoutMetaParts[2]
-            ),
+            exerciseSummaries = emptyList(),
             equipmentLabel = equipmentLabel,
             primaryActionLabel = context.getString(R.string.home_action_start),
             secondaryActionLabel = context.getString(R.string.home_action_details)
         ),
-        nutrition = emptyNutrition(
-            context = context,
-            caloriesTarget = estimateCaloriesTarget(profile.weightKg, profile.primaryGoal)
-        ),
+        nutrition = emptyNutrition(context = context),
         insight = HomeInsightUi(
             title = context.getString(R.string.home_insight_title),
-            message = insightMessageFor(context = context, goalLabel = goalLabel, mealsLogged = stats.mealsLogged),
-            actions = defaultInsightActions(context)
+            message = content.emptyState.insightMessage,
+            actions = content.insightActions
         ),
         achievement = HomeAchievementPreviewUi(
             sectionTitle = context.getString(R.string.home_achievement_item_label),
             itemLabel = context.getString(R.string.home_achievement_item_label),
-            subtitle = if (stats.mealsLogged >= 10) context.getString(R.string.home_achievement_unlocked) else context.getString(R.string.home_achievement_locked),
+            subtitle = if (stats.achievementsUnlocked > 0) {
+                context.getString(R.string.home_achievement_count, stats.achievementsUnlocked)
+            } else {
+                content.emptyState.achievementMessage
+            },
             actionLabel = context.getString(R.string.home_action_view_all)
         ),
-        notifications = emptyList()
+        notifications = emptyList(),
+        presetTasks = emptyList()
     )
 }
 
-private fun defaultTaskDrafts(context: Context, goalLabel: String): List<HomeTaskDraft> = listOf(
-    HomeTaskDraft(
-        title = context.getString(R.string.home_task_workout_title),
-        description = "$goalLabel session",
-        dateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
-        timeMinutes = 7 * 60,
-        category = HomeTaskCategory.Workout,
-        reminderEnabled = false,
-        status = HomeTaskStatus.Todo,
-        isDefault = true
-    ),
-    HomeTaskDraft(
-        title = context.getString(R.string.home_task_log_lunch_title),
-        description = context.getString(R.string.home_task_log_lunch_desc),
-        dateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
-        timeMinutes = 12 * 60 + 30,
-        category = HomeTaskCategory.Meal,
-        reminderEnabled = false,
-        status = HomeTaskStatus.Todo,
-        isDefault = true
-    ),
-    HomeTaskDraft(
-        title = context.getString(R.string.home_task_drink_water_title),
-        description = context.getString(R.string.home_task_drink_water_desc),
-        dateKey = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE),
-        timeMinutes = 15 * 60,
-        category = HomeTaskCategory.Water,
-        reminderEnabled = false,
-        status = HomeTaskStatus.Todo,
-        isDefault = true
+private fun HomeUiState.applyContent(context: Context, content: HomeContentConfig): HomeUiState {
+    val emptyWorkout = workout.copy(
+        name = workout.name.ifBlank { content.emptyState.workoutTitle },
+        meta = workout.meta.ifBlank { content.emptyState.workoutBody }
     )
-)
+    return copy(
+        workout = emptyWorkout,
+        insight = insight.copy(
+            message = insight.message.ifBlank { content.emptyState.insightMessage },
+            actions = if (insight.actions.isEmpty()) content.insightActions else insight.actions
+        ),
+        achievement = achievement.copy(
+            subtitle = achievement.subtitle.ifBlank { content.emptyState.achievementMessage }
+        ),
+        presetTasks = buildPresetTasks(
+            workout = emptyWorkout,
+            content = content
+        )
+    )
+}
 
-private fun emptyNutrition(context: Context, caloriesTarget: Int = 2100): HomeNutritionUi {
+private fun buildPresetTasks(
+    workout: HomeWorkoutUi,
+    content: HomeContentConfig
+): List<HomeTaskPresetUi> {
+    val workoutTitle = workout.name.takeIf {
+        it.isNotBlank() && it != workout.sectionTitle
+    } ?: content.suggestedTaskPresets.firstOrNull { it.category == HomeTaskCategory.Workout }?.title.orEmpty()
+    return content.suggestedTaskPresets.map { template ->
+        val title = if (template.category == HomeTaskCategory.Workout) workoutTitle else template.title
+        val description = if (template.category == HomeTaskCategory.Workout && workout.meta.isNotBlank()) {
+            workout.meta
+        } else {
+            template.description
+        }
+        HomeTaskPresetUi(
+            title = title,
+            description = description,
+            timeMinutes = template.timeMinutes,
+            category = template.category,
+            reminderEnabled = template.reminderEnabled
+        )
+    }
+}
+
+private fun buildDefaultTasks(
+    context: Context,
+    user: FittyUser,
+    dateKey: String,
+    workoutTitle: String?,
+    content: HomeContentConfig
+): List<HomeTaskDraft> {
+    val preferredWorkoutTime = preferredWorkoutMinutes(user.onboarding.preferredTime)
+    val includeWorkoutTask = workoutTitle?.isNotBlank() == true || user.onboarding.workoutDays.isEmpty() ||
+        user.onboarding.workoutDays.matchesToday()
+    val defaults = mutableListOf<HomeTaskDraft>()
+
+    content.defaultTaskTemplates.forEach { template ->
+        if (template.category == HomeTaskCategory.Workout && !includeWorkoutTask) return@forEach
+        val resolvedTitle = if (template.category == HomeTaskCategory.Workout) {
+            workoutTitle?.takeIf { it.isNotBlank() } ?: template.title
+        } else {
+            template.title
+        }
+        val resolvedDescription = if (template.category == HomeTaskCategory.Workout && workoutTitle?.isNotBlank() == true) {
+            context.getString(R.string.home_task_session_desc, workoutTitle)
+        } else {
+            template.description
+        }
+        defaults += HomeTaskDraft(
+            title = resolvedTitle,
+            description = resolvedDescription,
+            dateKey = dateKey,
+            timeMinutes = if (template.category == HomeTaskCategory.Workout) preferredWorkoutTime else template.timeMinutes,
+            category = template.category,
+            reminderEnabled = template.reminderEnabled,
+            isDefault = true
+        )
+    }
+
+    return defaults
+}
+
+private fun emptyNutrition(context: Context, caloriesTarget: Int? = null): HomeNutritionUi {
     return HomeNutritionUi(
         sectionTitle = context.getString(R.string.home_nutrition_section_title),
-        summary = "0 / $caloriesTarget kcal",
+        summary = caloriesTarget?.let {
+            context.getString(R.string.home_nutrition_summary, 0, it)
+        } ?: context.getString(R.string.home_nutrition_summary_unknown),
         macros = listOf(
             HomeMacroProgressUi(context.getString(R.string.home_macro_protein), 0f),
             HomeMacroProgressUi(context.getString(R.string.home_macro_carbs), 0f),
@@ -1633,11 +1900,26 @@ private fun emptyNutrition(context: Context, caloriesTarget: Int = 2100): HomeNu
     )
 }
 
-private fun defaultInsightActions(context: Context): List<String> = listOf(
-    context.getString(R.string.home_action_apply),
-    context.getString(R.string.home_action_ask_why),
-    context.getString(R.string.home_action_dismiss)
-)
+private fun com.example.fitty.domain.model.WorkoutExercise.toHomeWorkoutExerciseSummary(
+    context: Context
+): String {
+    val repsLabel = reps?.takeIf { it.isNotBlank() } ?: context.getString(R.string.workout_reps_not_set)
+    val weightLabel = targetWeightKg?.let { weight ->
+        if (weight % 1f == 0f) "${weight.toInt()} kg" else String.format(Locale.US, "%.1f kg", weight)
+    }
+    val prescription = when {
+        sets > 0 && weightLabel != null -> context.getString(
+            R.string.workout_sets_summary_with_weight,
+            sets,
+            repsLabel,
+            weightLabel
+        )
+        sets > 0 -> context.getString(R.string.workout_sets_summary, sets, repsLabel)
+        durationSeconds != null -> context.getString(R.string.workout_seconds_format, durationSeconds)
+        else -> repsLabel
+    }
+    return "${name.ifBlank { exerciseId }}: $prescription"
+}
 
 /**
  * Builds streak UI with actual weekday labels and per-day active flags.
@@ -1647,14 +1929,15 @@ private fun buildStreakUi(
     context: Context,
     currentStreak: Int,
     bestStreak: Int,
+    lastActiveDate: String,
     activeDates: List<String>
 ): HomeStreakUi {
     val today = LocalDate.now()
     val startOfWeek = today.with(DayOfWeek.MONDAY)
-    val dayLabels = (0..6).map { offset ->
-        val d = startOfWeek.plusDays(offset.toLong())
-        d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(3)
-    }
+    val todayDateKey = today.format(DateTimeFormatter.ISO_LOCAL_DATE)
+    val isActiveToday = lastActiveDate == todayDateKey || activeDates.contains(todayDateKey)
+    val normalizedCurrentStreak = if (currentStreak == 0 && isActiveToday) 1 else currentStreak
+    val dayLabels = listOf("2", "3", "4", "5", "6", "7", "CN")
     val todayIndex = (today.dayOfWeek.value - 1).coerceIn(0, 6)
 
     // Build active flags: check if each day of this week is in activeDates
@@ -1666,9 +1949,9 @@ private fun buildStreakUi(
 
     return HomeStreakUi(
         sectionTitle = context.getString(R.string.home_streak_title),
-        currentLabel = context.getString(R.string.home_streak_current, currentStreak),
+        currentLabel = context.getString(R.string.home_streak_current, normalizedCurrentStreak),
         subtitle = context.getString(R.string.home_streak_subtitle),
-        bestLabel = context.getString(R.string.home_streak_best, maxOf(currentStreak, bestStreak)),
+        bestLabel = context.getString(R.string.home_streak_best, maxOf(normalizedCurrentStreak, bestStreak)),
         dayLabels = dayLabels,
         activeDayFlags = activeDayFlags,
         currentDayIndex = todayIndex
@@ -1720,14 +2003,14 @@ private fun NotificationDialog(
                             Icon(Icons.Outlined.Notifications, contentDescription = null, tint = FittyPink, modifier = Modifier.size(22.dp))
                         }
                         Column {
-                            Text("Thông báo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.home_notifications_heading), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             if (unreadCount > 0) {
-                                Text("$unreadCount chưa đọc", style = MaterialTheme.typography.labelSmall, color = FittyPink)
+                                Text(stringResource(R.string.home_notifications_unread_count, unreadCount), style = MaterialTheme.typography.labelSmall, color = FittyPink)
                             }
                         }
                     }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Outlined.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.home_notifications_close), tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -1740,14 +2023,24 @@ private fun NotificationDialog(
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    NotificationTab(label = "Tất cả", selected = !showUnreadOnly, modifier = Modifier.weight(1f), onClick = { showUnreadOnly = false })
-                    NotificationTab(label = "Chưa đọc", selected = showUnreadOnly, modifier = Modifier.weight(1f), onClick = { showUnreadOnly = true })
+                    NotificationTab(
+                        label = stringResource(R.string.home_notifications_filter_all),
+                        selected = !showUnreadOnly,
+                        modifier = Modifier.weight(1f),
+                        onClick = { showUnreadOnly = false }
+                    )
+                    NotificationTab(
+                        label = stringResource(R.string.home_notifications_filter_unread),
+                        selected = showUnreadOnly,
+                        modifier = Modifier.weight(1f),
+                        onClick = { showUnreadOnly = true }
+                    )
                 }
 
                 // Mark all read
                 if (unreadCount > 0) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Text("Đọc tất cả", style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onMarkAllRead))
+                        Text(stringResource(R.string.home_notifications_mark_all), style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable(onClick = onMarkAllRead))
                     }
                 }
 
@@ -1783,9 +2076,9 @@ private fun NotificationDialog(
                                     Text(notification.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         if (!notification.isRead) {
-                                            Text("Đã đọc", style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onMarkRead(notification.id) })
+                                            Text(stringResource(R.string.home_notification_read), style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onMarkRead(notification.id) })
                                         }
-                                        Text("Xóa", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.clickable { onDelete(notification.id) })
+                                        Text(stringResource(R.string.home_notification_delete), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.clickable { onDelete(notification.id) })
                                     }
                                 }
                             }
@@ -1804,8 +2097,8 @@ private fun NotificationDialog(
                         ) {
                             Icon(Icons.Outlined.Notifications, contentDescription = null, tint = FittyPinkLight, modifier = Modifier.size(28.dp))
                         }
-                        Text("Không có thông báo mới", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text("Chúng tôi sẽ báo khi có cập nhật.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.home_notifications_empty_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.home_notifications_empty_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1832,8 +2125,28 @@ private fun NotificationTab(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (selected) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+@Composable
+private fun TaskStatusOption(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .selectable(selected = selected, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Text(label, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -1848,22 +2161,40 @@ private fun AddTaskDialog(
     var category by remember { mutableStateOf(HomeTaskCategory.Custom) }
     var reminderEnabled by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val categoryOptions = remember {
+        listOf(
+            HomeTaskCategory.Workout,
+            HomeTaskCategory.Meal,
+            HomeTaskCategory.Water,
+            HomeTaskCategory.Custom
+        )
+    }
     val titleRequiredMessage = stringResource(R.string.home_task_title_required)
     val invalidTimeMessage = stringResource(R.string.home_task_invalid_time)
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(30.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth()
+            elevation = CardDefaults.cardElevation(defaultElevation = 14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 22.dp)
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .heightIn(max = 680.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
                     text = stringResource(R.string.home_add_task_title),
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
                 OutlinedTextField(
@@ -1876,6 +2207,32 @@ private fun AddTaskDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
+                Text(
+                    text = stringResource(R.string.home_task_category),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    categoryOptions.chunked(2).forEach { rowOptions ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            rowOptions.forEach { option ->
+                                AddTaskCategoryOption(
+                                    label = option.toLabel(context),
+                                    icon = option.toIcon(),
+                                    selected = category == option,
+                                    onClick = { category = option },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (rowOptions.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -1894,39 +2251,37 @@ private fun AddTaskDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Text(
-                    text = stringResource(R.string.home_task_category),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(
-                        HomeTaskCategory.Workout,
-                        HomeTaskCategory.Meal,
-                        HomeTaskCategory.Water,
-                        HomeTaskCategory.Custom
-                    ).forEach { option ->
-                        OutlinedButton(
-                            onClick = { category = option },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (category == option) FittyPink.copy(alpha = 0.1f) else Color.Transparent
-                            )
-                        ) {
-                            Text(
-                                text = option.name,
-                                color = if (category == option) FittyPink else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(stringResource(R.string.home_task_reminder), style = MaterialTheme.typography.bodyMedium)
-                    Switch(checked = reminderEnabled, onCheckedChange = { reminderEnabled = it })
+                    Icon(
+                        imageVector = Icons.Outlined.Notifications,
+                        contentDescription = null,
+                        tint = if (reminderEnabled) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        stringResource(R.string.home_task_reminder),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = reminderEnabled,
+                        onCheckedChange = { reminderEnabled = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = FittyPink,
+                            uncheckedThumbColor = MaterialTheme.colorScheme.surface,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                            uncheckedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+                        )
+                    )
                 }
                 errorMessage?.let { message ->
                     Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -1934,7 +2289,7 @@ private fun AddTaskDialog(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(stringResource(R.string.home_task_cancel))
@@ -1954,7 +2309,7 @@ private fun AddTaskDialog(
                                 )
                             }
                         },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(18.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -1963,6 +2318,79 @@ private fun AddTaskDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AddTaskCategoryOption(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(20.dp)
+    val borderColor = if (selected) {
+        FittyPink.copy(alpha = 0.65f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.85f)
+    }
+    val iconContainer = if (selected) {
+        FittyPink.copy(alpha = 0.16f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+
+    Row(
+        modifier = modifier
+            .height(62.dp)
+            .clip(shape)
+            .background(
+                brush = if (selected) {
+                    Brush.horizontalGradient(
+                        listOf(
+                            FittyPink.copy(alpha = 0.18f),
+                            FittyPinkLight.copy(alpha = 0.42f)
+                        )
+                    )
+                } else {
+                    Brush.horizontalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
+                        )
+                    )
+                },
+                shape = shape
+            )
+            .border(width = 1.dp, color = borderColor, shape = shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(iconContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (selected) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) FittyPink else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1975,15 +2403,6 @@ private fun insightMessageFor(context: Context, goalLabel: String, mealsLogged: 
 }
 
 private fun estimateCaloriesLogged(): Int = 1240
-
-private fun estimateCaloriesTarget(weightKg: Int?, goal: String): Int {
-    return when {
-        weightKg == null -> 2100
-        goal == "gain_muscle" -> weightKg * 34
-        goal == "lose_weight" -> weightKg * 28
-        else -> weightKg * 30
-    }
-}
 
 private fun greetingForNow(context: Context): String {
     val h = LocalTime.now().hour
@@ -1999,16 +2418,16 @@ private fun HomeUiState.preserveDynamicState(current: HomeUiState): HomeUiState 
     notifications = current.notifications,
     unreadNotificationCount = current.unreadNotificationCount,
     showNotifications = current.showNotifications,
+    contentSources = current.contentSources,
     // Always preserve real tracking data loaded by loadTodaySummary so refreshUser doesn't overwrite
     focusMetrics = current.focusMetrics,
-    nutrition = current.nutrition,
-    streak = current.streak
+    nutrition = current.nutrition
 )
 
-private fun HomeTaskStatus.toDisplayLabel(): String = when (this) {
-    HomeTaskStatus.Todo -> "To Do"
-    HomeTaskStatus.InProgress -> "In Progress"
-    HomeTaskStatus.Completed -> "Completed"
+private fun HomeTaskStatus.toDisplayLabel(context: Context): String = when (this) {
+    HomeTaskStatus.Todo -> context.getString(R.string.home_task_status_todo)
+    HomeTaskStatus.InProgress -> context.getString(R.string.home_task_status_in_progress)
+    HomeTaskStatus.Completed -> context.getString(R.string.home_task_status_completed)
 }
 
 private fun AppNotificationType.toNotificationIcon(): ImageVector = when (this) {
@@ -2020,18 +2439,32 @@ private fun AppNotificationType.toNotificationIcon(): ImageVector = when (this) 
     AppNotificationType.General -> Icons.Outlined.Notifications
 }
 
+private fun HomeTaskCategory.toLabel(context: Context): String = when (this) {
+    HomeTaskCategory.Workout -> context.getString(R.string.home_task_category_workout)
+    HomeTaskCategory.Meal -> context.getString(R.string.home_task_category_meal)
+    HomeTaskCategory.Water -> context.getString(R.string.home_task_category_water)
+    HomeTaskCategory.Custom -> context.getString(R.string.home_task_category_custom)
+}
+
+private fun HomeTaskCategory.toIcon(): ImageVector = when (this) {
+    HomeTaskCategory.Workout -> Icons.Outlined.FitnessCenter
+    HomeTaskCategory.Meal -> Icons.Outlined.Restaurant
+    HomeTaskCategory.Water -> Icons.Outlined.WaterDrop
+    HomeTaskCategory.Custom -> Icons.Outlined.SelfImprovement
+}
+
 private fun formatTaskTime(timeMinutes: Int): String {
     val normalized = timeMinutes.coerceIn(0, 23 * 60 + 59)
     val time = LocalTime.of(normalized / 60, normalized % 60)
     return time.format(DateTimeFormatter.ofPattern("HH:mm"))
 }
 
-private fun formatNotificationTime(createdAt: Long): String {
+private fun formatNotificationTime(context: Context, createdAt: Long): String {
     val diff = System.currentTimeMillis() - createdAt
     return when {
-        diff < 60_000L -> "Just now"
-        diff < 3_600_000L -> "${diff / 60_000L}m ago"
-        diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
+        diff < 60_000L -> context.getString(R.string.home_notification_just_now)
+        diff < 3_600_000L -> context.getString(R.string.home_notification_minutes_ago, diff / 60_000L)
+        diff < 86_400_000L -> context.getString(R.string.home_notification_hours_ago, diff / 3_600_000L)
         else -> LocalDateTime.ofInstant(
             java.time.Instant.ofEpochMilli(createdAt),
             ZoneId.systemDefault()
@@ -2059,12 +2492,52 @@ private fun String.toDisplayLabel(defaultValue: String): String {
         }
 }
 
+private fun String.toLocalizedToken(context: Context, defaultValue: String = toDisplayLabel(this)): String {
+    return when (trim().lowercase(Locale.ROOT)) {
+        "breakfast" -> context.getString(R.string.home_meal_breakfast)
+        "lunch" -> context.getString(R.string.home_meal_lunch)
+        "dinner" -> context.getString(R.string.home_meal_dinner)
+        "snack" -> context.getString(R.string.home_meal_snack)
+        "other" -> context.getString(R.string.home_meal_type_other)
+        "easy" -> context.getString(R.string.common_label_easy)
+        "medium" -> context.getString(R.string.common_label_medium)
+        "hard" -> context.getString(R.string.common_label_hard)
+        "beginner" -> context.getString(R.string.plan_level_beginner)
+        "intermediate" -> context.getString(R.string.common_label_intermediate)
+        "advanced" -> context.getString(R.string.common_label_advanced)
+        "monday" -> context.getString(R.string.common_day_monday)
+        "tuesday" -> context.getString(R.string.common_day_tuesday)
+        "wednesday" -> context.getString(R.string.common_day_wednesday)
+        "thursday" -> context.getString(R.string.common_day_thursday)
+        "friday" -> context.getString(R.string.common_day_friday)
+        "saturday" -> context.getString(R.string.common_day_saturday)
+        "sunday" -> context.getString(R.string.common_day_sunday)
+        else -> toDisplayLabel(defaultValue)
+    }
+}
+
 private fun List<String>.formatWorkoutDays(context: Context): String {
     if (isEmpty()) return context.getString(R.string.home_choose_workout_days)
-    return joinToString(", ") { value ->
-        value.replaceFirstChar { char ->
-            if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
-        }
+    return joinToString(", ") { value -> value.toLocalizedToken(context) }
+}
+
+private fun List<String>.matchesToday(): Boolean {
+    if (isEmpty()) return false
+    val today = LocalDate.now().dayOfWeek
+    val shortName = today.getDisplayName(TextStyle.SHORT, Locale.getDefault()).lowercase(Locale.ROOT)
+    val fullName = today.getDisplayName(TextStyle.FULL, Locale.getDefault()).lowercase(Locale.ROOT)
+    return any { value ->
+        val normalized = value.trim().lowercase(Locale.ROOT)
+        normalized == shortName || normalized == fullName
+    }
+}
+
+private fun preferredWorkoutMinutes(preferredTime: String): Int {
+    return when (preferredTime.trim().lowercase(Locale.ROOT)) {
+        "morning" -> 7 * 60
+        "afternoon" -> 13 * 60
+        "evening" -> 18 * 60
+        else -> 18 * 60
     }
 }
 
@@ -2088,21 +2561,24 @@ private fun BodyMetricsCard(
                     Box(modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(FittyPink.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
                         Icon(Icons.Outlined.AccessibilityNew, contentDescription = null, tint = FittyPink, modifier = Modifier.size(22.dp))
                     }
-                    Text("Body Metrics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_body_metrics_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
-                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(12.dp)) { Text("Edit", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium) }
+                OutlinedButton(onClick = onEdit, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.home_edit), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelMedium) }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                BodyMetricTile(value = heightCm?.toString() ?: "--", unit = "cm", label = "Height", modifier = Modifier.weight(1f))
-                BodyMetricTile(value = weightKg?.toString() ?: "--", unit = "kg", label = "Weight", modifier = Modifier.weight(1f))
-                BodyMetricTile(value = bmi?.let { "%.1f".format(it) } ?: "--", unit = "", label = "BMI", modifier = Modifier.weight(1f))
+                BodyMetricTile(value = heightCm?.toString() ?: "--", unit = "cm", label = stringResource(R.string.home_body_metric_height), modifier = Modifier.weight(1f))
+                BodyMetricTile(value = weightKg?.toString() ?: "--", unit = "kg", label = stringResource(R.string.home_body_metric_weight), modifier = Modifier.weight(1f))
+                BodyMetricTile(value = bmi?.let { "%.1f".format(it) } ?: "--", unit = "", label = stringResource(R.string.home_body_metric_bmi), modifier = Modifier.weight(1f))
             }
             if (targetWeightKg != null && weightKg != null) {
-                val diff = weightKg - targetWeightKg
-                val progress = if (diff > 0) (1f - (diff.toFloat() / weightKg.toFloat())).coerceIn(0f, 1f) else 1f
+                val progress = when {
+                    targetWeightKg == weightKg -> 1f
+                    targetWeightKg > weightKg -> (weightKg.toFloat() / targetWeightKg.toFloat()).coerceIn(0f, 1f)
+                    else -> (targetWeightKg.toFloat() / weightKg.toFloat()).coerceIn(0f, 1f)
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Target: " + targetWeightKg + " kg", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.home_target_weight, targetWeightKg), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(((progress * 100).toInt()).toString() + "%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = FittyPink)
                     }
                     LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), color = FittyPink, trackColor = FittyPink.copy(alpha = 0.12f))
@@ -2135,25 +2611,30 @@ private fun EditBodyMetricsDialog(currentHeightCm: Int?, currentWeightKg: Int?, 
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(FittyPink.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AccessibilityNew, null, tint = FittyPink, modifier = Modifier.size(24.dp)) }
-                    Text("Update Body Metrics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_update_body_metrics), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
-                OutlinedTextField(value = height, onValueChange = { height = it.filter { c -> c.isDigit() } }, label = { Text("Height (cm)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(value = weight, onValueChange = { weight = it.filter { c -> c.isDigit() } }, label = { Text("Weight (kg)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(value = targetWeight, onValueChange = { targetWeight = it.filter { c -> c.isDigit() } }, label = { Text("Target Weight (kg)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = height, onValueChange = { height = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_height)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = weight, onValueChange = { weight = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_weight)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = targetWeight, onValueChange = { targetWeight = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_target_weight)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 val h = height.toIntOrNull(); val w = weight.toIntOrNull()
                 if (h != null && h > 0 && w != null && w > 0) {
                     val previewBmi = w.toFloat() / ((h.toFloat() / 100f) * (h.toFloat() / 100f))
-                    val bmiCat = when { previewBmi < 18.5f -> "Underweight"; previewBmi < 25f -> "Normal"; previewBmi < 30f -> "Overweight"; else -> "Obese" }
+                    val bmiCat = when {
+                        previewBmi < 18.5f -> stringResource(R.string.home_bmi_underweight)
+                        previewBmi < 25f -> stringResource(R.string.home_bmi_normal)
+                        previewBmi < 30f -> stringResource(R.string.home_bmi_overweight)
+                        else -> stringResource(R.string.home_bmi_obese)
+                    }
                     Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = FittyPink.copy(alpha = 0.07f))) {
                         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("BMI Preview", style = MaterialTheme.typography.labelMedium)
+                            Text(stringResource(R.string.home_bmi_preview), style = MaterialTheme.typography.labelMedium)
                             Text("%.1f".format(previewBmi) + " (" + bmiCat + ")", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = FittyPink)
                         }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Text("Cancel") }
-                    Button(onClick = { onSave(height.toIntOrNull(), weight.toIntOrNull(), targetWeight.toIntOrNull()) }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) { Text("Save", fontWeight = FontWeight.Bold) }
+                    OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f)) { Text(stringResource(R.string.common_cancel)) }
+                    Button(onClick = { onSave(height.toIntOrNull(), weight.toIntOrNull(), targetWeight.toIntOrNull()) }, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = FittyPink), modifier = Modifier.weight(1f)) { Text(stringResource(R.string.common_save), fontWeight = FontWeight.Bold) }
                 }
             }
         }

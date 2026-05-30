@@ -1,0 +1,837 @@
+{
+  "app_content": {
+    "home": {
+      "translations": {
+        "en": {
+          "emptyState": {
+            "workoutTitle": "Today's workout",
+            "workoutBody": "Finish onboarding or activate your plan to see today's session.",
+            "insightMessage": "Keep logging workouts and meals to unlock more personalized insights.",
+            "achievementMessage": "No achievement unlocked yet."
+          },
+          "insightActions": ["Apply", "Ask Why", "Dismiss"],
+          "suggestedTaskPresets": [
+            {
+              "id": "workout",
+              "title": "Workout session",
+              "description": "Use today's workout focus as your main session.",
+              "timeMinutes": 1080,
+              "category": "workout",
+              "reminderEnabled": true
+            },
+            {
+              "id": "meal_lunch",
+              "title": "Log lunch",
+              "description": "Add lunch details or scan your meal.",
+              "timeMinutes": 750,
+              "category": "meal",
+              "reminderEnabled": true
+            },
+            {
+              "id": "water_check",
+              "title": "Hydration check",
+              "description": "Drink water and update your intake.",
+              "timeMinutes": 900,
+              "category": "water",
+              "reminderEnabled": true
+            }
+          ],
+          "defaultTaskTemplates": [
+            {
+              "id": "workout",
+              "title": "Workout session",
+              "description": "",
+              "timeMinutes": 1080,
+              "category": "workout",
+              "reminderEnabled": true
+            },
+            {
+              "id": "meal_lunch",
+              "title": "Log lunch before 1:30 PM",
+              "description": "Scan or enter your meal",
+              "timeMinutes": 750,
+              "category": "meal",
+              "reminderEnabled": true
+            },
+            {
+              "id": "water_check",
+              "title": "Drink 2 more glasses",
+              "description": "1.2L logged so far",
+              "timeMinutes": 900,
+              "category": "water",
+              "reminderEnabled": true
+            }
+          ]
+        },
+        "vi": {
+          "emptyState": {
+            "workoutTitle": "Buổi tập hôm nay",
+            "workoutBody": "Hoàn tất onboarding hoặc kích hoạt kế hoạch để xem buổi tập hôm nay.",
+            "insightMessage": "Hãy tiếp tục ghi log buổi tập và bữa ăn để mở thêm insight cá nhân hóa.",
+            "achievementMessage": "Bạn chưa mở khóa thành tích nào."
+          },
+          "insightActions": ["Áp dụng", "Hỏi thêm", "Bỏ qua"],
+          "suggestedTaskPresets": [
+            {
+              "id": "workout",
+              "title": "Buổi tập chính",
+              "description": "Dùng trọng tâm hôm nay làm buổi tập chính.",
+              "timeMinutes": 1080,
+              "category": "workout",
+              "reminderEnabled": true
+            },
+            {
+              "id": "meal_lunch",
+              "title": "Ghi bữa trưa",
+              "description": "Thêm chi tiết bữa trưa hoặc quét món ăn.",
+              "timeMinutes": 750,
+              "category": "meal",
+              "reminderEnabled": true
+            },
+            {
+              "id": "water_check",
+              "title": "Kiểm tra nước uống",
+              "description": "Uống nước và cập nhật lượng nước hôm nay.",
+              "timeMinutes": 900,
+              "category": "water",
+              "reminderEnabled": true
+            }
+          ],
+          "defaultTaskTemplates": [
+            {
+              "id": "workout",
+              "title": "Buổi tập chính",
+              "description": "",
+              "timeMinutes": 1080,
+              "category": "workout",
+              "reminderEnabled": true
+            },
+            {
+              "id": "meal_lunch",
+              "title": "Ghi bữa trưa trước 13:30",
+              "description": "Quét hoặc nhập bữa ăn của bạn",
+              "timeMinutes": 750,
+              "category": "meal",
+              "reminderEnabled": true
+            },
+            {
+              "id": "water_check",
+              "title": "Uống thêm 2 ly nước",
+              "description": "Đã ghi 1.2L hôm nay",
+              "timeMinutes": 900,
+              "category": "water",
+              "reminderEnabled": true
+            }
+          ]
+        }
+      }
+    },
+    "coach": {
+      "translations": {
+        "en": {
+          "welcomeMessage": "I'm ready to help you adjust your training, meals, and consistency today.",
+          "promptChips": [
+            "What should I eat after today's workout?",
+            "Can you adjust today's plan?",
+            "I missed my workout. What should I do?",
+            "Give me a high-protein dinner idea."
+          ]
+        },
+        "vi": {
+          "welcomeMessage": "Mình sẵn sàng giúp bạn điều chỉnh buổi tập, bữa ăn và độ đều đặn hôm nay.",
+          "promptChips": [
+            "Sau buổi tập hôm nay tôi nên ăn gì?",
+            "Bạn điều chỉnh kế hoạch hôm nay giúp tôi nhé?",
+            "Tôi bỏ lỡ buổi tập rồi, giờ nên làm gì?",
+            "Gợi ý cho tôi một bữa tối giàu protein."
+          ]
+        }
+      }
+    },
+    "onboarding": {
+      "translations": {
+        "en": {
+          "stepTitles": [
+            "Choose your goal",
+            "Your body metrics",
+            "Fitness level",
+            "Workout days",
+            "Preferred workout time",
+            "Session duration",
+            "Equipment and location",
+            "Nutrition style",
+            "Reminders"
+          ],
+          "goals": [
+            { "value": "lose_weight", "label": "Lose Weight", "description": "Create a realistic calorie and workout plan." },
+            { "value": "gain_muscle", "label": "Gain Muscle", "description": "Prioritize strength, recovery, and protein intake." },
+            { "value": "maintain_fitness", "label": "Maintain Fitness", "description": "Keep a balanced routine and stay consistent." },
+            { "value": "improve_endurance", "label": "Improve Endurance", "description": "Build stamina with cardio-focused progressions." },
+            { "value": "improve_flexibility", "label": "Improve Flexibility", "description": "Add mobility and recovery sessions." },
+            { "value": "build_habits", "label": "Build Healthy Habits", "description": "Focus on routines you can sustain." }
+          ],
+          "fitnessLevels": [
+            { "value": "beginner", "label": "Beginner", "description": "New to consistent training." },
+            { "value": "intermediate", "label": "Intermediate", "description": "You train regularly and know the basics." },
+            { "value": "advanced", "label": "Advanced", "description": "You want higher training volume and progression." }
+          ],
+          "preferredTimes": [
+            { "value": "morning", "label": "Morning", "description": "Choose what best fits your day." },
+            { "value": "afternoon", "label": "Afternoon", "description": "Choose what best fits your day." },
+            { "value": "evening", "label": "Evening", "description": "Choose what best fits your day." }
+          ],
+          "durations": [
+            { "value": "20", "label": "20 min", "description": "Choose what best fits your day." },
+            { "value": "30", "label": "30 min", "description": "Choose what best fits your day." },
+            { "value": "45", "label": "45 min", "description": "Choose what best fits your day." },
+            { "value": "60", "label": "60 min", "description": "Choose what best fits your day." }
+          ],
+          "equipments": [
+            { "value": "home_none", "label": "Home without equipment", "description": "Choose what best fits your day." },
+            { "value": "home_basic", "label": "Home with basic equipment", "description": "Choose what best fits your day." },
+            { "value": "gym", "label": "Gym", "description": "Choose what best fits your day." },
+            { "value": "mix", "label": "Home + Gym", "description": "Choose what best fits your day." }
+          ],
+          "nutritionStyles": [
+            { "value": "standard", "label": "Standard", "description": "Choose what best fits your day." },
+            { "value": "high_protein", "label": "High Protein", "description": "Choose what best fits your day." },
+            { "value": "vegetarian", "label": "Vegetarian", "description": "Choose what best fits your day." },
+            { "value": "vegan", "label": "Vegan", "description": "Choose what best fits your day." },
+            { "value": "low_carb", "label": "Low Carb", "description": "Choose what best fits your day." },
+            { "value": "flexible", "label": "Flexible", "description": "Choose what best fits your day." }
+          ],
+          "workoutDays": [
+            { "value": "mon", "label": "Monday" },
+            { "value": "tue", "label": "Tuesday" },
+            { "value": "wed", "label": "Wednesday" },
+            { "value": "thu", "label": "Thursday" },
+            { "value": "fri", "label": "Friday" },
+            { "value": "sat", "label": "Saturday" },
+            { "value": "sun", "label": "Sunday" }
+          ],
+          "restrictions": [
+            { "value": "lactose_free", "label": "Lactose-free" },
+            { "value": "nut_allergy", "label": "Nut allergy" },
+            { "value": "avoid_seafood", "label": "Avoid seafood" }
+          ],
+          "reminders": [
+            { "value": "workout", "label": "Workout" },
+            { "value": "meal", "label": "Meal" },
+            { "value": "water", "label": "Water" },
+            { "value": "sleep", "label": "Sleep" }
+          ]
+        },
+        "vi": {
+          "stepTitles": [
+            "Chọn mục tiêu của bạn",
+            "Chỉ số cơ thể",
+            "Trình độ tập luyện",
+            "Ngày tập",
+            "Thời gian tập phù hợp",
+            "Thời lượng buổi tập",
+            "Địa điểm và dụng cụ",
+            "Kiểu dinh dưỡng",
+            "Nhắc nhở"
+          ],
+          "goals": [
+            { "value": "lose_weight", "label": "Giảm cân", "description": "Tạo kế hoạch ăn uống và tập luyện thực tế." },
+            { "value": "gain_muscle", "label": "Tăng cơ", "description": "Ưu tiên sức mạnh, hồi phục và protein." },
+            { "value": "maintain_fitness", "label": "Duy trì thể lực", "description": "Giữ nhịp độ tập cân bằng và đều đặn." },
+            { "value": "improve_endurance", "label": "Tăng sức bền", "description": "Cải thiện sức bền với bài cardio theo tiến trình." },
+            { "value": "improve_flexibility", "label": "Cải thiện độ dẻo", "description": "Thêm các buổi mobility và hồi phục." },
+            { "value": "build_habits", "label": "Xây dựng thói quen", "description": "Tập trung vào các routine bền vững." }
+          ],
+          "fitnessLevels": [
+            { "value": "beginner", "label": "Mới bắt đầu", "description": "Bạn mới làm quen với việc tập đều." },
+            { "value": "intermediate", "label": "Trung cấp", "description": "Bạn tập khá đều và đã có nền tảng." },
+            { "value": "advanced", "label": "Nâng cao", "description": "Bạn muốn volume và độ khó cao hơn." }
+          ],
+          "preferredTimes": [
+            { "value": "morning", "label": "Buổi sáng", "description": "Chọn khung giờ phù hợp nhất với bạn." },
+            { "value": "afternoon", "label": "Buổi chiều", "description": "Chọn khung giờ phù hợp nhất với bạn." },
+            { "value": "evening", "label": "Buổi tối", "description": "Chọn khung giờ phù hợp nhất với bạn." }
+          ],
+          "durations": [
+            { "value": "20", "label": "20 phút", "description": "Chọn thời lượng phù hợp nhất với bạn." },
+            { "value": "30", "label": "30 phút", "description": "Chọn thời lượng phù hợp nhất với bạn." },
+            { "value": "45", "label": "45 phút", "description": "Chọn thời lượng phù hợp nhất với bạn." },
+            { "value": "60", "label": "60 phút", "description": "Chọn thời lượng phù hợp nhất với bạn." }
+          ],
+          "equipments": [
+            { "value": "home_none", "label": "Ở nhà không dụng cụ", "description": "Chọn môi trường phù hợp nhất với bạn." },
+            { "value": "home_basic", "label": "Ở nhà có dụng cụ cơ bản", "description": "Chọn môi trường phù hợp nhất với bạn." },
+            { "value": "gym", "label": "Phòng gym", "description": "Chọn môi trường phù hợp nhất với bạn." },
+            { "value": "mix", "label": "Ở nhà + phòng gym", "description": "Chọn môi trường phù hợp nhất với bạn." }
+          ],
+          "nutritionStyles": [
+            { "value": "standard", "label": "Tiêu chuẩn", "description": "Chọn kiểu ăn phù hợp nhất với bạn." },
+            { "value": "high_protein", "label": "Giàu protein", "description": "Chọn kiểu ăn phù hợp nhất với bạn." },
+            { "value": "vegetarian", "label": "Ăn chay có sữa/trứng", "description": "Chọn kiểu ăn phù hợp nhất với bạn." },
+            { "value": "vegan", "label": "Thuần chay", "description": "Chọn kiểu ăn phù hợp nhất với bạn." },
+            { "value": "low_carb", "label": "Ít carb", "description": "Chọn kiểu ăn phù hợp nhất với bạn." },
+            { "value": "flexible", "label": "Linh hoạt", "description": "Chọn kiểu ăn phù hợp nhất với bạn." }
+          ],
+          "workoutDays": [
+            { "value": "mon", "label": "Thứ 2" },
+            { "value": "tue", "label": "Thứ 3" },
+            { "value": "wed", "label": "Thứ 4" },
+            { "value": "thu", "label": "Thứ 5" },
+            { "value": "fri", "label": "Thứ 6" },
+            { "value": "sat", "label": "Thứ 7" },
+            { "value": "sun", "label": "Chủ nhật" }
+          ],
+          "restrictions": [
+            { "value": "lactose_free", "label": "Không lactose" },
+            { "value": "nut_allergy", "label": "Dị ứng hạt" },
+            { "value": "avoid_seafood", "label": "Tránh hải sản" }
+          ],
+          "reminders": [
+            { "value": "workout", "label": "Tập luyện" },
+            { "value": "meal", "label": "Bữa ăn" },
+            { "value": "water", "label": "Nước uống" },
+            { "value": "sleep", "label": "Giấc ngủ" }
+          ]
+        }
+      }
+    },
+    "practice_categories": {
+      "items": {
+        "chest": {
+          "id": "chest",
+          "bodyPartKeys": ["chest"],
+          "assetImage": "chest.png",
+          "cardColor": "#E8DEF8",
+          "order": 0,
+          "labels": {
+            "en": "Chest",
+            "vi": "Ngực"
+          }
+        },
+        "fullbody": {
+          "id": "fullbody",
+          "bodyPartKeys": ["chest", "back", "upper legs", "lower legs", "shoulders", "waist"],
+          "assetImage": "fullbody.png",
+          "cardColor": "#E8DEF8",
+          "order": 1,
+          "labels": {
+            "en": "Full Body",
+            "vi": "Toàn thân"
+          }
+        },
+        "shoulder": {
+          "id": "shoulder",
+          "bodyPartKeys": ["shoulders"],
+          "assetImage": "shoulder.png",
+          "cardColor": "#E8DEF8",
+          "order": 2,
+          "labels": {
+            "en": "Shoulder",
+            "vi": "Vai"
+          }
+        },
+        "forearm": {
+          "id": "forearm",
+          "bodyPartKeys": ["lower arms", "upper arms"],
+          "assetImage": "forearm.png",
+          "cardColor": "#E8DEF8",
+          "order": 3,
+          "labels": {
+            "en": "Forearm",
+            "vi": "Cẳng tay"
+          }
+        },
+        "triceps": {
+          "id": "triceps",
+          "bodyPartKeys": ["upper arms"],
+          "assetImage": "triceps.png",
+          "cardColor": "#E8DEF8",
+          "order": 4,
+          "labels": {
+            "en": "Triceps",
+            "vi": "Tay sau"
+          }
+        },
+        "abdominal": {
+          "id": "abdominal",
+          "bodyPartKeys": ["waist"],
+          "assetImage": "abdominal.png",
+          "cardColor": "#E8DEF8",
+          "order": 5,
+          "labels": {
+            "en": "Abdominal",
+            "vi": "Cơ bụng"
+          }
+        },
+        "leg": {
+          "id": "leg",
+          "bodyPartKeys": ["upper legs", "lower legs"],
+          "assetImage": "leg.png",
+          "cardColor": "#E8DEF8",
+          "order": 6,
+          "labels": {
+            "en": "Leg",
+            "vi": "Chân"
+          }
+        },
+        "cardio": {
+          "id": "cardio",
+          "bodyPartKeys": ["cardio"],
+          "assetImage": "cardiac.png",
+          "cardColor": "#E8DEF8",
+          "order": 7,
+          "labels": {
+            "en": "Cardio",
+            "vi": "Cardio"
+          }
+        },
+        "back": {
+          "id": "back",
+          "bodyPartKeys": ["back"],
+          "assetImage": "back.png",
+          "cardColor": "#E8DEF8",
+          "order": 8,
+          "labels": {
+            "en": "Back",
+            "vi": "Lưng"
+          }
+        },
+        "warmup": {
+          "id": "warmup",
+          "bodyPartKeys": ["neck"],
+          "assetImage": "warmup.png",
+          "cardColor": "#E8DEF8",
+          "order": 9,
+          "labels": {
+            "en": "Warm Up",
+            "vi": "Khởi động"
+          }
+        }
+      }
+    },
+    "exercise_prescriptions": {
+      "items": {
+        "push_up": {
+          "exerciseId": "push_up",
+          "translations": {
+            "en": {
+              "note": "Base volume for upper-body pressing. Weight remains bodyweight unless equipment-based progression is added."
+            },
+            "vi": {
+              "note": "Mức khởi đầu cho nhóm đẩy thân trên. Bài này dùng tự trọng trừ khi bạn thêm biến thể có tạ."
+            }
+          },
+          "rules": [
+            {
+              "goal": "gain_muscle",
+              "fitnessLevels": ["beginner", "intermediate"],
+              "sets": 4,
+              "reps": "8-12",
+              "targetWeightMode": "bodyweight"
+            },
+            {
+              "fitnessLevels": ["advanced"],
+              "sets": 5,
+              "reps": "8-10",
+              "targetWeightMode": "bodyweight"
+            }
+          ]
+        },
+        "split_squat": {
+          "exerciseId": "split_squat",
+          "translations": {
+            "en": {
+              "note": "Lower-body dumbbell suggestion scales with current body weight."
+            },
+            "vi": {
+              "note": "Mức tạ gợi ý cho chân sẽ tăng theo cân nặng hiện tại của người dùng."
+            }
+          },
+          "rules": [
+            {
+              "fitnessLevels": ["beginner"],
+              "sets": 3,
+              "reps": "8/side",
+              "targetWeightMode": "lower_body",
+              "bodyWeightMultiplier": 0.1,
+              "minSuggestedWeightKg": 4,
+              "maxSuggestedWeightKg": 14
+            },
+            {
+              "fitnessLevels": ["intermediate", "advanced"],
+              "sets": 4,
+              "reps": "8-10/side",
+              "targetWeightMode": "lower_body",
+              "bodyWeightMultiplier": 0.16,
+              "minSuggestedWeightKg": 6,
+              "maxSuggestedWeightKg": 22
+            }
+          ]
+        },
+        "bodyweight_squat": {
+          "exerciseId": "bodyweight_squat",
+          "rules": [
+            {
+              "sets": 3,
+              "reps": "12-15",
+              "targetWeightMode": "bodyweight"
+            }
+          ]
+        },
+        "incline_push_up": {
+          "exerciseId": "incline_push_up",
+          "rules": [
+            {
+              "sets": 3,
+              "reps": "10-12",
+              "targetWeightMode": "upper_body",
+              "bodyWeightMultiplier": 0.08,
+              "minSuggestedWeightKg": 2.5,
+              "maxSuggestedWeightKg": 12
+            }
+          ]
+        },
+        "plank": {
+          "exerciseId": "plank",
+          "rules": [
+            {
+              "sets": 3,
+              "durationSeconds": 30,
+              "targetWeightMode": "none"
+            }
+          ]
+        },
+        "cat_cow": {
+          "exerciseId": "cat_cow",
+          "rules": [
+            {
+              "sets": 2,
+              "reps": "10",
+              "targetWeightMode": "none"
+            }
+          ]
+        },
+        "worlds_greatest_stretch": {
+          "exerciseId": "worlds_greatest_stretch",
+          "rules": [
+            {
+              "sets": 2,
+              "reps": "8/side",
+              "targetWeightMode": "none"
+            }
+          ]
+        },
+        "dead_bug": {
+          "exerciseId": "dead_bug",
+          "rules": [
+            {
+              "sets": 3,
+              "reps": "10/side",
+              "targetWeightMode": "none"
+            }
+          ]
+        },
+        "marching_glute_bridge": {
+          "exerciseId": "marching_glute_bridge",
+          "rules": [
+            {
+              "sets": 3,
+              "reps": "12",
+              "targetWeightMode": "bodyweight"
+            }
+          ]
+        }
+      }
+    },
+    "behavior": {
+      "items": {
+        "home": {
+          "mealTargetPerDay": 3,
+          "waterTargetMl": 2500
+        },
+        "track": {
+          "mealTargetPerDay": 3,
+          "activeMinutesPerWorkout": 30
+        },
+        "quick_workout": {
+          "targetExerciseCount": 8,
+          "preferredBodyPartOrder": [
+            "chest",
+            "back",
+            "shoulders",
+            "upper arms",
+            "lower arms",
+            "waist",
+            "upper legs",
+            "lower legs",
+            "cardio",
+            "neck"
+          ],
+          "defaultDurationSeconds": 30,
+          "defaultSets": 3,
+          "translations": {
+            "en": {
+              "caloriesPerMinute": 5.5
+            },
+            "vi": {
+              "caloriesPerMinute": 5.5
+            }
+          }
+        }
+      }
+    }
+  },
+  "starter_plan_templates": {
+    "gain_muscle_default": {
+      "goal": "gain_muscle",
+      "fitnessLevels": [],
+      "equipments": [],
+      "translations": {
+        "en": {
+          "planMeta": {
+            "planNameTemplate": "{{goalLabel}} Starter Plan"
+          },
+          "preview": {
+            "titleTemplate": "{{goalLabel}} Starter Plan",
+            "subtitle": "Preview based on your onboarding profile. Final workout details are generated after plan activation.",
+            "goalTitle": "Goal",
+            "goalBodyTemplate": "Current goal: {{goalLabel}}.",
+            "caloriesTitle": "Calories target",
+            "caloriesBodyTemplate": "{{caloriesTarget}}",
+            "workoutDaysTitle": "Workout days",
+            "workoutDaysBodyTemplate": "{{schedule}}",
+            "durationTitle": "Planned duration",
+            "durationBodyTemplate": "{{durationLabel}}",
+            "whyTitle": "Why this preview?",
+            "whyBodyTemplate": "This preview reflects your current onboarding answers for {{fitnessLabel}}, {{equipmentLabel}}, and {{preferredTimeLabel}}."
+          },
+          "scheduledWorkoutTemplates": {
+            "titles": ["Upper Push Focus", "Legs + Core", "Strength Foundations", "Active Recovery"],
+            "explanationTemplate": "Selected for your {{goalLabel}} goal, {{fitnessLabel}} level, and {{preferredTimeLabel}} schedule."
+          }
+        },
+        "vi": {
+          "planMeta": {
+            "planNameTemplate": "{{goalLabel}} khởi động"
+          },
+          "preview": {
+            "titleTemplate": "{{goalLabel}} khởi động",
+            "subtitle": "Bản xem trước dựa trên hồ sơ onboarding hiện tại. Chi tiết cuối cùng được tạo sau khi kích hoạt kế hoạch.",
+            "goalTitle": "Mục tiêu",
+            "goalBodyTemplate": "Mục tiêu hiện tại: {{goalLabel}}.",
+            "caloriesTitle": "Mục tiêu calo",
+            "caloriesBodyTemplate": "{{caloriesTarget}}",
+            "workoutDaysTitle": "Ngày tập",
+            "workoutDaysBodyTemplate": "{{schedule}}",
+            "durationTitle": "Thời lượng",
+            "durationBodyTemplate": "{{durationLabel}}",
+            "whyTitle": "Vì sao chọn kế hoạch này?",
+            "whyBodyTemplate": "Bản xem trước này phản ánh mức {{fitnessLabel}}, điều kiện tập {{equipmentLabel}} và thời điểm tập {{preferredTimeLabel}} của bạn."
+          },
+          "scheduledWorkoutTemplates": {
+            "titles": ["Đẩy thân trên", "Chân và trụ", "Sức mạnh nền tảng", "Phục hồi chủ động"],
+            "explanationTemplate": "Được chọn theo mục tiêu {{goalLabel}}, trình độ {{fitnessLabel}} và khung giờ {{preferredTimeLabel}}."
+          }
+        }
+      },
+      "planMeta": {
+        "sourceProgramId": "starter_template",
+        "durationWeeks": 4,
+        "status": "draft",
+        "trainingStyle": "strength"
+      },
+      "scheduledWorkoutTemplates": {
+        "exercises": [
+          {
+            "exerciseId": "push_up",
+            "name": "Push Up",
+            "sets": 3,
+            "reps": "10",
+            "targetWeightMode": "bodyweight"
+          },
+          {
+            "exerciseId": "split_squat",
+            "name": "Split Squat",
+            "sets": 3,
+            "reps": "10",
+            "targetWeightMode": "lower_body"
+          },
+          {
+            "exerciseId": "plank",
+            "name": "Plank",
+            "sets": 3,
+            "durationSeconds": 30,
+            "targetWeightMode": "none"
+          }
+        ]
+      }
+    },
+    "improve_flexibility_default": {
+      "goal": "improve_flexibility",
+      "fitnessLevels": [],
+      "equipments": [],
+      "translations": {
+        "en": {
+          "planMeta": {
+            "planNameTemplate": "{{goalLabel}} Starter Plan"
+          },
+          "preview": {
+            "titleTemplate": "{{goalLabel}} Starter Plan",
+            "subtitle": "Preview based on your onboarding profile. Final workout details are generated after plan activation.",
+            "goalTitle": "Goal",
+            "goalBodyTemplate": "Current goal: {{goalLabel}}.",
+            "caloriesTitle": "Calories target",
+            "caloriesBodyTemplate": "{{caloriesTarget}}",
+            "workoutDaysTitle": "Workout days",
+            "workoutDaysBodyTemplate": "{{schedule}}",
+            "durationTitle": "Planned duration",
+            "durationBodyTemplate": "{{durationLabel}}",
+            "whyTitle": "Why this preview?",
+            "whyBodyTemplate": "This preview reflects your current onboarding answers for {{fitnessLabel}}, {{equipmentLabel}}, and {{preferredTimeLabel}}."
+          },
+          "scheduledWorkoutTemplates": {
+            "titles": ["Mobility Flow", "Full Body Stretch", "Core Control", "Flex Recovery"],
+            "explanationTemplate": "Selected for your {{goalLabel}} goal, {{fitnessLabel}} level, and {{preferredTimeLabel}} schedule."
+          }
+        },
+        "vi": {
+          "planMeta": {
+            "planNameTemplate": "{{goalLabel}} khởi động"
+          },
+          "preview": {
+            "titleTemplate": "{{goalLabel}} khởi động",
+            "subtitle": "Bản xem trước dựa trên hồ sơ onboarding hiện tại. Chi tiết cuối cùng được tạo sau khi kích hoạt kế hoạch.",
+            "goalTitle": "Mục tiêu",
+            "goalBodyTemplate": "Mục tiêu hiện tại: {{goalLabel}}.",
+            "caloriesTitle": "Mục tiêu calo",
+            "caloriesBodyTemplate": "{{caloriesTarget}}",
+            "workoutDaysTitle": "Ngày tập",
+            "workoutDaysBodyTemplate": "{{schedule}}",
+            "durationTitle": "Thời lượng",
+            "durationBodyTemplate": "{{durationLabel}}",
+            "whyTitle": "Vì sao chọn kế hoạch này?",
+            "whyBodyTemplate": "Bản xem trước này phản ánh mức {{fitnessLabel}}, điều kiện tập {{equipmentLabel}} và thời điểm tập {{preferredTimeLabel}} của bạn."
+          },
+          "scheduledWorkoutTemplates": {
+            "titles": ["Mở khớp cơ bản", "Giãn toàn thân", "Kiểm soát core", "Hồi phục linh hoạt"],
+            "explanationTemplate": "Được chọn theo mục tiêu {{goalLabel}}, trình độ {{fitnessLabel}} và khung giờ {{preferredTimeLabel}}."
+          }
+        }
+      },
+      "planMeta": {
+        "sourceProgramId": "starter_template",
+        "durationWeeks": 4,
+        "status": "draft",
+        "trainingStyle": "mobility"
+      },
+      "scheduledWorkoutTemplates": {
+        "exercises": [
+          {
+            "exerciseId": "cat_cow",
+            "name": "Cat Cow",
+            "sets": 2,
+            "reps": "10",
+            "targetWeightMode": "none"
+          },
+          {
+            "exerciseId": "worlds_greatest_stretch",
+            "name": "World's Greatest Stretch",
+            "sets": 2,
+            "reps": "8",
+            "targetWeightMode": "none"
+          },
+          {
+            "exerciseId": "dead_bug",
+            "name": "Dead Bug",
+            "sets": 3,
+            "reps": "10",
+            "targetWeightMode": "none"
+          }
+        ]
+      }
+    },
+    "default_template": {
+      "goal": "maintain_fitness",
+      "fitnessLevels": [],
+      "equipments": [],
+      "translations": {
+        "en": {
+          "planMeta": {
+            "planNameTemplate": "{{goalLabel}} Starter Plan"
+          },
+          "preview": {
+            "titleTemplate": "{{goalLabel}} Starter Plan",
+            "subtitle": "Preview based on your onboarding profile. Final workout details are generated after plan activation.",
+            "goalTitle": "Goal",
+            "goalBodyTemplate": "Current goal: {{goalLabel}}.",
+            "caloriesTitle": "Calories target",
+            "caloriesBodyTemplate": "{{caloriesTarget}}",
+            "workoutDaysTitle": "Workout days",
+            "workoutDaysBodyTemplate": "{{schedule}}",
+            "durationTitle": "Planned duration",
+            "durationBodyTemplate": "{{durationLabel}}",
+            "whyTitle": "Why this preview?",
+            "whyBodyTemplate": "This preview reflects your current onboarding answers for {{fitnessLabel}}, {{equipmentLabel}}, and {{preferredTimeLabel}}."
+          },
+          "scheduledWorkoutTemplates": {
+            "titles": ["Full Body Basics", "Cardio + Core", "Strength Foundations", "Mobility Reset"],
+            "explanationTemplate": "Selected for your {{goalLabel}} goal, {{fitnessLabel}} level, and {{preferredTimeLabel}} schedule."
+          }
+        },
+        "vi": {
+          "planMeta": {
+            "planNameTemplate": "{{goalLabel}} khởi động"
+          },
+          "preview": {
+            "titleTemplate": "{{goalLabel}} khởi động",
+            "subtitle": "Bản xem trước dựa trên hồ sơ onboarding hiện tại. Chi tiết cuối cùng được tạo sau khi kích hoạt kế hoạch.",
+            "goalTitle": "Mục tiêu",
+            "goalBodyTemplate": "Mục tiêu hiện tại: {{goalLabel}}.",
+            "caloriesTitle": "Mục tiêu calo",
+            "caloriesBodyTemplate": "{{caloriesTarget}}",
+            "workoutDaysTitle": "Ngày tập",
+            "workoutDaysBodyTemplate": "{{schedule}}",
+            "durationTitle": "Thời lượng",
+            "durationBodyTemplate": "{{durationLabel}}",
+            "whyTitle": "Vì sao chọn kế hoạch này?",
+            "whyBodyTemplate": "Bản xem trước này phản ánh mức {{fitnessLabel}}, điều kiện tập {{equipmentLabel}} và thời điểm tập {{preferredTimeLabel}} của bạn."
+          },
+          "scheduledWorkoutTemplates": {
+            "titles": ["Toàn thân cơ bản", "Cardio và core", "Sức mạnh nền tảng", "Phục hồi vận động"],
+            "explanationTemplate": "Được chọn theo mục tiêu {{goalLabel}}, trình độ {{fitnessLabel}} và khung giờ {{preferredTimeLabel}}."
+          }
+        }
+      },
+      "planMeta": {
+        "sourceProgramId": "starter_template",
+        "durationWeeks": 4,
+        "status": "draft",
+        "trainingStyle": "full_body"
+      },
+      "scheduledWorkoutTemplates": {
+        "exercises": [
+          {
+            "exerciseId": "bodyweight_squat",
+            "name": "Bodyweight Squat",
+            "sets": 3,
+            "reps": "12",
+            "targetWeightMode": "bodyweight"
+          },
+          {
+            "exerciseId": "incline_push_up",
+            "name": "Incline Push Up",
+            "sets": 3,
+            "reps": "10",
+            "targetWeightMode": "upper_body"
+          },
+          {
+            "exerciseId": "marching_glute_bridge",
+            "name": "Marching Glute Bridge",
+            "sets": 3,
+            "reps": "12",
+            "targetWeightMode": "bodyweight"
+          }
+        ]
+      }
+    }
+  }
+}

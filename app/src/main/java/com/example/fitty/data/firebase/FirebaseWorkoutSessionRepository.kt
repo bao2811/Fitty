@@ -19,11 +19,12 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
     private fun sessions(uid: String) = firestore.collection("users").document(uid).collection("workout_sessions")
 
     override suspend fun startSession(uid: String, session: WorkoutSession): Result<String> = try {
+        val startedAt = session.startedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
         val ref = sessions(uid).document()
         ref.set(mapOf("planId" to session.planId, "scheduledWorkoutId" to session.scheduledWorkoutId,
             "title" to session.title, "source" to session.source, "status" to "in_progress",
-            "startedAt" to FieldValue.serverTimestamp(), "createdAt" to FieldValue.serverTimestamp(),
-            "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
+            "startedAt" to startedAt, "createdAt" to startedAt,
+            "updatedAt" to startedAt), SetOptions.merge()).await()
         // Save exercise logs as subcollection
         session.exercises.forEach { ex ->
             val exRef = ref.collection("exercise_logs").document()
@@ -65,14 +66,16 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
 
     override suspend fun completeSession(uid: String, sessionId: String, durationMinutes: Int,
         caloriesBurned: Int, completionRate: Float, perceivedEffort: Int?, exercises: List<ExerciseLog>): Result<Unit> = try {
-        sessions(uid).document(sessionId).set(mapOf("status" to "completed", "endedAt" to FieldValue.serverTimestamp(),
+        val endedAt = System.currentTimeMillis()
+        sessions(uid).document(sessionId).set(mapOf("status" to "completed", "endedAt" to endedAt,
             "durationMinutes" to durationMinutes, "caloriesBurned" to caloriesBurned, "completionRate" to completionRate,
-            "perceivedEffort" to perceivedEffort, "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
+            "perceivedEffort" to perceivedEffort, "updatedAt" to endedAt), SetOptions.merge()).await()
         exercises.forEach { ex ->
             if (ex.id.isNotBlank()) {
                 sessions(uid).document(sessionId).collection("exercise_logs").document(ex.id)
                     .update(mapOf("completedSets" to ex.completedSets, "repsBySet" to ex.repsBySet,
-                        "weightKgBySet" to ex.weightKgBySet, "completed" to ex.completed)).await()
+                        "weightKgBySet" to ex.weightKgBySet, "durationSeconds" to ex.durationSeconds,
+                        "completed" to ex.completed)).await()
             }
         }
         // Note: stats update is handled by CompleteWorkoutSessionUseCase

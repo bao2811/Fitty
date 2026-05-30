@@ -50,6 +50,16 @@ class FirebaseTrackingRepository @Inject constructor(
         Result.failure(e)
     }
 
+    override suspend fun uploadBodyScanImage(uid: String, localImageUri: String): Result<String> = try {
+        val fileName = "body_scan_${System.currentTimeMillis()}.jpg"
+        val ref = storage.reference.child("users/$uid/body_scans/$fileName")
+        ref.putFile(Uri.parse(localImageUri)).await()
+        val downloadUrl = ref.downloadUrl.await().toString()
+        Result.success(downloadUrl)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
     override suspend fun saveMealScanRecord(uid: String, record: MealScanRecord): Result<String> = try {
         val ref = if (record.id.isBlank()) userDoc(uid).collection("meal_scan_history").document()
         else userDoc(uid).collection("meal_scan_history").document(record.id)
@@ -112,8 +122,10 @@ class FirebaseTrackingRepository @Inject constructor(
         val user = firestore.collection("users").document(uid).get().await()
         val statsMap = user.get("stats") as? Map<*, *> ?: emptyMap<String, Any>()
         val measurements = getBodyMeasurements(uid, days)
-        val latestWeight = measurements.firstOrNull()?.weightKg
         val profileMap = user.get("profile") as? Map<*, *>
+        // Use body measurement weight first, fall back to profile weight from onboarding
+        val latestWeight = measurements.firstOrNull()?.weightKg
+            ?: (profileMap?.get("weightKg") as? Number)?.toFloat()
         val targetWeightVal = (profileMap?.get("targetWeightKg") as? Number)?.toFloat()
             ?: (user.getDouble("targetWeightKg"))?.toFloat()
         val heightCm = (profileMap?.get("heightCm") as? Number)?.toFloat()

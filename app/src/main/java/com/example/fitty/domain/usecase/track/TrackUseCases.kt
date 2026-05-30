@@ -12,9 +12,18 @@ import com.example.fitty.domain.model.MealScanRecord
 import com.example.fitty.domain.model.ProgressStats
 import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.repository.TrackingRepository
+import com.example.fitty.domain.repository.UserRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+
+private fun Throwable.isStoragePermissionDenied(): Boolean {
+    val message = generateSequence(this) { it.cause }
+        .mapNotNull { it.message }
+        .joinToString(" ")
+        .lowercase()
+    return "does not have permission" in message || "permission denied" in message || "unauthorized" in message
+}
 
 class AnalyzeMealImageUseCase @Inject constructor(
     private val mealAnalysisEngine: MealAnalysisEngine
@@ -31,13 +40,15 @@ class AnalyzeMealImageUseCase @Inject constructor(
 
 class ConfirmMealLogUseCase @Inject constructor(
     private val trackingRepository: TrackingRepository,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val userRepository: UserRepository
 ) {
     suspend operator fun invoke(mealLog: MealLog, imageUri: String? = null): Result<String> {
         val uid = sessionRepository.getCurrentUserId()
             ?: return Result.failure(IllegalStateException("Not signed in"))
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val logWithDate = if (mealLog.dateKey.isBlank()) mealLog.copy(dateKey = today) else mealLog
+        val summaryDateKey = logWithDate.dateKey
 
         // Upload image and set imageUrl if available
         var finalLog = logWithDate
@@ -69,8 +80,8 @@ class ConfirmMealLogUseCase @Inject constructor(
             trackingRepository.saveMealScanRecord(uid, scanRecord)
 
             // Update daily summary: meal count + macro fields
-            val summary = trackingRepository.getDailySummary(uid, today)
-            val baseSummary = summary ?: DailySummary(dateKey = today)
+            val summary = trackingRepository.getDailySummary(uid, summaryDateKey)
+            val baseSummary = summary ?: DailySummary(dateKey = summaryDateKey)
             val updated = baseSummary.copy(
                 mealsLoggedCount = baseSummary.mealsLoggedCount + 1,
                 progress = baseSummary.progress.copy(
@@ -81,7 +92,18 @@ class ConfirmMealLogUseCase @Inject constructor(
                     fatGrams = baseSummary.progress.fatGrams + finalLog.totalFat
                 )
             )
-            trackingRepository.updateDailySummary(uid, today, updated)
+            trackingRepository.updateDailySummary(uid, summaryDateKey, updated)
+
+            // Keep aggregate user stats in sync with Track/Home summary cards.
+            runCatching {
+                val user = userRepository.getCurrentUser(uid)
+                if (user != null) {
+                    userRepository.updateStats(
+                        uid,
+                        user.stats.copy(mealsLogged = user.stats.mealsLogged + 1)
+                    )
+                }
+            }
         }
         return saveResult
     }
@@ -108,13 +130,39 @@ class SaveBodyScanUseCase @Inject constructor(
     suspend operator fun invoke(bodyScan: BodyScan): Result<String> {
         val uid = sessionRepository.getCurrentUserId()
             ?: return Result.failure(IllegalStateException("Not signed in"))
-        val result = trackingRepository.saveBodyScan(uid, bodyScan)
+        var finalScan = bodyScan
+        val frontImage = bodyScan.frontImageUrl
+        if (!frontImage.isNullOrBlank()) {
+            val uploadedFront = trackingRepository.uploadBodyScanImage(uid, frontImage)
+            if (uploadedFront.isSuccess) {
+                finalScan = finalScan.copy(frontImageUrl = uploadedFront.getOrThrow())
+            } else {
+                val error = uploadedFront.exceptionOrNull()
+                if (error == null || !error.isStoragePermissionDenied()) {
+                    return Result.failure(error ?: IllegalStateException("Failed to upload front body scan image"))
+                }
+            }
+        }
+        val sideImage = bodyScan.sideImageUrl
+        if (!sideImage.isNullOrBlank()) {
+            val uploadedSide = trackingRepository.uploadBodyScanImage(uid, sideImage)
+            if (uploadedSide.isSuccess) {
+                finalScan = finalScan.copy(sideImageUrl = uploadedSide.getOrThrow())
+            } else {
+                val error = uploadedSide.exceptionOrNull()
+                if (error == null || !error.isStoragePermissionDenied()) {
+                    return Result.failure(error ?: IllegalStateException("Failed to upload side body scan image"))
+                }
+            }
+        }
+
+        val result = trackingRepository.saveBodyScan(uid, finalScan)
         if (result.isSuccess) {
             // Also save a body measurement record from the scan
             val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
             val measurement = BodyMeasurement(
                 dateKey = today,
-                bodyFatPercent = bodyScan.estimatedBodyFatPercent,
+                bodyFatPercent = finalScan.estimatedBodyFatPercent,
                 source = "scan"
             )
             trackingRepository.saveBodyMeasurement(uid, measurement)
@@ -124,7 +172,7 @@ class SaveBodyScanUseCase @Inject constructor(
             val baseSummary = summary ?: DailySummary(dateKey = today)
             val updated = baseSummary.copy(
                 insightText = baseSummary.insightText.ifBlank {
-                    bodyScan.summary.ifBlank { "Body scan completed." }
+                    finalScan.summary.ifBlank { "Body scan completed." }
                 }
             )
             trackingRepository.updateDailySummary(uid, today, updated)
@@ -143,6 +191,16 @@ class SaveBodyScanUseCase @Inject constructor(
             }
         }
         return result
+    }
+}
+
+class GetBodyScansUseCase @Inject constructor(
+    private val trackingRepository: TrackingRepository,
+    private val sessionRepository: SessionRepository
+) {
+    suspend operator fun invoke(limit: Int = 20): List<BodyScan> {
+        val uid = sessionRepository.getCurrentUserId() ?: return emptyList()
+        return trackingRepository.getBodyScans(uid, limit)
     }
 }
 

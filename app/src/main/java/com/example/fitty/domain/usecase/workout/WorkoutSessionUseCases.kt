@@ -72,20 +72,28 @@ class CompleteWorkoutSessionUseCase @Inject constructor(
 
         // 2. Update scheduled workout status
         if (planId.isNotBlank() && scheduledWorkoutId.isNotBlank()) {
-            planRepository.updateScheduledWorkoutStatus(uid, planId, scheduledWorkoutId, "completed")
+            val planUpdateResult = planRepository.updateScheduledWorkoutStatus(uid, planId, scheduledWorkoutId, "completed")
+            if (planUpdateResult.isFailure) {
+                return Result.failure(planUpdateResult.exceptionOrNull() ?: IllegalStateException("Could not update plan workout status"))
+            }
         }
 
         // 3. Update daily summary (create if not exists)
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val existing = trackingRepository.getDailySummary(uid, today)
         val baseSummary = existing ?: com.example.fitty.domain.model.DailySummary(dateKey = today)
+        val sessionTitle = workoutSessionRepository.getSession(uid, sessionId)?.title.orEmpty()
         val updated = baseSummary.copy(
+            todayWorkoutTitle = sessionTitle.ifBlank { baseSummary.todayWorkoutTitle },
             progress = baseSummary.progress.copy(
                 workoutsCompleted = baseSummary.progress.workoutsCompleted + 1,
                 caloriesBurned = baseSummary.progress.caloriesBurned + caloriesBurned
             )
         )
-        trackingRepository.updateDailySummary(uid, today, updated)
+        val summaryUpdateResult = trackingRepository.updateDailySummary(uid, today, updated)
+        if (summaryUpdateResult.isFailure) {
+            return Result.failure(summaryUpdateResult.exceptionOrNull() ?: IllegalStateException("Could not update daily summary"))
+        }
 
         // 4. Update user stats (increment totalWorkouts)
         val user = userRepository.getCurrentUser(uid)
@@ -93,7 +101,10 @@ class CompleteWorkoutSessionUseCase @Inject constructor(
             val updatedStats = user.stats.copy(
                 totalWorkouts = user.stats.totalWorkouts + 1
             )
-            userRepository.updateStats(uid, updatedStats)
+            val statsUpdateResult = userRepository.updateStats(uid, updatedStats)
+            if (statsUpdateResult.isFailure) {
+                return Result.failure(statsUpdateResult.exceptionOrNull() ?: IllegalStateException("Could not update workout stats"))
+            }
         }
 
         return Result.success(Unit)

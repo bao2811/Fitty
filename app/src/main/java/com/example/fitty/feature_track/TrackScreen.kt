@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -61,7 +62,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
+import com.example.fitty.BuildConfig
+import com.example.fitty.R
+import com.example.fitty.core.ui.ContentDebugSource
+import com.example.fitty.core.ui.ContentDiagnosticsCard
+import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.data.content.LocalContentFallbacks
+import com.example.fitty.domain.model.TrackBehaviorConfig
+import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.ui.theme.FittyPink
 import dagger.hilt.android.lifecycle.HiltViewModel
 
@@ -102,10 +111,22 @@ internal data class MealScanHistoryUi(
     val timestamp: Long
 )
 
+internal data class BodyScanHistoryUi(
+    val id: String,
+    val imageUrl: String,
+    val summary: String,
+    val bodyFatPercent: Float?,
+    val postureScore: Int?,
+    val confidence: Float,
+    val status: String,
+    val timestamp: Long
+)
+
 internal data class TrackUiState(
     val selectedTab: TrackTab? = null,
     val tabs: List<TrackTab> = listOf(TrackTab.Meals, TrackTab.Body, TrackTab.Progress, TrackTab.Stats),
     val capturedImageUri: String? = null,
+    val isLoading: Boolean = true,
     val isSubmittingImage: Boolean = false,
     val analysisResult: TrackAnalysisResult? = null,
     val captureError: String? = null,
@@ -116,7 +137,7 @@ internal data class TrackUiState(
     val progressWeightPercent: Float = 0f,
     val progressWorkouts: String = "0 / 0",
     val progressWorkoutPercent: Float = 0f,
-    val progressMeals: String = "0 meals logged",
+    val progressMeals: String = "0",
     val progressMealPercent: Float = 0f,
     val targetWeight: String = "--",
     val bmi: String = "--",
@@ -127,15 +148,18 @@ internal data class TrackUiState(
     // Stats
     val statWorkouts: String = "0",
     val statMeals: String = "0",
-    val statStreak: String = "0 days",
+    val statStreak: String = "0",
     val statActiveMin: String = "0",
-    val statAvgCalories: String = "0 kcal",
-    val statProteinAvg: String = "0g",
-    val statCarbsAvg: String = "0g",
-    val statFatAvg: String = "0g",
+    val statBestStreak: String = "0",
+    val statAvgCalories: String = "0",
+    val statProteinAvg: String = "0",
+    val statCarbsAvg: String = "0",
+    val statFatAvg: String = "0",
     // Scan history
     val mealHistory: List<Pair<String, String>> = emptyList(),
-    val scanHistory: List<MealScanHistoryUi> = emptyList()
+    val scanHistory: List<MealScanHistoryUi> = emptyList(),
+    val bodyScanHistory: List<BodyScanHistoryUi> = emptyList(),
+    val contentSources: List<ContentDebugSource> = emptyList()
 )
 
 @Composable
@@ -162,17 +186,50 @@ class TrackViewModel @Inject constructor(
     private val getProgressStatsUseCase: com.example.fitty.domain.usecase.track.GetProgressStatsUseCase,
     private val getMealLogsUseCase: com.example.fitty.domain.usecase.track.GetMealLogsUseCase,
     private val getMealScanHistoryUseCase: com.example.fitty.domain.usecase.track.GetMealScanHistoryUseCase,
-    private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase
+    private val getBodyScansUseCase: com.example.fitty.domain.usecase.track.GetBodyScansUseCase,
+    private val updateStreakUseCase: com.example.fitty.domain.usecase.user.UpdateStreakUseCase,
+    private val localContentFallbacks: LocalContentFallbacks,
+    private val contentRepository: ContentRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(TrackUiState())
+    private val _uiState = MutableStateFlow(
+        TrackUiState(
+            contentSources = listOf(
+                ContentDebugSource("Track behavior", ContentSourceState.Fallback, "Using local fallback until remote load completes")
+            )
+        )
+    )
     internal val uiState: StateFlow<TrackUiState> = _uiState
+    private var behaviorConfig: TrackBehaviorConfig = localContentFallbacks.trackBehaviorConfig()
 
     private var lastMealResult: com.example.fitty.domain.model.MealAnalysisResult? = null
     private var lastBodyResult: com.example.fitty.domain.model.BodyScanAnalysisResult? = null
 
     init {
+        loadBehaviorConfig()
         loadStats()
         loadScanHistory()
+        loadBodyScanHistory()
+    }
+
+    private fun loadBehaviorConfig() {
+        viewModelScope.launch {
+            behaviorConfig = contentRepository.getTrackBehaviorConfig()
+            val usedFallback = contentRepository.usedFallbackFor("track_behavior")
+            _uiState.update {
+                it.copy(
+                    contentSources = listOf(
+                        ContentDebugSource(
+                            "Track behavior",
+                            if (usedFallback) ContentSourceState.Fallback else ContentSourceState.Remote,
+                            contentRepository.fallbackDetailFor("track_behavior")
+                                ?: if (usedFallback) "Using local fallback" else "Loaded from Firebase"
+                        )
+                    )
+                )
+            }
+            loadStats()
+        }
     }
 
     private fun loadScanHistory() {
@@ -197,56 +254,110 @@ class TrackViewModel @Inject constructor(
         }
     }
 
+    private fun loadBodyScanHistory() {
+        viewModelScope.launch {
+            runCatching { getBodyScansUseCase() }.onSuccess { scans ->
+                _uiState.update { state ->
+                    state.copy(
+                        bodyScanHistory = scans.map { scan ->
+                            BodyScanHistoryUi(
+                                id = scan.id,
+                                imageUrl = scan.frontImageUrl.orEmpty(),
+                                summary = scan.summary,
+                                bodyFatPercent = scan.estimatedBodyFatPercent,
+                                postureScore = scan.postureScore,
+                                confidence = scan.confidence,
+                                status = scan.status,
+                                timestamp = scan.capturedAt
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
     private fun loadStats() {
         viewModelScope.launch {
             runCatching { getProgressStatsUseCase() }.onSuccess { stats ->
                 val totalWorkoutsCompleted = stats.dailySummaries.sumOf { s -> s.progress.workoutsCompleted }
+                val totalWorkoutTarget = stats.dailySummaries.sumOf { s -> s.targets.workouts }.coerceAtLeast(1)
                 val totalCalBurned = stats.dailySummaries.sumOf { s -> s.progress.caloriesBurned }
                 val avgCal = if (stats.dailySummaries.isNotEmpty()) totalCalBurned / stats.dailySummaries.size else 0
+
+                // Map weekly active days to actual days of the week (Mon=0..Sun=6)
+                val today = java.time.LocalDate.now()
+                val mondayOfThisWeek = today.with(java.time.DayOfWeek.MONDAY)
                 val weekActive = MutableList(7) { false }
-                stats.dailySummaries.takeLast(7).forEachIndexed { i, s ->
-                    weekActive[i] = s.progress.workoutsCompleted > 0 || s.progress.mealsLogged > 0
+                stats.dailySummaries.forEach { s ->
+                    runCatching {
+                        val date = java.time.LocalDate.parse(s.dateKey)
+                        val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(mondayOfThisWeek, date).toInt()
+                        if (daysBetween in 0..6) {
+                            weekActive[daysBetween] = s.progress.workoutsCompleted > 0 || s.progress.mealsLogged > 0
+                        }
+                    }
                 }
                 val activeDays = weekActive.count { it }
-                val rate = if (7 > 0) (activeDays * 100) / 7 else 0
+                val rate = (activeDays * 100) / 7
 
                 // Macro averages from scan history
                 val totalProtein = stats.dailySummaries.sumOf { s -> s.progress.proteinGrams }
                 val totalCarbs = stats.dailySummaries.sumOf { s -> s.progress.carbsGrams }
                 val totalFat = stats.dailySummaries.sumOf { s -> s.progress.fatGrams }
                 val dayCount = stats.dailySummaries.size.coerceAtLeast(1)
+                val baselineWeight = stats.bodyMeasurements.lastOrNull()?.weightKg ?: stats.latestWeight
 
                 _uiState.update {
                     it.copy(
                         statWorkouts = stats.totalWorkouts.toString(),
                         statMeals = stats.totalMealsLogged.toString(),
-                        statStreak = "${stats.bestStreak} days",
-                        statActiveMin = "${stats.totalWorkouts * 30}",
-                        statAvgCalories = "${avgCal} kcal",
-                        statProteinAvg = "${totalProtein / dayCount}g",
-                        statCarbsAvg = "${totalCarbs / dayCount}g",
-                        statFatAvg = "${totalFat / dayCount}g",
-                        progressWeight = stats.latestWeight?.let { w -> "%.1f kg".format(w) } ?: "--",
+                        statStreak = context.getString(R.string.track_days_value, stats.currentStreak),
+                        statActiveMin = "${stats.totalWorkouts * behaviorConfig.activeMinutesPerWorkout}",
+                        statBestStreak = context.getString(R.string.track_days_value, stats.bestStreak),
+                        statAvgCalories = context.getString(R.string.track_kcal_value, avgCal),
+                        statProteinAvg = context.getString(R.string.track_grams_value, totalProtein / dayCount),
+                        statCarbsAvg = context.getString(R.string.track_grams_value, totalCarbs / dayCount),
+                        statFatAvg = context.getString(R.string.track_grams_value, totalFat / dayCount),
+                        progressWeight = stats.latestWeight?.let { w -> context.getString(R.string.track_weight_value, w) } ?: "--",
                         progressWeightPercent = stats.latestWeight?.let { w ->
-                            val target = stats.targetWeight ?: w
-                            if (target > 0) (w / target).toFloat().coerceIn(0f, 1f) else 0f
+                            val target = stats.targetWeight
+                            val start = baselineWeight
+                            when {
+                                target == null || start == null -> 0f
+                                kotlin.math.abs(target - start) < 0.01f -> 1f
+                                target < start -> ((start - w) / (start - target)).coerceIn(0f, 1f)
+                                else -> ((w - start) / (target - start)).coerceIn(0f, 1f)
+                            }
                         } ?: 0f,
-                        targetWeight = stats.targetWeight?.let { w -> "%.1f kg".format(w) } ?: "--",
+                        targetWeight = stats.targetWeight?.let { w -> context.getString(R.string.track_weight_value, w) } ?: "--",
                         bmi = stats.bmi?.let { b -> "%.1f".format(b) } ?: "--",
-                        progressWorkouts = "$totalWorkoutsCompleted total",
-                        progressWorkoutPercent = if (stats.totalWorkouts > 0) (totalWorkoutsCompleted.toFloat() / (stats.totalWorkouts * 1.2f)).coerceIn(0f, 1f) else 0f,
-                        progressMeals = "${stats.totalMealsLogged} meals",
-                        progressMealPercent = if (stats.totalMealsLogged > 0) (stats.totalMealsLogged.toFloat() / (stats.totalMealsLogged + 5)).coerceIn(0f, 1f) else 0f,
+                        progressWorkouts = "$totalWorkoutsCompleted/$totalWorkoutTarget",
+                        progressWorkoutPercent = (totalWorkoutsCompleted.toFloat() / totalWorkoutTarget).coerceIn(0f, 1f),
+                        progressMeals = context.getString(R.string.track_progress_total_meals, stats.totalMealsLogged),
+                        progressMealPercent = if (stats.dailySummaries.isNotEmpty()) {
+                            val mealTarget = stats.dailySummaries.size * behaviorConfig.mealTargetPerDay
+                            (stats.totalMealsLogged.toFloat() / mealTarget).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        },
                         totalCaloriesBurned = "$totalCalBurned",
                         avgDailyCalories = "$avgCal",
                         weeklyActiveDays = weekActive,
-                        completionRate = rate
+                        completionRate = rate,
+                        isLoading = false
                     )
                 }
+            }.onFailure {
+                _uiState.update { it.copy(isLoading = false) }
             }
             runCatching { getMealLogsUseCase() }.onSuccess { logs ->
                 _uiState.update {
-                    it.copy(mealHistory = logs.map { m -> m.mealType.replaceFirstChar { c -> c.uppercase() } to "${m.totalCalories} kcal" })
+                    it.copy(
+                        mealHistory = logs.map { m ->
+                            m.mealType.toLocalizedTrackToken(context) to context.getString(R.string.track_kcal_value, m.totalCalories)
+                        }
+                    )
                 }
             }
         }
@@ -278,8 +389,8 @@ class TrackViewModel @Inject constructor(
     internal fun submitCapturedImage() {
         val current = _uiState.value
         val selectedTab = current.selectedTab
-        if (selectedTab == null) { setCaptureError("Choose Track Meal or Body first."); return }
-        if (current.capturedImageUri.isNullOrBlank()) { setCaptureError("Take a photo first."); return }
+        if (selectedTab == null) { setCaptureError(context.getString(R.string.track_error_choose_tab_first)); return }
+        if (current.capturedImageUri.isNullOrBlank()) { setCaptureError(context.getString(R.string.track_error_take_photo_first)); return }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmittingImage = true, captureError = null) }
@@ -306,23 +417,27 @@ class TrackViewModel @Inject constructor(
     }
 
     private fun com.example.fitty.domain.model.MealAnalysisResult.toUi() = TrackAnalysisResult(
-        title = "Meal Analysis",
-        summary = "Detected ${mealLog.foodItems.size} food items (${(confidence * 100).toInt()}% confidence)",
+        title = context.getString(R.string.track_analysis_meal_title),
+        summary = context.getString(R.string.track_analysis_meal_summary, mealLog.foodItems.size, (confidence * 100).toInt()),
         rows = listOf(
-            TrackAnalysisRow("Calories", "${mealLog.totalCalories} kcal"),
-            TrackAnalysisRow("Protein", "${mealLog.totalProtein} g"),
-            TrackAnalysisRow("Carbs", "${mealLog.totalCarbs} g"),
-            TrackAnalysisRow("Fat", "${mealLog.totalFat} g")
-        ) + mealLog.foodItems.map { TrackAnalysisRow(it.name, "${it.calories} kcal") }
+            TrackAnalysisRow(context.getString(R.string.track_row_calories), context.getString(R.string.track_kcal_value, mealLog.totalCalories)),
+            TrackAnalysisRow(context.getString(R.string.track_row_protein), context.getString(R.string.track_grams_value, mealLog.totalProtein)),
+            TrackAnalysisRow(context.getString(R.string.track_row_carbs), context.getString(R.string.track_grams_value, mealLog.totalCarbs)),
+            TrackAnalysisRow(context.getString(R.string.track_row_fat), context.getString(R.string.track_grams_value, mealLog.totalFat))
+        ) + mealLog.foodItems.map { TrackAnalysisRow(it.name, context.getString(R.string.track_kcal_value, it.calories)) }
     )
 
     private fun com.example.fitty.domain.model.BodyScanAnalysisResult.toUi() = TrackAnalysisResult(
-        title = "Body Scan Analysis",
-        summary = bodyScan.summary.ifBlank { "Analysis complete" } + " (${(confidence * 100).toInt()}% confidence)",
+        title = context.getString(R.string.track_analysis_body_title),
+        summary = context.getString(
+            R.string.track_analysis_body_summary,
+            bodyScan.summary.ifBlank { context.getString(R.string.track_analysis_complete) },
+            (confidence * 100).toInt()
+        ),
         rows = listOfNotNull(
-            bodyScan.estimatedBodyFatPercent?.let { TrackAnalysisRow("Body fat", "%.1f%%".format(it)) },
-            bodyScan.postureScore?.let { TrackAnalysisRow("Posture score", "$it / 100") },
-            TrackAnalysisRow("Status", bodyScan.status)
+            bodyScan.estimatedBodyFatPercent?.let { TrackAnalysisRow(context.getString(R.string.track_row_body_fat), "%.1f%%".format(it)) },
+            bodyScan.postureScore?.let { TrackAnalysisRow(context.getString(R.string.track_row_posture_score), context.getString(R.string.track_posture_score_value, it)) },
+            TrackAnalysisRow(context.getString(R.string.track_row_status), bodyScan.status.toLocalizedTrackToken(context))
         )
     )
 
@@ -334,7 +449,7 @@ class TrackViewModel @Inject constructor(
             confirmMealLogUseCase(meal, imageUri)
                 .onSuccess {
                     _uiState.update { it.copy(isSubmittingImage = false, mealConfirmed = true) }
-                    runCatching { updateStreakUseCase("meal") }
+                    runCatching { updateStreakUseCase(reason = "meal", incrementActivityCounters = false) }
                     loadStats()
                     loadScanHistory()
                 }
@@ -353,6 +468,7 @@ class TrackViewModel @Inject constructor(
                     _uiState.update { it.copy(isSubmittingImage = false, bodyScanSaved = true) }
                     runCatching { updateStreakUseCase("body_scan") }
                     loadStats()
+                    loadBodyScanHistory()
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(isSubmittingImage = false, captureError = e.message) }
@@ -380,7 +496,7 @@ private fun TrackScreen(
         if (success && imageUri != null) {
             onImageCaptured(imageUri)
         } else {
-            onCaptureError("Camera capture was cancelled.")
+            onCaptureError(context.getString(R.string.track_error_capture_cancelled))
         }
     }
     fun launchCameraCapture() {
@@ -392,7 +508,7 @@ private fun TrackScreen(
         if (granted) {
             launchCameraCapture()
         } else {
-            onCaptureError("Camera permission denied. Enable camera access to scan photos.")
+            onCaptureError(context.getString(R.string.track_error_permission_denied))
         }
     }
     val onOpenCamera = {
@@ -409,7 +525,12 @@ private fun TrackScreen(
 
     FittyLazyScreen {
         item {
-            Text("Track", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.track_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        }
+        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
+            item {
+                ContentDiagnosticsCard(sources = state.contentSources)
+            }
         }
         val selectedTab = state.selectedTab
         if (selectedTab == null) {
@@ -428,7 +549,10 @@ private fun TrackScreen(
             }
             when (selectedTab) {
                 TrackTab.Meals -> { item { MealsTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onConfirmMeal = onConfirmMeal) } }
-                TrackTab.Body -> { item { BodyTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onSaveBodyScan = onSaveBodyScan) } }
+                TrackTab.Body -> {
+                    item { BodyTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onSaveBodyScan = onSaveBodyScan) }
+                    item { BodyHistorySection(state) }
+                }
                 TrackTab.Progress -> { item { ProgressTab(state) } }
                 TrackTab.Stats -> { item { StatsTab(state) } }
             }
@@ -436,21 +560,21 @@ private fun TrackScreen(
     }
 }
 
-private fun trackTabLabel(tab: TrackTab): String {
+private fun trackTabLabel(context: Context, tab: TrackTab): String {
     return when (tab) {
-        TrackTab.Meals -> "Bữa ăn"
-        TrackTab.Body -> "Hình thể"
-        TrackTab.Progress -> "Tiến độ"
-        TrackTab.Stats -> "Thống kê"
+        TrackTab.Meals -> context.getString(R.string.track_tab_meals)
+        TrackTab.Body -> context.getString(R.string.track_tab_body)
+        TrackTab.Progress -> context.getString(R.string.track_tab_progress)
+        TrackTab.Stats -> context.getString(R.string.track_tab_stats)
     }
 }
 
-private fun trackTabDescription(tab: TrackTab): String {
+private fun trackTabDescription(context: Context, tab: TrackTab): String {
     return when (tab) {
-        TrackTab.Meals -> "Chụp ảnh bữa ăn để AI phân tích dinh dưỡng."
-        TrackTab.Body -> "Chụp ảnh toàn thân để AI phân tích hình thể."
-        TrackTab.Progress -> "Xem tiến độ cân nặng, tập luyện và dinh dưỡng."
-        TrackTab.Stats -> "Xem thống kê tổng hợp."
+        TrackTab.Meals -> context.getString(R.string.track_tab_meals_desc)
+        TrackTab.Body -> context.getString(R.string.track_tab_body_desc)
+        TrackTab.Progress -> context.getString(R.string.track_tab_progress_desc)
+        TrackTab.Stats -> context.getString(R.string.track_tab_stats_desc)
     }
 }
 
@@ -470,7 +594,7 @@ private fun TrackFeaturePicker(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Chọn nội dung theo dõi",
+            stringResource(R.string.track_choose_content),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
@@ -511,8 +635,8 @@ private fun TrackFeatureCard(
                 Icon(trackTabIcon(tab), contentDescription = null, tint = FittyPink, modifier = Modifier.size(24.dp))
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(trackTabLabel(tab), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(trackTabDescription(tab), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(trackTabLabel(LocalContext.current, tab), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(trackTabDescription(LocalContext.current, tab), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -526,9 +650,9 @@ private fun TrackDetailHeader(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedButton(onClick = onBackToPicker, shape = RoundedCornerShape(16.dp)) {
             Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text("Chọn mục khác", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.track_choose_other), modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.SemiBold)
         }
-        Text(trackTabLabel(tab), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(trackTabLabel(LocalContext.current, tab), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -543,9 +667,9 @@ private fun MealsTab(
         // ── Camera Scan Card ──
         CameraAnalysisCard(
             icon = Icons.Outlined.CameraAlt,
-            title = "Quét bữa ăn",
-            body = "Chụp ảnh bữa ăn để phân tích dinh dưỡng bằng AI.",
-            primaryAction = "Chụp ảnh",
+            title = stringResource(R.string.track_meal_scan_title),
+            body = stringResource(R.string.track_meal_scan_body),
+            primaryAction = stringResource(R.string.track_take_photo),
             state = state,
             onOpenCamera = onOpenCamera,
             onSubmitImage = onSubmitImage
@@ -566,7 +690,7 @@ private fun MealsTab(
                     ) {
                         Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
                         Text(
-                            "Đã lưu bữa ăn thành công!",
+                            stringResource(R.string.track_saved_badge_meal),
                             modifier = Modifier.padding(start = 8.dp),
                             color = Color(0xFF2E7D32),
                             fontWeight = FontWeight.SemiBold,
@@ -586,7 +710,7 @@ private fun MealsTab(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
-                        Text("Xác nhận & lưu", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.track_confirm_save), modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -615,21 +739,21 @@ private fun MealsTab(
                         Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
                     }
                     Column {
-                        Text("Tổng hôm nay", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text("$todayMealCount meals", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_today_total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.track_today_meal_count, todayMealCount), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    MacroStatPill("Protein", "${todayProtein}g", Color(0xFF6C63FF))
-                    MacroStatPill("Carbs", "${todayCarbs}g", Color(0xFFFF9F43))
-                    MacroStatPill("Fat", "${todayFat}g", Color(0xFF2ED573))
+                    MacroStatPill(stringResource(R.string.track_row_protein), "${todayProtein}g", Color(0xFF6C63FF))
+                    MacroStatPill(stringResource(R.string.track_row_carbs), "${todayCarbs}g", Color(0xFFFF9F43))
+                    MacroStatPill(stringResource(R.string.track_row_fat), "${todayFat}g", Color(0xFF2ED573))
                 }
             }
         }
 
         // ── Scan History ──
         if (state.scanHistory.isNotEmpty()) {
-            Text("Lịch sử quét", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.track_scan_history), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             state.scanHistory.forEach { scan ->
                 ScanHistoryCard(scan)
             }
@@ -637,7 +761,7 @@ private fun MealsTab(
 
         // ── Meal Log History ──
         if (state.mealHistory.isNotEmpty()) {
-            Text("Nhật ký bữa ăn", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.track_meal_journal), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             state.mealHistory.forEach { (label, cal) ->
                 InfoRowCard(label, cal, Icons.Outlined.Restaurant)
             }
@@ -659,8 +783,8 @@ private fun MealsTab(
                     ) {
                         Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = FittyPink.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
                     }
-                    Text("Chưa có bữa ăn nào", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Chụp ảnh bữa ăn để bắt đầu theo dõi dinh dưỡng.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.track_empty_meals_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.track_empty_meals_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -678,9 +802,9 @@ private fun BodyTab(
         // ── Camera Scan Card ──
         CameraAnalysisCard(
             icon = Icons.Outlined.AccessibilityNew,
-            title = "Quét hình thể",
-            body = "Chụp ảnh toàn thân để AI phân tích chỉ số cơ thể.",
-            primaryAction = "Chụp ảnh",
+            title = stringResource(R.string.track_body_scan_title),
+            body = stringResource(R.string.track_body_scan_body),
+            primaryAction = stringResource(R.string.track_take_photo),
             state = state,
             onOpenCamera = onOpenCamera,
             onSubmitImage = onSubmitImage
@@ -701,7 +825,7 @@ private fun BodyTab(
                     ) {
                         Icon(Icons.Outlined.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
                         Text(
-                            "Đã lưu kết quả phân tích!",
+                            stringResource(R.string.track_saved_badge_body),
                             modifier = Modifier.padding(start = 8.dp),
                             color = Color(0xFF2E7D32),
                             fontWeight = FontWeight.SemiBold,
@@ -721,7 +845,7 @@ private fun BodyTab(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
                         Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(18.dp))
-                        Text("Lưu kết quả", modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.track_save_result), modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -742,20 +866,20 @@ private fun BodyTab(
                     ) {
                         Icon(Icons.Outlined.AccessibilityNew, contentDescription = null, tint = Color(0xFF6C63FF), modifier = Modifier.size(20.dp))
                     }
-                    Text("Chỉ số cơ thể", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.track_body_metrics), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(state.progressWeight, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("Cân nặng", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_weight), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(state.bmi, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF6C63FF))
-                        Text("BMI", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.home_body_metric_bmi), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(state.targetWeight, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FittyPink)
-                        Text("Mục tiêu", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_goal), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -769,10 +893,10 @@ private fun BodyTab(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("💡 Mẹo chụp ảnh", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text("• Chụp ở nơi có ánh sáng tốt", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("• Mặc quần áo ôm sát", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("• Chụp cả 3 góc: trước, ngang, sau", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.track_photo_tips), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("• ${stringResource(R.string.track_tip_lighting)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• ${stringResource(R.string.track_tip_clothes)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("• ${stringResource(R.string.track_tip_angles)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -804,14 +928,14 @@ private fun ProgressTab(state: TrackUiState) {
                     )
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("${state.completionRate}%", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = FittyPink)
-                        Text("tuần này", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_this_week), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
-                    Text("Tiến độ tuần", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    ProgressMiniRow(Icons.Outlined.FitnessCenter, "Tập luyện", state.progressWorkouts)
-                    ProgressMiniRow(Icons.Outlined.Restaurant, "Bữa ăn", state.progressMeals)
-                    ProgressMiniRow(Icons.Outlined.LocalFireDepartment, "Calo đốt", state.totalCaloriesBurned)
+                    Text(stringResource(R.string.track_week_progress), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    ProgressMiniRow(Icons.Outlined.FitnessCenter, stringResource(R.string.track_progress_workout), state.progressWorkouts)
+                    ProgressMiniRow(Icons.Outlined.Restaurant, stringResource(R.string.track_progress_meal), state.progressMeals)
+                    ProgressMiniRow(Icons.Outlined.LocalFireDepartment, stringResource(R.string.track_progress_calories_burned), state.totalCaloriesBurned)
                 }
             }
         }
@@ -824,9 +948,17 @@ private fun ProgressTab(state: TrackUiState) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Hoạt động 7 ngày", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.track_7day_activity), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    val days = listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN")
+                    val days = listOf(
+                        stringResource(R.string.track_day_mon),
+                        stringResource(R.string.track_day_tue),
+                        stringResource(R.string.track_day_wed),
+                        stringResource(R.string.track_day_thu),
+                        stringResource(R.string.track_day_fri),
+                        stringResource(R.string.track_day_sat),
+                        stringResource(R.string.track_day_sun)
+                    )
                     state.weeklyActiveDays.forEachIndexed { i, active ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(
@@ -862,15 +994,15 @@ private fun ProgressTab(state: TrackUiState) {
                     ) {
                         Icon(Icons.Outlined.MonitorWeight, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
                     }
-                    Text("Cân nặng", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.track_weight), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
-                        Text("Hiện tại", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_current), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(state.progressWeight, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text("Mục tiêu", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_goal), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(state.targetWeight, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = FittyPink)
                     }
                 }
@@ -881,7 +1013,7 @@ private fun ProgressTab(state: TrackUiState) {
                     trackColor = FittyPink.copy(alpha = 0.1f)
                 )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("BMI: ${state.bmi}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.track_bmi_value, state.bmi), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("${(state.progressWeightPercent * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = FittyPink, fontWeight = FontWeight.SemiBold)
                 }
             }
@@ -891,14 +1023,14 @@ private fun ProgressTab(state: TrackUiState) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProgressMiniCard(
                 icon = Icons.Outlined.FitnessCenter,
-                title = "Tập luyện",
+                title = stringResource(R.string.track_progress_workout),
                 value = state.progressWorkouts,
                 progress = state.progressWorkoutPercent,
                 modifier = Modifier.weight(1f)
             )
             ProgressMiniCard(
                 icon = Icons.Outlined.Restaurant,
-                title = "Dinh dưỡng",
+                title = stringResource(R.string.track_progress_meal),
                 value = state.progressMeals,
                 progress = state.progressMealPercent,
                 modifier = Modifier.weight(1f)
@@ -949,12 +1081,12 @@ private fun StatsTab(state: TrackUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         // ── Overview tiles ──
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile(state.statWorkouts, "Buổi tập", Icons.Outlined.FitnessCenter, Color(0xFF6C63FF), Modifier.weight(1f))
-            StatTile(state.statMeals, "Bữa ăn", Icons.Outlined.Restaurant, Color(0xFFFF6B9D), Modifier.weight(1f))
+            StatTile(state.statWorkouts, stringResource(R.string.track_stat_workouts), Icons.Outlined.FitnessCenter, Color(0xFF6C63FF), Modifier.weight(1f))
+            StatTile(state.statMeals, stringResource(R.string.track_stat_meals), Icons.Outlined.Restaurant, Color(0xFFFF6B9D), Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatTile(state.statStreak, "Chuỗi tốt nhất", Icons.Outlined.LocalFireDepartment, Color(0xFFFF9F43), Modifier.weight(1f))
-            StatTile(state.statActiveMin, "Phút hoạt động", Icons.Outlined.BarChart, Color(0xFF2ED573), Modifier.weight(1f))
+            StatTile(state.statStreak, stringResource(R.string.track_stat_best_streak), Icons.Outlined.LocalFireDepartment, Color(0xFFFF9F43), Modifier.weight(1f))
+            StatTile(state.statActiveMin, stringResource(R.string.track_stat_active_minutes), Icons.Outlined.BarChart, Color(0xFF2ED573), Modifier.weight(1f))
         }
 
         // ── Nutrition breakdown ──
@@ -973,14 +1105,14 @@ private fun StatsTab(state: TrackUiState) {
                         Icon(Icons.Outlined.Restaurant, contentDescription = null, tint = Color(0xFFFF6B9D), modifier = Modifier.size(20.dp))
                     }
                     Column {
-                        Text("Dinh dưỡng trung bình", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(state.statAvgCalories + " / ngày", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_avg_nutrition), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.track_per_day, state.statAvgCalories), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    MacroStatPill("Protein", state.statProteinAvg, Color(0xFF6C63FF))
-                    MacroStatPill("Carbs", state.statCarbsAvg, Color(0xFFFF9F43))
-                    MacroStatPill("Fat", state.statFatAvg, Color(0xFF2ED573))
+                    MacroStatPill(stringResource(R.string.track_row_protein), state.statProteinAvg, Color(0xFF6C63FF))
+                    MacroStatPill(stringResource(R.string.track_row_carbs), state.statCarbsAvg, Color(0xFFFF9F43))
+                    MacroStatPill(stringResource(R.string.track_row_fat), state.statFatAvg, Color(0xFF2ED573))
                 }
             }
         }
@@ -993,14 +1125,14 @@ private fun StatsTab(state: TrackUiState) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Tổng quan hoạt động", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.track_overview_activity), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
-                        Text("Calo đốt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_burned_calories), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(state.totalCaloriesBurned, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFF6B9D))
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text("Trung bình/ngày", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.track_avg_per_day), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(state.avgDailyCalories, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF6C63FF))
                     }
                 }
@@ -1045,7 +1177,7 @@ private fun CameraAnalysisCard(
             state.capturedImageUri?.let { imageUri ->
                 AsyncImage(
                     model = imageUri,
-                    contentDescription = "Captured Track photo",
+                    contentDescription = stringResource(R.string.track_captured_photo),
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1062,7 +1194,7 @@ private fun CameraAnalysisCard(
                 OutlinedButton(onClick = onOpenCamera, shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)) {
                     Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(
-                        text = if (state.capturedImageUri == null) primaryAction else "Chụp lại",
+                        text = if (state.capturedImageUri == null) primaryAction else stringResource(R.string.track_retake_photo),
                         modifier = Modifier.padding(start = 8.dp),
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1076,7 +1208,7 @@ private fun CameraAnalysisCard(
                     if (state.isSubmittingImage) {
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
                     } else {
-                        Text("Phân tích", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.track_analyze), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -1249,7 +1381,7 @@ private fun ScanHistoryCard(scan: MealScanHistoryUi) {
                 if (scan.imageUrl.isNotBlank()) {
                     AsyncImage(
                         model = scan.imageUrl,
-                        contentDescription = "Scan photo",
+                        contentDescription = stringResource(R.string.track_scan_photo),
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1268,14 +1400,14 @@ private fun ScanHistoryCard(scan: MealScanHistoryUi) {
             // Info
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    "${scan.calories} kcal",
+                    stringResource(R.string.track_kcal_value, scan.calories),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("P: ${scan.protein}g", style = MaterialTheme.typography.labelSmall, color = FittyPink)
-                    Text("C: ${scan.carbs}g", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("F: ${scan.fat}g", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                    Text(stringResource(R.string.track_macro_short_protein, scan.protein), style = MaterialTheme.typography.labelSmall, color = FittyPink)
+                    Text(stringResource(R.string.track_macro_short_carbs, scan.carbs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.track_macro_short_fat, scan.fat), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
                 }
                 Text(
                     dateText,
@@ -1291,7 +1423,7 @@ private fun ScanHistoryCard(scan: MealScanHistoryUi) {
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        "${scan.foodCount} items",
+                        stringResource(R.string.track_items_count, scan.foodCount),
                         style = MaterialTheme.typography.labelSmall,
                         color = FittyPink,
                         fontWeight = FontWeight.SemiBold
@@ -1301,3 +1433,157 @@ private fun ScanHistoryCard(scan: MealScanHistoryUi) {
         }
     }
 }
+
+@Composable
+private fun BodyHistorySection(state: TrackUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (state.bodyScanHistory.isNotEmpty()) {
+            Text(stringResource(R.string.track_body_history), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            state.bodyScanHistory.forEach { scan ->
+                BodyScanHistoryCard(scan)
+            }
+        } else {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF6C63FF).copy(alpha = 0.08f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.AccessibilityNew, contentDescription = null, tint = Color(0xFF6C63FF).copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
+                    }
+                    Text(stringResource(R.string.track_empty_body_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.track_empty_body_body), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BodyScanHistoryCard(scan: BodyScanHistoryUi) {
+    val dateText = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+        .format(java.util.Date(scan.timestamp))
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF6C63FF).copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (scan.imageUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = scan.imageUrl,
+                        contentDescription = stringResource(R.string.track_scan_photo),
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(72.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                } else {
+                    Icon(
+                        Icons.Outlined.CameraAlt,
+                        contentDescription = null,
+                        tint = Color(0xFF6C63FF).copy(alpha = 0.45f),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    scan.summary.ifBlank { stringResource(R.string.track_analysis_complete) },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    scan.bodyFatPercent?.let {
+                        Text(
+                            stringResource(R.string.track_body_fat_short, String.format(java.util.Locale.US, "%.1f", it)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = FittyPink
+                        )
+                    }
+                    scan.postureScore?.let {
+                        Text(
+                            stringResource(R.string.track_posture_short, it),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF6C63FF)
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.track_confidence_short, (scan.confidence * 100).toInt()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+                Text(
+                    dateText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .background(FittyPink.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    scan.status.toLocalizedTrackToken(LocalContext.current),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = FittyPink,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
+private fun String.toLocalizedTrackToken(context: Context): String {
+    return when (trim().lowercase(java.util.Locale.ROOT)) {
+        "breakfast" -> context.getString(R.string.home_meal_breakfast)
+        "lunch" -> context.getString(R.string.home_meal_lunch)
+        "dinner" -> context.getString(R.string.home_meal_dinner)
+        "snack" -> context.getString(R.string.home_meal_snack)
+        "other" -> context.getString(R.string.home_meal_type_other)
+        "good" -> context.getString(R.string.common_status_good)
+        "excellent" -> context.getString(R.string.common_status_excellent)
+        "normal" -> context.getString(R.string.common_status_normal)
+        "needs_improvement", "needs improvement" -> context.getString(R.string.common_status_needs_improvement)
+        "easy" -> context.getString(R.string.common_label_easy)
+        "medium" -> context.getString(R.string.common_label_medium)
+        "hard" -> context.getString(R.string.common_label_hard)
+        "beginner" -> context.getString(R.string.plan_level_beginner)
+        "intermediate" -> context.getString(R.string.common_label_intermediate)
+        "advanced" -> context.getString(R.string.common_label_advanced)
+        else -> split('_', ' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part ->
+                part.replaceFirstChar { char ->
+                    if (char.isLowerCase()) char.titlecase(java.util.Locale.US) else char.toString()
+                }
+            }
+    }
+}
+
+
+

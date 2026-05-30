@@ -1,5 +1,6 @@
 package com.example.fitty.data.exercise
 
+import android.util.Log
 import com.example.fitty.data.firebase.toExerciseFirestoreDocument
 import com.example.fitty.data.local.exercise.EXERCISE_SYNC_STATE_ID
 import com.example.fitty.data.local.exercise.ExerciseDao
@@ -31,6 +32,9 @@ class OfflineFirstExerciseRepository @Inject constructor(
     private val networkMonitor: NetworkMonitor,
     private val mediaDownloadManager: ExerciseMediaDownloadManager
 ) : ExerciseCatalogRepository {
+    private companion object {
+        const val TAG = "ExerciseSync"
+    }
 
     override fun observeExercises(query: ExerciseQuery): Flow<List<Exercise>> {
         return exerciseDao.observeExercises(
@@ -86,12 +90,22 @@ class OfflineFirstExerciseRepository @Inject constructor(
                 isSyncing = true,
                 isOnline = online,
                 lastAttemptedSyncAt = startedAt,
+                statusCode = null,
                 lastErrorMessage = null,
                 progress = 0f
             )
         )
 
         if (!online) {
+            syncStateDao.upsertSyncState(
+                previousState.copy(
+                    isSyncing = false,
+                    isOnline = false,
+                    lastAttemptedSyncAt = startedAt,
+                    statusCode = ExerciseCatalogSyncPolicy.STATUS_OFFLINE_CACHED,
+                    lastErrorMessage = "No internet connection. Loading cached metadata from Room."
+                )
+            )
             throw IllegalStateException("No internet connection. Loading cached metadata from Room.")
         }
 
@@ -103,17 +117,80 @@ class OfflineFirstExerciseRepository @Inject constructor(
         var latestDeltaToken = previousState.deltaToken
         var apiVersion = previousState.apiVersion
         val existingById = getAllExistingById()
-        val remoteExercises = firestore.collection("exercises")
+        val remoteDocuments = firestore.collection("exercises")
             .get()
             .await()
             .documents
-            .mapNotNull { document -> document.toExerciseFirestoreDocument()?.toDomain() }
+            .mapNotNull { document -> document.toExerciseFirestoreDocument() }
 
-        fetched = remoteExercises.size
+        fetched = remoteDocuments.size
         apiVersion = "firestore"
         latestDeltaToken = if (shouldForceFullRefresh) null else latestDeltaToken
 
-        val mergedEntities = remoteExercises.map { remote ->
+        var usable = 0
+        var droppedMissingId = 0
+        var droppedMissingName = 0
+        var droppedMissingBodyPart = 0
+        var droppedInvalidBodyPart = 0
+
+        val normalizedExercises = remoteDocuments.mapNotNull { remote ->
+            val result = ExerciseCatalogSyncPolicy.validate(remote)
+            when (result.issue) {
+                "missing_id" -> droppedMissingId += 1
+                "missing_name" -> droppedMissingName += 1
+                "missing_body_part" -> droppedMissingBodyPart += 1
+                "invalid_body_part" -> droppedInvalidBodyPart += 1
+            }
+            result.normalized
+        }.map { normalized ->
+            usable += 1
+            normalized.toDomain()
+        }
+
+        val validationSummary = ExerciseCatalogSyncPolicy.ValidationSummary(
+            fetched = fetched,
+            usable = usable,
+            droppedMissingId = droppedMissingId,
+            droppedMissingName = droppedMissingName,
+            droppedMissingBodyPart = droppedMissingBodyPart,
+            droppedInvalidBodyPart = droppedInvalidBodyPart
+        )
+
+        Log.i(
+            TAG,
+            "Exercise sync fetched=$fetched usable=$usable missingId=$droppedMissingId " +
+                "missingName=$droppedMissingName missingBodyPart=$droppedMissingBodyPart invalidBodyPart=$droppedInvalidBodyPart"
+        )
+
+        if (validationSummary.usable == 0) {
+            val statusCode = validationSummary.statusCode ?: ExerciseCatalogSyncPolicy.STATUS_EMPTY_REMOTE_DATA
+            val message = when (statusCode) {
+                ExerciseCatalogSyncPolicy.STATUS_INVALID_REMOTE_MAPPING ->
+                    "Firebase exercises data exists but bodyPart values do not match supported categories."
+                else ->
+                    "Firebase exercises collection is empty or contains no usable exercise metadata."
+            }
+            syncStateDao.upsertSyncState(
+                ExerciseSyncStateEntity(
+                    id = EXERCISE_SYNC_STATE_ID,
+                    isSyncing = false,
+                    isOnline = true,
+                    lastAttemptedSyncAt = startedAt,
+                    apiVersion = apiVersion,
+                    deltaToken = latestDeltaToken,
+                    totalExercises = exerciseDao.countExercises(),
+                    downloadedImages = 0,
+                    downloadedGifs = 0,
+                    downloadedVideos = 0,
+                    progress = 1f,
+                    statusCode = statusCode,
+                    lastErrorMessage = message
+                )
+            )
+            throw IllegalStateException(message)
+        }
+
+        val mergedEntities = normalizedExercises.map { remote ->
             val current = existingById[remote.id]
             val base = remote.mergeWithCurrent(current)
             if (current == null) inserted += 1 else updated += 1
@@ -151,6 +228,7 @@ class OfflineFirstExerciseRepository @Inject constructor(
                 downloadedGifs = 0,
                 downloadedVideos = 0,
                 progress = 1f,
+                statusCode = ExerciseCatalogSyncPolicy.STATUS_SUCCESS,
                 lastErrorMessage = null
             )
         )
@@ -169,6 +247,7 @@ class OfflineFirstExerciseRepository @Inject constructor(
                 downloadedGifs = 0,
                 downloadedVideos = 0,
                 progress = 1f,
+                statusCode = ExerciseCatalogSyncPolicy.STATUS_SUCCESS,
                 lastErrorMessage = null
             )
         )
@@ -177,6 +256,11 @@ class OfflineFirstExerciseRepository @Inject constructor(
             fetched = fetched,
             inserted = inserted,
             updated = updated,
+            usable = usable,
+            droppedMissingId = droppedMissingId,
+            droppedMissingName = droppedMissingName,
+            droppedMissingBodyPart = droppedMissingBodyPart,
+            droppedInvalidBodyPart = droppedInvalidBodyPart,
             mediaDownloaded = mediaDownloaded,
             failedMediaDownloads = failedMediaDownloads,
             nextDeltaToken = latestDeltaToken,
@@ -188,6 +272,11 @@ class OfflineFirstExerciseRepository @Inject constructor(
             previousState.copy(
                 isSyncing = false,
                 isOnline = networkMonitor.isOnline(),
+                statusCode = previousState.statusCode ?: if (networkMonitor.isOnline()) {
+                    ExerciseCatalogSyncPolicy.STATUS_NETWORK_ERROR
+                } else {
+                    ExerciseCatalogSyncPolicy.STATUS_OFFLINE_CACHED
+                },
                 lastErrorMessage = error.message
             )
         )
@@ -339,6 +428,7 @@ class OfflineFirstExerciseRepository @Inject constructor(
         downloadedGifs = downloadedGifs,
         downloadedVideos = downloadedVideos,
         progress = progress,
+        statusCode = statusCode,
         lastErrorMessage = lastErrorMessage
     )
 }
