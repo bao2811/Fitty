@@ -43,7 +43,6 @@ import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.designsystem.component.FittySettingsRow
 import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.ContentDebugSource
-import com.example.fitty.core.ui.ContentDiagnosticsCard
 import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.FittyUser
@@ -382,8 +381,7 @@ fun ProfileRoute(onLogout: () -> Unit, viewModel: ProfileViewModel = hiltViewMod
         onAvatarPicked = viewModel::uploadAvatar,
         onToggleTheme = viewModel::toggleTheme, onToggleLanguage = viewModel::toggleLanguage,
         onToggleAiConsent = viewModel::toggleAiConsent, onTogglePhotoStorage = viewModel::togglePhotoStorage,
-        onLoadFcmToken = viewModel::loadFcmToken, onCopyFcmToken = viewModel::copyFcmToken,
-        onRefreshContentDiagnostics = viewModel::refreshContentDiagnostics)
+        onLoadFcmToken = viewModel::loadFcmToken, onCopyFcmToken = viewModel::copyFcmToken)
 }
 
 @Composable
@@ -394,8 +392,7 @@ fun ProfileScreen(
     onAvatarPicked: (String) -> Unit = {},
     onToggleTheme: () -> Unit = {}, onToggleLanguage: () -> Unit = {},
     onToggleAiConsent: () -> Unit = {}, onTogglePhotoStorage: () -> Unit = {},
-    onLoadFcmToken: () -> Unit = {}, onCopyFcmToken: () -> Unit = {},
-    onRefreshContentDiagnostics: () -> Unit = {}
+    onLoadFcmToken: () -> Unit = {}, onCopyFcmToken: () -> Unit = {}
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog) {
@@ -415,7 +412,6 @@ fun ProfileScreen(
         item { AppSettingsSection(state, onToggleTheme, onToggleLanguage) }
         item { PrivacySection(state, onToggleAiConsent, onTogglePhotoStorage) }
         if (BuildConfig.DEBUG) {
-            item { ContentDebugSection(state, onRefreshContentDiagnostics) }
             item { PushDebugSection(state, onLoadFcmToken, onCopyFcmToken) }
         }
         item { LogoutSection(onLogout, onDeleteAccount = { showDeleteDialog = true }) }
@@ -611,62 +607,6 @@ private fun BodyMetricsSection(state: ProfileUiState) {
         SettingsCard {
             SwitchSettingsRow(Icons.Outlined.Psychology, stringResource(R.string.profile_ai_analysis), stringResource(R.string.profile_ai_analysis_desc), state.aiConsentEnabled, onToggleAiConsent)
             SwitchSettingsRow(Icons.Outlined.PhotoCamera, stringResource(R.string.profile_photo_storage), stringResource(R.string.profile_photo_storage_desc), state.photoStorageEnabled, onTogglePhotoStorage)
-        }
-    }
-}
-
-@Composable
-private fun ContentDebugSection(state: ProfileUiState, onRefresh: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FittySectionHeader("Content Debug")
-        SettingsCard {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Firebase content source",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Refresh to verify remote content and behavior config.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = onRefresh,
-                        enabled = !state.isLoadingContentDiagnostics,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        if (state.isLoadingContentDiagnostics) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Text("Refresh")
-                        }
-                    }
-                }
-                if (state.contentDiagnostics.isNotEmpty()) {
-                    ContentDiagnosticsCard(sources = state.contentDiagnostics)
-                }
-                state.contentDiagnosticsFeedback?.let { feedback ->
-                    Text(
-                        text = feedback,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
         }
     }
 }

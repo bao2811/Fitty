@@ -66,10 +66,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.fitty.BuildConfig
 import com.example.fitty.R
 import com.example.fitty.core.ui.ContentDebugSource
-import com.example.fitty.core.ui.ContentDiagnosticsCard
 import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.data.content.LocalContentFallbacks
 import com.example.fitty.domain.model.CoachSuggestion
@@ -333,13 +331,6 @@ private fun CoachScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         CoachHeader()
-
-        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
-            ContentDiagnosticsCard(
-                sources = state.contentSources,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        }
 
         state.error?.let { errorMessage ->
             ErrorBanner(errorMessage)
