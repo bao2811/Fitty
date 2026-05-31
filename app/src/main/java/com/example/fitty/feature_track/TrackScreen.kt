@@ -62,10 +62,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
-import com.example.fitty.BuildConfig
 import com.example.fitty.R
 import com.example.fitty.core.ui.ContentDebugSource
-import com.example.fitty.core.ui.ContentDiagnosticsCard
 import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.data.content.LocalContentFallbacks
@@ -526,11 +524,6 @@ private fun TrackScreen(
     FittyLazyScreen {
         item {
             Text(stringResource(R.string.track_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        }
-        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
-            item {
-                ContentDiagnosticsCard(sources = state.contentSources)
-            }
         }
         val selectedTab = state.selectedTab
         if (selectedTab == null) {

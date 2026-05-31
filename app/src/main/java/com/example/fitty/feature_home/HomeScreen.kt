@@ -86,11 +86,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
-import com.example.fitty.BuildConfig
 import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.ui.ContentDebugSource
-import com.example.fitty.core.ui.ContentDiagnosticsCard
 import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.AppNotificationType
@@ -881,9 +879,6 @@ fun HomeScreen(
 
     FittyLazyScreen {
         item { HomeTopBar(state = state, onNotificationClick = onToggleNotifications) }
-        if (BuildConfig.DEBUG && state.contentSources.isNotEmpty()) {
-            item { ContentDiagnosticsCard(sources = state.contentSources) }
-        }
         item { TodaySummaryCard(state = state, onStartToday = onStartWorkout, onViewPlan = onWorkoutDetails) }
         // Quick Actions Row
         item {
