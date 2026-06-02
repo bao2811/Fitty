@@ -144,11 +144,12 @@ class TrackViewModelTest {
     }
 
     @Test
-    fun `init uses daily summary workout targets and meal heuristic in progress state`() = runTest {
+    fun `init uses persisted workout minutes and explicit meal target in progress state`() = runTest {
         val trackingRepository = FakeTrackingRepository(
             progressStats = ProgressStats(
                 totalWorkouts = 6,
                 totalMealsLogged = 4,
+                mealTargetPerDay = 6,
                 dailySummaries = listOf(
                     DailySummary(
                         dateKey = "2026-05-19",
@@ -156,7 +157,8 @@ class TrackViewModelTest {
                         progress = DailySummaryProgress(
                             workoutsCompleted = 1,
                             mealsLogged = 2,
-                            caloriesBurned = 300
+                            caloriesBurned = 300,
+                            activeMinutes = 30
                         )
                     ),
                     DailySummary(
@@ -165,7 +167,8 @@ class TrackViewModelTest {
                         progress = DailySummaryProgress(
                             workoutsCompleted = 2,
                             mealsLogged = 2,
-                            caloriesBurned = 240
+                            caloriesBurned = 240,
+                            activeMinutes = 40
                         )
                     )
                 )
@@ -178,9 +181,9 @@ class TrackViewModelTest {
         val state = viewModel.uiState.value
         assertEquals("3/5", state.progressWorkouts)
         assertEquals(0.6f, state.progressWorkoutPercent, 0.001f)
-        assertEquals("4 meals", state.progressMeals)
+        assertEquals("4/6", state.progressMeals)
         assertEquals(4f / 6f, state.progressMealPercent, 0.001f)
-        assertEquals("180", state.statActiveMin)
+        assertEquals("70", state.statActiveMin)
     }
 
     @Test

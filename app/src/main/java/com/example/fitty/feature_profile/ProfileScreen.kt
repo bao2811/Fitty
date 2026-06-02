@@ -148,8 +148,10 @@ class ProfileViewModel @Inject constructor(
                     weightLabel = liveWeight?.let { "%.0f ${user?.settings?.weightUnit ?: "kg"}".format(it) } ?: state.weightLabel,
                     bmiLabel = liveBmi,
                     calorieTargetLabel = summary?.targets?.calories?.let { "${it} ${user?.settings?.energyUnit ?: "kcal"}" }
+                        ?: user?.settings?.calorieTarget?.let { "${it} ${user.settings.energyUnit}" }
                         ?: state.calorieTargetLabel,
                     waterGoalLabel = summary?.targets?.waterMl?.let { "%.1fL".format(it / 1000f) }
+                        ?: user?.settings?.waterGoalMl?.let { "%.1fL".format(it / 1000f) }
                         ?: state.waterGoalLabel,
                     currentStreak = stats.currentStreak,
                     bestStreak = stats.bestStreak,
@@ -778,8 +780,11 @@ private fun FittyUser.toProfileUiState(context: Context): ProfileUiState {
         goalProgress = progress, goalProgressLabel = context.getString(R.string.profile_setup_complete, (progress * 100).roundToInt()),
         heightLabel = profile.heightCm?.let { context.getString(R.string.profile_measurement_value, it, settings.heightUnit) } ?: context.getString(R.string.profile_measurement_unknown, settings.heightUnit),
         weightLabel = profile.weightKg?.let { context.getString(R.string.profile_measurement_value, it, settings.weightUnit) } ?: context.getString(R.string.profile_measurement_unknown, settings.weightUnit),
-        bmiLabel = calculateBmi(profile.weightKg, profile.heightCm), calorieTargetLabel = context.getString(R.string.profile_calorie_placeholder),
-        waterGoalLabel = context.getString(R.string.profile_not_set), trainingDaysCountLabel = context.getString(R.string.profile_days_count, onboarding.workoutDays.size),
+        bmiLabel = calculateBmi(profile.weightKg, profile.heightCm),
+        calorieTargetLabel = settings.calorieTarget?.let { context.getString(R.string.profile_measurement_value, it, settings.energyUnit) }
+            ?: context.getString(R.string.profile_calorie_placeholder),
+        waterGoalLabel = settings.waterGoalMl?.let { "%.1fL".format(it / 1000f) } ?: context.getString(R.string.profile_not_set),
+        trainingDaysCountLabel = context.getString(R.string.profile_days_count, onboarding.workoutDays.size),
         workoutPreferenceLabel = context.getString(R.string.profile_workout_preference_format, fitness, preferredTime), trainingDaysLabel = trainingDays,
         equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(context.getString(R.string.profile_not_set)), dietaryLabel = onboarding.nutritionStyle.toDisplayLabel(context.getString(R.string.profile_not_set)),
         languageLabel = settings.language.toLanguageLabel(context), themeLabel = settings.themeMode.toDisplayLabel(context.getString(R.string.profile_theme_default)),

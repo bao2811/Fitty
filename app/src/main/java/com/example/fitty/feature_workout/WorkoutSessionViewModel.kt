@@ -15,6 +15,7 @@ import com.example.fitty.domain.model.ExerciseQuery
 import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.QuickWorkoutConfig
 import com.example.fitty.domain.model.ScheduledWorkout
+import com.example.fitty.domain.model.WorkoutExercise
 import com.example.fitty.domain.model.WorkoutSession
 import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.domain.repository.ExerciseCatalogRepository
@@ -459,6 +460,16 @@ class WorkoutSessionViewModel @Inject constructor(
                     source = if (planId.isNotBlank()) "plan" else "quick_template",
                     status = "in_progress",
                     startedAt = System.currentTimeMillis(),
+                    plannedExercises = _uiState.value.exerciseItems.map { item ->
+                        WorkoutExercise(
+                            exerciseId = item.exercise.id,
+                            name = item.exercise.name,
+                            sets = item.plannedSets,
+                            reps = item.targetRepsLabel,
+                            durationSeconds = item.requiredSeconds.takeIf { item.plannedSets == 0 },
+                            targetWeightKg = item.targetWeightKg
+                        )
+                    },
                     exercises = exerciseLogs
                 )
                 workoutSessionRepository.startSession(uid, session)

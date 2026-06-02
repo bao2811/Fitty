@@ -14,6 +14,7 @@ data class WorkoutSession(
     val completionRate: Float = 0f,
     val perceivedEffort: Int? = null,
     val notes: String? = null,
+    val plannedExercises: List<WorkoutExercise> = emptyList(),
     val exercises: List<ExerciseLog> = emptyList()
 )
 

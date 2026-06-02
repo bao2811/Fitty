@@ -281,6 +281,7 @@ class TrackViewModel @Inject constructor(
                 val totalWorkoutsCompleted = stats.dailySummaries.sumOf { s -> s.progress.workoutsCompleted }
                 val totalWorkoutTarget = stats.dailySummaries.sumOf { s -> s.targets.workouts }.coerceAtLeast(1)
                 val totalCalBurned = stats.dailySummaries.sumOf { s -> s.progress.caloriesBurned }
+                val totalActiveMinutes = stats.dailySummaries.sumOf { s -> s.progress.activeMinutes }
                 val avgCal = if (stats.dailySummaries.isNotEmpty()) totalCalBurned / stats.dailySummaries.size else 0
 
                 // Map weekly active days to actual days of the week (Mon=0..Sun=6)
@@ -311,7 +312,7 @@ class TrackViewModel @Inject constructor(
                         statWorkouts = stats.totalWorkouts.toString(),
                         statMeals = stats.totalMealsLogged.toString(),
                         statStreak = context.getString(R.string.track_days_value, stats.currentStreak),
-                        statActiveMin = "${stats.totalWorkouts * behaviorConfig.activeMinutesPerWorkout}",
+                        statActiveMin = "$totalActiveMinutes",
                         statBestStreak = context.getString(R.string.track_days_value, stats.bestStreak),
                         statAvgCalories = context.getString(R.string.track_kcal_value, avgCal),
                         statProteinAvg = context.getString(R.string.track_grams_value, totalProtein / dayCount),
@@ -332,10 +333,11 @@ class TrackViewModel @Inject constructor(
                         bmi = stats.bmi?.let { b -> "%.1f".format(b) } ?: "--",
                         progressWorkouts = "$totalWorkoutsCompleted/$totalWorkoutTarget",
                         progressWorkoutPercent = (totalWorkoutsCompleted.toFloat() / totalWorkoutTarget).coerceIn(0f, 1f),
-                        progressMeals = context.getString(R.string.track_progress_total_meals, stats.totalMealsLogged),
-                        progressMealPercent = if (stats.dailySummaries.isNotEmpty()) {
-                            val mealTarget = stats.dailySummaries.size * behaviorConfig.mealTargetPerDay
-                            (stats.totalMealsLogged.toFloat() / mealTarget).coerceIn(0f, 1f)
+                        progressMeals = stats.mealTargetPerDay?.takeIf { it > 0 }?.let { mealTarget ->
+                            "${stats.totalMealsLogged}/$mealTarget"
+                        } ?: context.getString(R.string.track_progress_total_meals, stats.totalMealsLogged),
+                        progressMealPercent = if ((stats.mealTargetPerDay ?: 0) > 0) {
+                            (stats.totalMealsLogged.toFloat() / stats.mealTargetPerDay!!).coerceIn(0f, 1f)
                         } else {
                             0f
                         },

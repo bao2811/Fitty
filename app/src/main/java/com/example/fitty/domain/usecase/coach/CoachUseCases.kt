@@ -10,6 +10,7 @@ import com.example.fitty.domain.repository.PlanRepository
 import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.repository.TrackingRepository
 import com.example.fitty.domain.repository.UserRepository
+import com.example.fitty.domain.model.preferredDisplayName
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -31,13 +32,13 @@ class BuildCoachContextUseCase @Inject constructor(
         } else null
 
         return CoachContext(
-            userName = user.displayName,
+            userName = user.preferredDisplayName(),
             goal = user.profile.primaryGoal,
             fitnessLevel = user.profile.fitnessLevel,
             activePlanName = planName ?: "",
             todayWorkoutTitle = summary?.todayWorkoutTitle ?: "",
             currentStreak = user.stats.currentStreak,
-            mealsLoggedToday = summary?.mealsLoggedCount ?: 0,
+            mealsLoggedToday = summary?.progress?.mealsLogged ?: summary?.mealsLoggedCount ?: 0,
             latestWeight = user.profile.weightKg?.toFloat(),
             recentInsight = summary?.insightText ?: ""
         )

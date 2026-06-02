@@ -139,6 +139,8 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         val normalizedWorkoutDays = answers.workoutDays
             .map { it.lowercase(Locale.US).take(3) }
             .sorted()
+        val calorieTarget = computeCalorieTarget(answers.weightKg, answers.goal.toSchemaValue())
+        val waterGoalMl = computeWaterGoalMl(answers.weightKg)
 
         val userPayload = hashMapOf<String, Any?>(
             "onboardingCompleted" to false,
@@ -160,6 +162,11 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 "equipmentAccess" to answers.equipment.toSchemaValue(),
                 "nutritionStyle" to answers.nutrition.toSchemaValue(),
                 "dietaryRestrictions" to answers.restrictions.map { it.toSchemaValue() }.sorted()
+            ),
+            "settings" to mapOf(
+                "calorieTarget" to calorieTarget,
+                "waterGoalMl" to waterGoalMl,
+                "mealTargetPerDay" to DEFAULT_MEAL_TARGET_PER_DAY
             ),
             "updatedAt" to FieldValue.serverTimestamp()
         )
@@ -335,6 +342,25 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 "explanation" to buildResult.plan.explanation,
                 "currentWeek" to 1,
                 "nextWorkoutDate" to buildResult.plan.nextWorkoutDate,
+                "previewTitle" to buildResult.preview.title,
+                "previewSubtitle" to buildResult.preview.subtitle,
+                "previewDetails" to buildResult.preview.details.map { detail ->
+                    mapOf(
+                        "iconKey" to detail.iconKey,
+                        "title" to detail.title,
+                        "body" to detail.body
+                    )
+                },
+                "previewExercises" to buildResult.preview.exercises.map { exercise ->
+                    mapOf(
+                        "exerciseId" to exercise.exerciseId,
+                        "name" to exercise.name,
+                        "sets" to exercise.sets,
+                        "reps" to exercise.reps,
+                        "durationSeconds" to exercise.durationSeconds,
+                        "targetWeightKg" to exercise.targetWeightKg
+                    )
+                },
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             ),
@@ -418,6 +444,9 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 "weightUnit" to "kg",
                 "heightUnit" to "cm",
                 "energyUnit" to "kcal",
+                "calorieTarget" to null,
+                "waterGoalMl" to null,
+                "mealTargetPerDay" to null,
                 "aiConsent" to true,
                 "photoStorageEnabled" to true
             ),
@@ -534,6 +563,9 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 weightUnit = settingsMap.stringValue("weightUnit").ifBlank { "kg" },
                 heightUnit = settingsMap.stringValue("heightUnit").ifBlank { "cm" },
                 energyUnit = settingsMap.stringValue("energyUnit").ifBlank { "kcal" },
+                calorieTarget = settingsMap.intValue("calorieTarget"),
+                waterGoalMl = settingsMap.intValue("waterGoalMl"),
+                mealTargetPerDay = settingsMap.intValue("mealTargetPerDay"),
                 aiConsent = settingsMap.booleanValue("aiConsent") ?: true,
                 photoStorageEnabled = settingsMap.booleanValue("photoStorageEnabled") ?: true
             )
@@ -566,6 +598,20 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         return trim().lowercase(Locale.US) in PLACEHOLDER_USER_NAMES
     }
 
+    private fun computeCalorieTarget(weightKg: Int?, goal: String): Int? {
+        val weight = weightKg ?: return null
+        return when (goal) {
+            "gain_muscle" -> weight * 34
+            "lose_weight" -> weight * 28
+            else -> weight * 30
+        }
+    }
+
+    private fun computeWaterGoalMl(weightKg: Int?): Int? {
+        val weight = weightKg ?: return null
+        return weight * 35
+    }
+
     private companion object {
         const val COLLECTION_USERS = "users"
         const val COLLECTION_REMINDERS = "reminders"
@@ -578,6 +624,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         const val PLAN_STATUS_ACTIVE = "active"
         const val PLAN_STATUS_DRAFT = "draft"
         const val STARTER_PLAN_ID = "starter_plan"
+        const val DEFAULT_MEAL_TARGET_PER_DAY = 3
         val PLACEHOLDER_USER_NAMES = setOf("fitty_user", "fitty user", "fittyuser")
         val DAY_ORDER = listOf("sun", "mon", "tue", "wed", "thu", "fri", "sat")
         val DATE_KEY_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE

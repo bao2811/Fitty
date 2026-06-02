@@ -69,6 +69,7 @@ data class DailySummaryTargets(
 data class DailySummaryProgress(
     val caloriesConsumed: Int = 0,
     val caloriesBurned: Int = 0,
+    val activeMinutes: Int = 0,
     val waterMl: Int = 0,
     val workoutsCompleted: Int = 0,
     val mealsLogged: Int = 0,
@@ -98,7 +99,10 @@ data class ProgressStats(
     val latestWeight: Float? = null,
     val latestBodyFat: Float? = null,
     val targetWeight: Float? = null,
-    val bmi: Float? = null
+    val bmi: Float? = null,
+    val calorieTarget: Int? = null,
+    val waterGoalMl: Int? = null,
+    val mealTargetPerDay: Int? = null
 )
 
 /**

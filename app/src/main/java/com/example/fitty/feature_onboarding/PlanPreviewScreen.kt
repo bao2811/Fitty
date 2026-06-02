@@ -46,6 +46,7 @@ import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.core.ui.toDisplaySummary
 import com.example.fitty.data.content.StarterPlanBuilder
+import com.example.fitty.domain.repository.PlanRepository
 import com.example.fitty.domain.usecase.onboarding.CompleteOnboardingUseCase
 import com.example.fitty.domain.usecase.user.GetCurrentUserUseCase
 import com.example.fitty.domain.repository.SessionRepository
@@ -85,6 +86,7 @@ class PlanPreviewViewModel @Inject constructor(
     private val completeOnboardingUseCase: CompleteOnboardingUseCase,
     private val getCurrentUserUseCase: GetCurrentUserUseCase,
     private val sessionRepository: SessionRepository,
+    private val planRepository: PlanRepository,
     private val starterPlanBuilder: StarterPlanBuilder,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
@@ -118,8 +120,21 @@ class PlanPreviewViewModel @Inject constructor(
     private fun refreshPreview() {
         viewModelScope.launch {
             val user = getCurrentUserUseCase() ?: return@launch
+            val uid = sessionRepository.getCurrentUserId()
             val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
-            val preview = starterPlanBuilder.buildForUser(user, language).preview
+            val persistedPlan = uid?.let { planRepository.getPlanInstance(it, STARTER_PLAN_ID) }
+            val preview = if (persistedPlan != null &&
+                (persistedPlan.previewTitle.isNotBlank() || persistedPlan.previewDetails.isNotEmpty())
+            ) {
+                com.example.fitty.domain.model.StarterPlanPreviewContent(
+                    title = persistedPlan.previewTitle.ifBlank { persistedPlan.name },
+                    subtitle = persistedPlan.previewSubtitle,
+                    details = persistedPlan.previewDetails,
+                    exercises = persistedPlan.previewExercises
+                )
+            } else {
+                starterPlanBuilder.buildForUser(user, language).preview
+            }
             _uiState.update {
                 PlanPreviewUiState(
                     title = preview.title,
@@ -292,3 +307,5 @@ private fun String.toPreviewIcon(): ImageVector = when (this) {
     "duration" -> Icons.Outlined.Schedule
     else -> Icons.Outlined.Lightbulb
 }
+
+private const val STARTER_PLAN_ID = "starter_plan"

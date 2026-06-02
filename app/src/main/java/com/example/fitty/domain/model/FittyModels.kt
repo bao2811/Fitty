@@ -53,6 +53,9 @@ data class FittySettings(
     val weightUnit: String = "kg",
     val heightUnit: String = "cm",
     val energyUnit: String = "kcal",
+    val calorieTarget: Int? = null,
+    val waterGoalMl: Int? = null,
+    val mealTargetPerDay: Int? = null,
     val aiConsent: Boolean = true,
     val photoStorageEnabled: Boolean = true
 )
