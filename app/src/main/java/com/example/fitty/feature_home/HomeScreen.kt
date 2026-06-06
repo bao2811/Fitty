@@ -90,6 +90,7 @@ import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.AppNotificationType
 import com.example.fitty.domain.model.FittyUser
@@ -266,7 +267,7 @@ class HomeViewModel @Inject constructor(
     private val trackingRepository: com.example.fitty.domain.repository.TrackingRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private var homeContentConfig: HomeContentConfig = localContentFallbacks.home(Locale.getDefault().language)
+    private var homeContentConfig: HomeContentConfig = localContentFallbacks.home(AppLocaleManager.resolveStoredLanguage(context))
     private var homeBehaviorConfig: HomeBehaviorConfig = localContentFallbacks.homeBehaviorConfig()
     private val _uiState = MutableStateFlow(
         initialHomeUiState(context, homeContentConfig).copy(
@@ -288,25 +289,44 @@ class HomeViewModel @Inject constructor(
 
     private fun loadContent() {
         viewModelScope.launch {
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
-            homeContentConfig = contentRepository.getHomeContent(language)
-            homeBehaviorConfig = contentRepository.getHomeBehaviorConfig()
-            val sources = listOf(
-                ContentDebugSource(
-                    "Home content",
-                    if (contentRepository.usedFallbackFor("home_content")) ContentSourceState.Fallback else ContentSourceState.Remote,
-                    contentRepository.fallbackDetailFor("home_content")
-                        ?: if (contentRepository.usedFallbackFor("home_content")) "Using local fallback" else "Loaded language=$language from Firebase"
-                ),
-                ContentDebugSource(
-                    "Home behavior",
-                    if (contentRepository.usedFallbackFor("home_behavior")) ContentSourceState.Fallback else ContentSourceState.Remote,
-                    contentRepository.fallbackDetailFor("home_behavior")
-                        ?: if (contentRepository.usedFallbackFor("home_behavior")) "Using local fallback" else "Loaded from Firebase"
+            runCatching {
+                val language = AppLocaleManager.resolveStoredLanguage(context)
+                homeContentConfig = contentRepository.getHomeContent(language)
+                homeBehaviorConfig = contentRepository.getHomeBehaviorConfig()
+                val sources = listOf(
+                    ContentDebugSource(
+                        "Home content",
+                        if (contentRepository.usedFallbackFor("home_content")) ContentSourceState.Fallback else ContentSourceState.Remote,
+                        contentRepository.fallbackDetailFor("home_content")
+                            ?: if (contentRepository.usedFallbackFor("home_content")) "Using local fallback" else "Loaded language=$language from Firebase"
+                    ),
+                    ContentDebugSource(
+                        "Home behavior",
+                        if (contentRepository.usedFallbackFor("home_behavior")) ContentSourceState.Fallback else ContentSourceState.Remote,
+                        contentRepository.fallbackDetailFor("home_behavior")
+                            ?: if (contentRepository.usedFallbackFor("home_behavior")) "Using local fallback" else "Loaded from Firebase"
+                    )
                 )
-            )
-            _uiState.update { state ->
-                state.applyContent(context, homeContentConfig).copy(contentSources = sources)
+                _uiState.update { state ->
+                    state.applyContent(context, homeContentConfig).copy(contentSources = sources)
+                }
+            }.onFailure {
+                _uiState.update { state ->
+                    state.copy(
+                        contentSources = listOf(
+                            ContentDebugSource(
+                                "Home content",
+                                ContentSourceState.Fallback,
+                                it.message ?: "Unexpected error while loading content"
+                            ),
+                            ContentDebugSource(
+                                "Home behavior",
+                                ContentSourceState.Fallback,
+                                "Using local fallback after content load failure"
+                            )
+                        )
+                    ).applyContent(context, homeContentConfig)
+                }
             }
         }
     }
@@ -1192,7 +1212,7 @@ private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, 
                                 .weight(1f)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(Color.White.copy(alpha = 0.15f))
-                                .padding(vertical = 10.dp, horizontal = 12.dp),
+                                .padding(vertical = 10.dp, horizontal = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1204,8 +1224,12 @@ private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, 
                                 )
                                 Text(
                                     metric.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.75f)
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    softWrap = false,
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }

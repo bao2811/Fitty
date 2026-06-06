@@ -49,6 +49,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.fitty.feature_coach.CoachRoute
+import com.example.fitty.feature_exercise.ExerciseDetailRoute
+import com.example.fitty.feature_exercise.ExerciseListRoute
+import com.example.fitty.feature_exercise.ExerciseVideoPlayerRoute
 import com.example.fitty.feature_home.HomeRoute
 import com.example.fitty.feature_plan.CategoryExerciseListRoute
 import com.example.fitty.feature_plan.PlanRoute
@@ -228,6 +231,23 @@ fun MainScaffold(
                     CategoryExerciseListRoute(
                         onBack = { tabNavController.popBackStack() }
                     )
+                }
+                composable(
+                    route = FittyRoutes.ExerciseDetail,
+                    arguments = listOf(navArgument("exerciseId") { type = NavType.StringType })
+                ) {
+                    ExerciseDetailRoute(
+                        onBack = { tabNavController.popBackStack() },
+                        onPlayVideo = { exerciseId ->
+                            tabNavController.navigate(FittyRoutes.exerciseVideo(exerciseId))
+                        }
+                    )
+                }
+                composable(
+                    route = FittyRoutes.ExerciseVideo,
+                    arguments = listOf(navArgument("exerciseId") { type = NavType.StringType })
+                ) {
+                    ExerciseVideoPlayerRoute(onBack = { tabNavController.popBackStack() })
                 }
                 composable(MainRoutes.Track) {
                     TrackRoute()

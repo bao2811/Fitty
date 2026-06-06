@@ -45,6 +45,7 @@ import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.core.ui.toDisplaySummary
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.data.content.StarterPlanBuilder
 import com.example.fitty.domain.repository.PlanRepository
 import com.example.fitty.domain.usecase.onboarding.CompleteOnboardingUseCase
@@ -119,38 +120,46 @@ class PlanPreviewViewModel @Inject constructor(
 
     private fun refreshPreview() {
         viewModelScope.launch {
-            val user = getCurrentUserUseCase() ?: return@launch
-            val uid = sessionRepository.getCurrentUserId()
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
-            val persistedPlan = uid?.let { planRepository.getPlanInstance(it, STARTER_PLAN_ID) }
-            val preview = if (persistedPlan != null &&
-                (persistedPlan.previewTitle.isNotBlank() || persistedPlan.previewDetails.isNotEmpty())
-            ) {
-                com.example.fitty.domain.model.StarterPlanPreviewContent(
-                    title = persistedPlan.previewTitle.ifBlank { persistedPlan.name },
-                    subtitle = persistedPlan.previewSubtitle,
-                    details = persistedPlan.previewDetails,
-                    exercises = persistedPlan.previewExercises
-                )
-            } else {
-                starterPlanBuilder.buildForUser(user, language).preview
-            }
-            _uiState.update {
-                PlanPreviewUiState(
-                    title = preview.title,
-                    subtitle = preview.subtitle,
-                    details = preview.details.map { detail ->
-                        PlanPreviewDetailUi(
-                            icon = detail.iconKey.toPreviewIcon(),
-                            title = detail.title,
-                            body = detail.body
-                        )
-                    },
-                    exercises = preview.exercises.map { exercise ->
-                        PlanPreviewExerciseUi(exercise.name, exercise.toDisplaySummary(appContext))
-                    },
-                    errorMessage = null
-                )
+            runCatching {
+                val user = getCurrentUserUseCase() ?: return@launch
+                val uid = sessionRepository.getCurrentUserId()
+                val language = AppLocaleManager.resolveStoredLanguage(appContext)
+                val persistedPlan = uid?.let { planRepository.getPlanInstance(it, STARTER_PLAN_ID) }
+                val preview = if (persistedPlan != null &&
+                    (persistedPlan.previewTitle.isNotBlank() || persistedPlan.previewDetails.isNotEmpty())
+                ) {
+                    com.example.fitty.domain.model.StarterPlanPreviewContent(
+                        title = persistedPlan.previewTitle.ifBlank { persistedPlan.name },
+                        subtitle = persistedPlan.previewSubtitle,
+                        details = persistedPlan.previewDetails,
+                        exercises = persistedPlan.previewExercises
+                    )
+                } else {
+                    starterPlanBuilder.buildForUser(user, language).preview
+                }
+                _uiState.update {
+                    PlanPreviewUiState(
+                        title = preview.title,
+                        subtitle = preview.subtitle,
+                        details = preview.details.map { detail ->
+                            PlanPreviewDetailUi(
+                                icon = detail.iconKey.toPreviewIcon(),
+                                title = detail.title,
+                                body = detail.body
+                            )
+                        },
+                        exercises = preview.exercises.map { exercise ->
+                            PlanPreviewExerciseUi(exercise.name, exercise.toDisplaySummary(appContext))
+                        },
+                        errorMessage = null
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        errorMessage = error.message ?: appContext.getString(R.string.onboarding_save_failed)
+                    )
+                }
             }
         }
     }

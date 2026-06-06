@@ -91,6 +91,7 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.appcheck.playintegrity)
     implementation(libs.play.services.auth)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
@@ -119,6 +120,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    debugImplementation(libs.firebase.appcheck.debug)
     ksp(libs.hilt.compiler)
+    ksp(libs.androidx.hilt.compiler)
     ksp(libs.androidx.room.compiler)
 }

@@ -85,6 +85,7 @@ data class ProfileUiState(
     val avatarFeedback: String? = null, val avatarFeedbackIsError: Boolean = false,
     val bodyFatLabel: String = "--", val postureScoreLabel: String = "--",
     val fcmToken: String = "", val isLoadingFcmToken: Boolean = false, val fcmFeedback: String? = null,
+    val fcmFeedbackIsError: Boolean = false,
     val contentDiagnostics: List<ContentDebugSource> = emptyList(),
     val isLoadingContentDiagnostics: Boolean = false,
     val contentDiagnosticsFeedback: String? = null
@@ -271,14 +272,15 @@ class ProfileViewModel @Inject constructor(
     fun loadFcmToken() {
         if (!BuildConfig.DEBUG) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingFcmToken = true, fcmFeedback = null) }
+            _uiState.update { it.copy(isLoadingFcmToken = true, fcmFeedback = null, fcmFeedbackIsError = false) }
             runCatching { firebaseMessaging.token.await() }
                 .onSuccess { token ->
                     _uiState.update {
                         it.copy(
                             fcmToken = token,
                             isLoadingFcmToken = false,
-                            fcmFeedback = context.getString(R.string.profile_fcm_token_loaded)
+                            fcmFeedback = context.getString(R.string.profile_fcm_token_loaded),
+                            fcmFeedbackIsError = false
                         )
                     }
                 }
@@ -286,7 +288,8 @@ class ProfileViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isLoadingFcmToken = false,
-                            fcmFeedback = error.message ?: context.getString(R.string.profile_fcm_token_failed)
+                            fcmFeedback = error.message ?: context.getString(R.string.profile_fcm_token_failed),
+                            fcmFeedbackIsError = true
                         )
                     }
                 }
@@ -298,18 +301,28 @@ class ProfileViewModel @Inject constructor(
         val token = _uiState.value.fcmToken
         val clipboardManager = context.getSystemService(ClipboardManager::class.java) ?: return
         if (token.isBlank()) {
-            _uiState.update { it.copy(fcmFeedback = context.getString(R.string.profile_fcm_token_empty)) }
+            _uiState.update {
+                it.copy(
+                    fcmFeedback = context.getString(R.string.profile_fcm_token_empty),
+                    fcmFeedbackIsError = true
+                )
+            }
             return
         }
         clipboardManager.setPrimaryClip(ClipData.newPlainText("fitty_fcm_token", token))
-        _uiState.update { it.copy(fcmFeedback = context.getString(R.string.profile_fcm_token_copied)) }
+        _uiState.update {
+            it.copy(
+                fcmFeedback = context.getString(R.string.profile_fcm_token_copied),
+                fcmFeedbackIsError = false
+            )
+        }
     }
 
     fun refreshContentDiagnostics() {
         if (!BuildConfig.DEBUG) return
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingContentDiagnostics = true, contentDiagnosticsFeedback = null) }
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
+            val language = AppLocaleManager.resolveStoredLanguage(context)
             val user = cachedUser
             runCatching {
                 contentRepository.getHomeContent(language)
@@ -413,9 +426,6 @@ fun ProfileScreen(
         item { PreferenceSection(state) }
         item { AppSettingsSection(state, onToggleTheme, onToggleLanguage) }
         item { PrivacySection(state, onToggleAiConsent, onTogglePhotoStorage) }
-        if (BuildConfig.DEBUG) {
-            item { PushDebugSection(state, onLoadFcmToken, onCopyFcmToken) }
-        }
         item { LogoutSection(onLogout, onDeleteAccount = { showDeleteDialog = true }) }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
@@ -609,92 +619,6 @@ private fun BodyMetricsSection(state: ProfileUiState) {
         SettingsCard {
             SwitchSettingsRow(Icons.Outlined.Psychology, stringResource(R.string.profile_ai_analysis), stringResource(R.string.profile_ai_analysis_desc), state.aiConsentEnabled, onToggleAiConsent)
             SwitchSettingsRow(Icons.Outlined.PhotoCamera, stringResource(R.string.profile_photo_storage), stringResource(R.string.profile_photo_storage_desc), state.photoStorageEnabled, onTogglePhotoStorage)
-        }
-    }
-}
-
-@Composable
-private fun PushDebugSection(state: ProfileUiState, onLoadFcmToken: () -> Unit, onCopyFcmToken: () -> Unit) {
-    val context = LocalContext.current
-    val notificationsEnabled = remember { mutableStateOf(FittyNotificationManager.canPostNotifications(context)) }
-    LaunchedEffect(state.fcmFeedback) {
-        notificationsEnabled.value = FittyNotificationManager.canPostNotifications(context)
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FittySectionHeader(stringResource(R.string.profile_push_debug_title))
-        SettingsCard {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.profile_push_debug_subtitle),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = stringResource(R.string.profile_push_debug_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = stringResource(
-                        if (notificationsEnabled.value) {
-                            R.string.profile_notifications_enabled
-                        } else {
-                            R.string.profile_notifications_disabled
-                        }
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (notificationsEnabled.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                )
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                ) {
-                    Text(
-                        text = state.fcmToken.ifBlank { stringResource(R.string.profile_fcm_token_placeholder) },
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp)
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = onLoadFcmToken,
-                        enabled = !state.isLoadingFcmToken,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        if (state.isLoadingFcmToken) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Text(stringResource(R.string.profile_fcm_load_token))
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = onCopyFcmToken,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(stringResource(R.string.profile_fcm_copy_token))
-                    }
-                }
-                OutlinedButton(
-                    onClick = { FittyNotificationManager.openNotificationSettings(context) },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(stringResource(R.string.profile_open_notification_settings))
-                }
-                state.fcmFeedback?.let { feedback ->
-                    Text(
-                        text = feedback,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
         }
     }
 }

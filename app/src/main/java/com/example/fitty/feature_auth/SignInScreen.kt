@@ -120,20 +120,31 @@ class SignInViewModel @Inject constructor(
 
     fun submitGoogle(idToken: String, onSuccess: (Boolean) -> Unit) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
-            val result = signInWithGoogleUseCase(idToken)
-            val user = result.user
-            if (user == null) {
+            try {
+                _uiState.update {
+                    it.copy(isSubmitting = true, errorMessage = null)
+                }
+                val result = signInWithGoogleUseCase(idToken)
+                val user = result.user
+                if (user == null) {
+                    _uiState.update {
+                        it.copy(
+                            isSubmitting = false,
+                            errorMessage = result.errorMessage ?: context.getString(R.string.auth_google_failed)
+                        )
+                    }
+                    return@launch
+                }
+                _uiState.update { it.copy(isSubmitting = false) }
+                onSuccess(user.onboardingCompleted)
+            } catch (error: Exception) {
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
-                        errorMessage = result.errorMessage ?: context.getString(R.string.auth_google_failed)
+                        errorMessage = error.message ?: context.getString(R.string.auth_google_failed)
                     )
                 }
-                return@launch
             }
-            _uiState.update { it.copy(isSubmitting = false) }
-            onSuccess(user.onboardingCompleted)
         }
     }
 

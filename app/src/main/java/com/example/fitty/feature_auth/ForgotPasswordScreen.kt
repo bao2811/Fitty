@@ -31,12 +31,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittyPrimaryButton
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.FittyLazyScreen
@@ -115,10 +117,10 @@ private fun ForgotPasswordScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Reset Password", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.auth_reset_password_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.common_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -134,8 +136,8 @@ private fun ForgotPasswordScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Forgot your password?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("We'll send you a reset link", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
+                        Text(stringResource(R.string.auth_forgot_password_headline), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(stringResource(R.string.auth_forgot_password_subtitle), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
                     }
                 }
             }
@@ -148,20 +150,20 @@ private fun ForgotPasswordScreen(
                     ) {
                         Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = FittyPink,
                             modifier = Modifier.padding(bottom = 12.dp))
-                        Text("Reset email sent!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("Check your inbox at ${state.email} and follow the link to reset your password.",
+                        Text(stringResource(R.string.auth_reset_email_sent), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.auth_reset_email_sent_body, state.email),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 8.dp))
                     }
                 }
                 item {
-                    FittySecondaryButton(text = "Back to Sign In", onClick = onBack)
+                    FittySecondaryButton(text = stringResource(R.string.auth_back_to_sign_in), onClick = onBack)
                 }
             } else {
                 item {
                     OutlinedTextField(
                         value = state.email, onValueChange = onEmailChanged,
-                        label = { Text("Email address") },
+                        label = { Text(stringResource(R.string.auth_email_address)) },
                         leadingIcon = { Icon(Icons.Outlined.AlternateEmail, contentDescription = null) },
                         isError = state.emailError != null,
                         supportingText = { state.emailError?.let { Text(it) } },
@@ -172,8 +174,8 @@ private fun ForgotPasswordScreen(
                     )
                 }
                 item { state.errorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error) } }
-                item { FittyPrimaryButton(text = "Send Reset Link", onClick = onSubmit, loading = state.isSubmitting) }
-                item { FittySecondaryButton(text = "Back to Sign In", onClick = onBack, enabled = !state.isSubmitting) }
+                item { FittyPrimaryButton(text = stringResource(R.string.auth_send_reset_link), onClick = onSubmit, loading = state.isSubmitting) }
+                item { FittySecondaryButton(text = stringResource(R.string.auth_back_to_sign_in), onClick = onBack, enabled = !state.isSubmitting) }
             }
         }
     }

@@ -47,6 +47,7 @@ import com.example.fitty.core.designsystem.component.FittySectionBlock
 import com.example.fitty.core.designsystem.component.FittySecondaryButton
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.data.content.LocalContentFallbacks
 import com.example.fitty.domain.model.OnboardingChoiceContent
@@ -86,7 +87,7 @@ class OnboardingViewModel @Inject constructor(
     private val sessionRepository: SessionRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private val fallbackContent = localContentFallbacks.onboarding(java.util.Locale.getDefault().language)
+    private val fallbackContent = localContentFallbacks.onboarding(AppLocaleManager.resolveStoredLanguage(context))
     private val _uiState = MutableStateFlow(
         OnboardingUiState(
             content = fallbackContent,
@@ -103,21 +104,36 @@ class OnboardingViewModel @Inject constructor(
 
     private fun loadContent() {
         viewModelScope.launch {
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
-            val content = contentRepository.getOnboardingContent(language)
-            val usedFallback = contentRepository.usedFallbackFor("onboarding_content")
-            _uiState.update {
-                it.copy(
-                    content = content,
-                    contentSources = listOf(
-                        ContentDebugSource(
-                            "Onboarding content",
-                            if (usedFallback) ContentSourceState.Fallback else ContentSourceState.Remote,
-                            contentRepository.fallbackDetailFor("onboarding_content")
-                                ?: if (usedFallback) "Using local fallback" else "Loaded language=$language from Firebase"
+            runCatching {
+                val language = AppLocaleManager.resolveStoredLanguage(context)
+                val content = contentRepository.getOnboardingContent(language)
+                val usedFallback = contentRepository.usedFallbackFor("onboarding_content")
+                _uiState.update {
+                    it.copy(
+                        content = content,
+                        contentSources = listOf(
+                            ContentDebugSource(
+                                "Onboarding content",
+                                if (usedFallback) ContentSourceState.Fallback else ContentSourceState.Remote,
+                                contentRepository.fallbackDetailFor("onboarding_content")
+                                    ?: if (usedFallback) "Using local fallback" else "Loaded language=$language from Firebase"
+                            )
                         )
                     )
-                )
+                }
+            }.onFailure {
+                _uiState.update { state ->
+                    state.copy(
+                        content = fallbackContent,
+                        contentSources = listOf(
+                            ContentDebugSource(
+                                "Onboarding content",
+                                ContentSourceState.Fallback,
+                                it.message ?: "Unexpected error while loading onboarding content"
+                            )
+                        )
+                    )
+                }
             }
         }
     }

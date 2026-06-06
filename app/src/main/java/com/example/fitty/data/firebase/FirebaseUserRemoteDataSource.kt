@@ -1,5 +1,7 @@
 package com.example.fitty.data.firebase
 
+import android.content.Context
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.data.content.StarterPlanBuilder
 import com.example.fitty.domain.model.FittyAuthResult
 import com.example.fitty.domain.model.FittyOnboarding
@@ -21,6 +23,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
 import java.time.ZoneId
@@ -34,7 +37,8 @@ class FirebaseUserRemoteDataSource @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
     private val starterPlanBuilder: StarterPlanBuilder,
-    private val sessionRepository: com.example.fitty.domain.repository.SessionRepository
+    private val sessionRepository: com.example.fitty.domain.repository.SessionRepository,
+    @ApplicationContext private val context: Context
 ) {
     suspend fun createPasswordUser(
         username: String,
@@ -324,7 +328,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
         uid: String,
         answers: FittyOnboardingAnswers
     ) {
-        val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { "en" }
+        val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { defaultAppLanguage() }
         val buildResult = starterPlanBuilder.buildForAnswers(answers, language)
         val planRef = userDocument(uid)
             .collection(COLLECTION_PLAN_INSTANCES)
@@ -439,7 +443,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 "dietaryRestrictions" to emptyList<String>()
             ),
             "settings" to mapOf(
-                "language" to "en",
+                "language" to defaultAppLanguage(),
                 "themeMode" to "system",
                 "weightUnit" to "kg",
                 "heightUnit" to "cm",
@@ -558,7 +562,7 @@ class FirebaseUserRemoteDataSource @Inject constructor(
                 streakActiveDates = statsMap.stringListValue("streakActiveDates")
             ),
             settings = FittySettings(
-                language = settingsMap.stringValue("language").ifBlank { "en" },
+                language = settingsMap.stringValue("language").ifBlank { defaultAppLanguage() },
                 themeMode = settingsMap.stringValue("themeMode").ifBlank { "system" },
                 weightUnit = settingsMap.stringValue("weightUnit").ifBlank { "kg" },
                 heightUnit = settingsMap.stringValue("heightUnit").ifBlank { "cm" },
@@ -573,6 +577,8 @@ class FirebaseUserRemoteDataSource @Inject constructor(
     }
 
     private fun Map<*, *>.stringValue(key: String): String = this[key] as? String ?: ""
+
+    private fun defaultAppLanguage(): String = AppLocaleManager.resolveStoredLanguage(context)
 
     private fun Map<*, *>.intValue(key: String): Int? = when (val value = this[key]) {
         is Int -> value

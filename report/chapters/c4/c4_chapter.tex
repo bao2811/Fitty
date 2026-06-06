@@ -1,0 +1,187 @@
+\chapter{Cài đặt, kiểm thử và triển khai hệ thống}
+\label{chap:experiment}
+
+\section{Môi trường cài đặt và triển khai}
+
+\subsection{Môi trường phát triển}
+
+Fitty được phát triển dưới dạng ứng dụng Android bằng Kotlin và Gradle Kotlin DSL. Môi trường phát triển cần hỗ trợ Jetpack Compose, Firebase, Room, Hilt và WorkManager, phù hợp với tập công nghệ đã trình bày ở chương trước \cite{android_jetpack,android_compose,android_hilt,android_room,android_workmanager,firebase_setup}. Các thông số chính được tóm tắt trong Bảng~\ref{tab:dev-environment}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Thông số môi trường phát triển và triển khai của hệ thống}
+\label{tab:dev-environment}
+\begin{tabular}{|p{4.3cm}|p{7.8cm}|}
+\hline
+\textbf{Thành phần} & \textbf{Thông tin} \\ \hline
+Nền tảng ứng dụng & Android \\ \hline
+Ngôn ngữ lập trình & Kotlin \\ \hline
+Kiểu dự án build & Gradle Kotlin DSL \\ \hline
+SDK biên dịch & compileSdk 36 \\ \hline
+Thiết bị tối thiểu & minSdk 24 \\ \hline
+Kiểu giao diện & Jetpack Compose + Material 3 \\ \hline
+Lưu trữ cục bộ & Room, DataStore \\ \hline
+Dịch vụ phía sau & Firebase Auth, Firestore, Storage, Messaging, Analytics \\ \hline
+Tác vụ nền & WorkManager \\ \hline
+Media và ảnh & Coil, Media3/ExoPlayer \\ \hline
+\end{tabular}
+\normalsize
+\end{table}
+
+Dự án cũng sử dụng tệp \texttt{.env} cho một số cấu hình môi trường và khóa truy cập, giúp tách thông tin vận hành ra khỏi mã nguồn.
+
+\subsection{Môi trường chạy ứng dụng}
+
+Về vận hành, ứng dụng được thiết kế để chạy trên thiết bị Android có Google Play Services khi cần dùng xác thực Google hoặc Firebase Cloud Messaging. Môi trường chạy cũng cần kết nối đúng Firebase project để bảo đảm các luồng đồng bộ và thông báo hoạt động đúng \cite{firebase_auth,firebase_fcm}.
+
+\section{Cấu trúc mã nguồn hiện thực}
+
+Mã nguồn của hệ thống được tổ chức bám sát kiến trúc đã trình bày ở Chương 3. Có thể tóm tắt các nhóm thư mục chính như sau:
+
+\begin{itemize}
+    \item \texttt{feature\_*}: giao diện và ViewModel của từng phân hệ;
+    \item \texttt{navigation}: route và luồng điều hướng;
+    \item \texttt{domain}: mô hình nghiệp vụ, repository interface và use case;
+    \item \texttt{data}: truy cập Firebase, lưu trữ cục bộ và đồng bộ dữ liệu;
+    \item \texttt{notifications}: thông báo cục bộ và FCM;
+    \item \texttt{scripts}: script seed dữ liệu và hỗ trợ kiểm thử.
+\end{itemize}
+
+\section{Hiện thực các phân hệ chính}
+
+\subsection{Truy cập và khởi động}
+
+Phân hệ truy cập hỗ trợ đăng ký, đăng nhập email, đăng nhập Google, guest mode và khôi phục mật khẩu. Sau bước xác thực, hệ thống chuẩn hóa hồ sơ người dùng trong Firestore và xác định trạng thái khởi động để điều hướng tới onboarding hoặc vùng chức năng chính \cite{firebase_auth,firebase_firestore}.
+
+\subsection{Onboarding và kế hoạch tập khởi đầu}
+
+Luồng onboarding thu thập thông tin nền của người dùng, sau đó hình thành starter plan, lịch buổi tập và nội dung xem trước kế hoạch. Cách cài đặt này giúp tách phần giao diện thu thập dữ liệu khỏi phần xử lý nghiệp vụ sinh kế hoạch.
+
+\subsection{Nội dung bài tập và workout session}
+
+Phân hệ bài tập được hiện thực theo hướng offline-first: metadata được đồng bộ từ nguồn từ xa, chuẩn hóa và lưu cục bộ trước khi phục vụ giao diện \cite{firebase_firestore,android_room,android_workmanager}. Workout session hỗ trợ cả buổi tập theo lịch và buổi tập nhanh; khi hoàn thành, hệ thống cập nhật session, tiến độ và trạng thái lịch tập liên quan.
+
+\subsection{Theo dõi tiến độ, hồ sơ và thông báo}
+
+Phân hệ Track tổng hợp daily summary, meal log, số đo cơ thể và thống kê luyện tập để hiển thị tiến độ chung. Phân hệ Profile hỗ trợ cập nhật thông tin cá nhân và ảnh đại diện qua Firebase Storage. Phân hệ thông báo kết hợp thông báo cục bộ với FCM để duy trì tương tác với người dùng \cite{firebase_storage,firebase_fcm}.
+
+\section{Triển khai nội dung động và script hỗ trợ}
+
+Một đặc điểm đáng chú ý của hệ thống là nhiều phần nội dung được quản lý từ Firebase Content thay vì cố định trong mã nguồn, chẳng hạn nội dung Home, option onboarding, category bài tập và starter plan template. Bên cạnh đó, thư mục \texttt{scripts} hỗ trợ seed dữ liệu, kiểm tra schema nội dung, gửi FCM thử nghiệm và đồng bộ dữ liệu bài tập.
+
+\section{Kiểm thử hệ thống}
+
+\subsection{Kiểm thử đơn vị}
+
+Dự án có các bài kiểm thử đơn vị tập trung vào những khu vực có logic nghiệp vụ quan trọng như sinh starter plan, đồng bộ bài tập, workout session, meal log, tracking và phạm vi owner của dữ liệu cục bộ. Các bài kiểm thử này phù hợp với cách tổ chức hệ thống theo use case và repository \cite{android_jetpack,android_room}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Các nhóm kiểm thử đơn vị hiện có trong dự án}
+\label{tab:unit-tests}
+\begin{tabular}{|p{4.7cm}|p{7.4cm}|}
+\hline
+\textbf{Tệp kiểm thử} & \textbf{Mục tiêu chính} \\ \hline
+\texttt{StarterPlanBuilderTest} & Kiểm tra logic sinh starter plan và preview theo hồ sơ người dùng. \\ \hline
+\texttt{ExercisePrescriptionResolverTest} & Kiểm tra rule gợi ý bài tập theo goal, fitness level, equipment và cân nặng. \\ \hline
+\texttt{ExerciseCatalogSyncPolicyTest} & Kiểm tra validate và phân loại trạng thái đồng bộ metadata bài tập. \\ \hline
+\texttt{WorkoutSessionUseCasesTest} & Kiểm tra luồng hoàn thành buổi tập, đặc biệt khi cập nhật scheduled workout thất bại. \\ \hline
+\texttt{TrackViewModelTest} & Kiểm tra tính toán tiến độ và các giá trị ước lượng trong màn hình Track. \\ \hline
+\texttt{PlanViewModelTest} & Kiểm tra việc sử dụng metadata category và nội dung từ content repository. \\ \hline
+\texttt{RoomHomeTaskRepositoryTest} & Kiểm tra phạm vi owner cho task local theo phiên người dùng. \\ \hline
+\texttt{RoomAppNotificationRepositoryTest} & Kiểm tra phạm vi owner cho notification local. \\ \hline
+\texttt{FittyNotificationManagerTest} & Kiểm tra cấu hình notification channel và hành vi quản lý thông báo. \\ \hline
+\texttt{ConfirmMealLogUseCaseTest} & Kiểm tra việc xác nhận meal log và cập nhật summary theo ngày đúng đích. \\ \hline
+\end{tabular}
+\normalsize
+\end{table}
+
+\subsection{Kiểm thử chức năng}
+
+Ở mức chức năng, kiểm thử tập trung vào các luồng sử dụng chính: truy cập tài khoản, hoàn tất onboarding, kích hoạt starter plan, duyệt nội dung bài tập, thực hiện workout, theo dõi tiến độ và nhận thông báo. Cách tiếp cận này giúp đánh giá được các luồng liên phân hệ thay vì chỉ kiểm tra từng màn hình riêng lẻ.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Các kịch bản kiểm thử chức năng tiêu biểu}
+\label{tab:functional-test-scenarios}
+\begin{tabular}{|p{1.2cm}|p{4.1cm}|p{4.2cm}|p{2.7cm}|}
+\hline
+\textbf{Mã} & \textbf{Kịch bản kiểm thử} & \textbf{Kết quả mong đợi} & \textbf{Mức độ} \\ \hline
+T1 & Đăng nhập bằng email và mật khẩu hợp lệ & Người dùng vào Main hoặc Onboarding tùy trạng thái hồ sơ & Cao \\ \hline
+T2 & Hoàn tất onboarding và mở Plan Preview & Hệ thống lưu hồ sơ, sinh starter plan và hiển thị preview & Cao \\ \hline
+T3 & Mở Plan và chọn một category bài tập & Danh sách bài tập được lọc đúng theo nhóm cơ & Cao \\ \hline
+T4 & Đồng bộ dữ liệu bài tập khi có mạng & Metadata bài tập được cập nhật vào Room và trạng thái sync là success & Cao \\ \hline
+T5 & Mở danh sách bài tập khi mất mạng nhưng đã có cache & Danh sách bài tập vẫn hiển thị từ dữ liệu cục bộ & Cao \\ \hline
+T6 & Bắt đầu và hoàn thành quick workout & Workout session được lưu, daily summary và total workouts được cập nhật & Cao \\ \hline
+T7 & Ghi nhận meal log và quay lại màn hình Track & Chỉ số dinh dưỡng và meals logged trong ngày được làm mới & Trung bình \\ \hline
+T8 & Cập nhật ảnh đại diện trong Profile & Ảnh được lưu lên Storage, giao diện hiển thị ảnh mới & Trung bình \\ \hline
+T9 & Gửi thử FCM tới thiết bị đang foreground & Banner hoặc tray notification xuất hiện và có bản ghi local notification & Cao \\ \hline
+T10 & Đăng xuất rồi đăng nhập bằng tài khoản khác & Dữ liệu notification và task local không bị lẫn owner giữa hai tài khoản & Cao \\ \hline
+\end{tabular}
+\normalsize
+\end{table}
+
+\subsection{Kiểm thử thông báo và đồng bộ dữ liệu}
+
+Đối với FCM, quy trình kiểm thử tập trung vào ba điểm: gửi đúng payload tới thiết bị, quan sát hành vi foreground/background và kiểm tra việc lưu lại bản ghi thông báo ở phía cục bộ \cite{firebase_fcm}. Đối với phân hệ bài tập, kiểm thử tập trung vào các trạng thái dữ liệu hợp lệ, dữ liệu rỗng, dữ liệu sai chuẩn, thiết bị offline nhưng đã có cache và trường hợp media preview tải không thành công.
+
+\section{Đánh giá kết quả triển khai}
+
+\subsection{Các kết quả đã đạt được}
+
+Qua việc triển khai hiện tại, có thể nhận thấy hệ thống đã hiện thực được hầu hết các thành phần chính của một ứng dụng hỗ trợ tập luyện cá nhân hóa:
+
+\begin{itemize}
+    \item có đầy đủ luồng truy cập, onboarding và plan preview;
+    \item có cấu trúc plan instance, scheduled workout và workout session tương đối hoàn chỉnh;
+    \item có phân hệ tra cứu bài tập theo mô hình offline-first;
+    \item có phân hệ tracking, profile, thông báo cục bộ và FCM;
+    \item có hệ thống nội dung động trên Firebase cùng script hỗ trợ vận hành.
+\end{itemize}
+
+\subsection{Đối chiếu yêu cầu và kết quả hiện thực}
+
+Bảng~\ref{tab:requirement-mapping} đối chiếu trực tiếp các nhóm yêu cầu chức năng chính với trạng thái hiện thực trong hệ thống.
+
+\small
+\begin{longtable}{|p{1.1cm}|p{3.8cm}|p{2.2cm}|p{5.1cm}|}
+\caption{Đối chiếu giữa yêu cầu chức năng và kết quả hiện thực}
+\label{tab:requirement-mapping}\\
+\hline
+\textbf{Mã} & \textbf{Yêu cầu} & \textbf{Trạng thái} & \textbf{Ghi chú} \\ \hline
+\endfirsthead
+\hline
+\textbf{Mã} & \textbf{Yêu cầu} & \textbf{Trạng thái} & \textbf{Ghi chú} \\ \hline
+\endhead
+\hline
+\multicolumn{4}{r}{\textit{Còn tiếp ở trang sau}} \\
+\endfoot
+\hline
+\endlastfoot
+F1 & Quản lý truy cập & Đạt & Đã có email/password, Google, guest, forgot password, logout. \\ \hline
+F2 & Xác định trạng thái khởi động & Đạt & Splash điều hướng theo trạng thái đăng nhập và onboarding. \\ \hline
+F3 & Thu thập hồ sơ ban đầu & Đạt & Onboarding lưu profile, settings, reminders và dữ liệu sở thích tập luyện. \\ \hline
+F4 & Sinh kế hoạch tập khởi đầu & Đạt & Có Plan Preview, starter plan, scheduled workout và nội dung preview. \\ \hline
+F5 & Quản lý nội dung bài tập & Đạt & Có category, exercise list, exercise detail, video player và sync metadata. \\ \hline
+F6 & Thực hiện buổi tập & Đạt một phần mạnh & Luồng workout session tương đối hoàn chỉnh; quick workout còn một số quy tắc cục bộ cần tiếp tục hoàn thiện. \\ \hline
+F7 & Theo dõi tiến độ & Đạt một phần mạnh & Có Track, daily summary, meal log và body measurement; một số chỉ số vẫn còn ước lượng. \\ \hline
+F8 & Quản lý hồ sơ & Đạt & Có cập nhật hồ sơ, ảnh đại diện, hiển thị thông tin và thiết lập cơ bản. \\ \hline
+F9 & Thông báo & Đạt & Có local reminder, FCM token registration, notification persistence. \\ \hline
+F10 & Đồng bộ nội dung động & Đạt & Có Firebase Content, schema, seed script và verification script. \\ \hline
+\end{longtable}
+\normalsize
+
+\subsection{Ưu điểm và hạn chế}
+
+Giải pháp hiện tại có các ưu điểm chính là kiến trúc nhiều tầng rõ ràng, tách nội dung động khỏi client, có use case cho các luồng nghiệp vụ quan trọng và áp dụng offline-first cho phân hệ bài tập. Bên cạnh đó, hệ thống vẫn còn một số điểm cần cải thiện như một số chỉ số trong Track còn mang tính ước lượng, quick workout còn phụ thuộc vào một số quy tắc cục bộ và dữ liệu nội dung vẫn cần tiếp tục làm giàu để tăng tính hoàn thiện.
+
+\section{Khả năng triển khai và mở rộng}
+
+Với kiến trúc hiện tại, hệ thống có thể tiếp tục mở rộng theo các hướng như bổ sung thêm nguồn nội dung bài tập, hoàn thiện sâu hơn phần theo dõi sức khỏe, tăng độ phong phú của hệ thống gợi ý và nâng chất lượng dữ liệu động trên Firebase. Việc tách rõ giao diện, nghiệp vụ và dữ liệu cũng tạo điều kiện thuận lợi hơn cho bảo trì và nâng cấp sau này.
+
+\section{Tổng kết chương}
+
+Chương này đã trình bày ngắn gọn phần cài đặt, kiểm thử và đánh giá hệ thống Fitty. Kết quả hiện tại cho thấy ứng dụng đã hiện thực được các luồng cốt lõi của bài toán, đồng thời vẫn còn không gian để tiếp tục hoàn thiện về dữ liệu, kiểm thử và chiều sâu chức năng trong các giai đoạn phát triển tiếp theo.

@@ -45,6 +45,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,6 +70,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.fitty.R
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.data.content.LocalContentFallbacks
 import com.example.fitty.domain.model.CoachSuggestion
 import com.example.fitty.domain.repository.ContentRepository
@@ -95,7 +97,8 @@ fun CoachRoute(viewModel: CoachViewModel = hiltViewModel()) {
         onPromptSelected = viewModel::selectPrompt,
         onInputChanged = viewModel::updateInput,
         onSend = viewModel::sendMessage,
-        onApplySuggestion = viewModel::applySuggestion
+        onApplySuggestion = viewModel::applySuggestion,
+        onRetryLastMessage = viewModel::retryLastMessage
     )
 }
 
@@ -123,6 +126,7 @@ internal data class CoachUiState(
     val isApplying: Boolean = false,
     val error: String? = null,
     val threadId: String? = null,
+    val lastSubmittedPrompt: String? = null,
     val contentSources: List<ContentDebugSource> = emptyList()
 )
 
@@ -158,7 +162,7 @@ class CoachViewModel @Inject constructor(
 
     private fun loadContent() {
         viewModelScope.launch {
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
+            val language = AppLocaleManager.resolveStoredLanguage(context)
             val content = contentRepository.getCoachContent(language)
             val usedFallback = contentRepository.usedFallbackFor("coach_content")
             _uiState.update { state ->
@@ -193,7 +197,17 @@ class CoachViewModel @Inject constructor(
     }
 
     internal fun sendMessage() {
-        val currentInput = _uiState.value.input.trim()
+        sendMessage(_uiState.value.input.trim())
+    }
+
+    internal fun retryLastMessage() {
+        val retryText = _uiState.value.lastSubmittedPrompt.orEmpty().trim()
+        if (retryText.isBlank()) return
+        sendMessage(retryText, keepInput = true)
+    }
+
+    private fun sendMessage(messageText: String, keepInput: Boolean = false) {
+        val currentInput = messageText.trim()
         if (currentInput.isBlank() || _uiState.value.isSending) return
 
         _uiState.update { state ->
@@ -202,9 +216,10 @@ class CoachViewModel @Inject constructor(
                     context.getString(R.string.coach_sender_you),
                     currentInput
                 ),
-                input = "",
+                input = if (keepInput) currentInput else "",
                 isSending = true,
-                error = null
+                error = null,
+                lastSubmittedPrompt = currentInput
             )
         }
 
@@ -316,7 +331,8 @@ private fun CoachScreen(
     onPromptSelected: (String) -> Unit,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
-    onApplySuggestion: (CoachSuggestionUi) -> Unit
+    onApplySuggestion: (CoachSuggestionUi) -> Unit,
+    onRetryLastMessage: () -> Unit
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(state.messages.size) {
@@ -333,10 +349,20 @@ private fun CoachScreen(
         CoachHeader()
 
         state.error?.let { errorMessage ->
-            ErrorBanner(errorMessage)
+            ErrorBanner(
+                message = errorMessage,
+                canRetry = state.lastSubmittedPrompt != null,
+                onRetry = onRetryLastMessage
+            )
         }
 
-        PromptRow(prompts = state.prompts, onPromptSelected = onPromptSelected)
+        CoachContextCard()
+
+        if (state.prompts.isNotEmpty()) {
+            PromptRow(prompts = state.prompts, onPromptSelected = onPromptSelected)
+        } else {
+            EmptyPromptHint()
+        }
 
         LazyColumn(
             state = listState,
@@ -435,34 +461,92 @@ private fun CoachHeader() {
 }
 
 @Composable
-private fun ErrorBanner(message: String) {
+private fun ErrorBanner(message: String, canRetry: Boolean, onRetry: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color(0xFFFFF3CD),
         tonalElevation = 2.dp
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                Icons.Outlined.ErrorOutline,
-                contentDescription = null,
-                tint = Color(0xFFB45309),
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF92400E),
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    tint = Color(0xFFB45309),
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF92400E),
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            if (canRetry) {
+                OutlinedButton(onClick = onRetry, shape = RoundedCornerShape(12.dp)) {
+                    Text(stringResource(R.string.coach_retry))
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun CoachContextCard() {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(FittyPink.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Outlined.Psychology, contentDescription = null, tint = FittyPink)
+            }
+            Column {
+                Text(
+                    stringResource(R.string.coach_context_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    stringResource(R.string.coach_context_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPromptHint() {
+    Text(
+        text = stringResource(R.string.coach_prompt_empty_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+    )
 }
 
 @Composable

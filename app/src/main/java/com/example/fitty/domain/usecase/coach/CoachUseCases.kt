@@ -33,6 +33,7 @@ class BuildCoachContextUseCase @Inject constructor(
 
         return CoachContext(
             userName = user.preferredDisplayName(),
+            language = user.settings.language,
             goal = user.profile.primaryGoal,
             fitnessLevel = user.profile.fitnessLevel,
             activePlanName = planName ?: "",

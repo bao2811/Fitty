@@ -25,3 +25,4 @@ local.properties
 .fir-18934-firebase-adminsdk-fbsvc-1bffdf88a9.json
 /.scripts
 *.log
+/chapters

@@ -48,7 +48,7 @@ data class FittyStats(
 )
 
 data class FittySettings(
-    val language: String = "en",
+    val language: String = "vi",
     val themeMode: String = "system",
     val weightUnit: String = "kg",
     val heightUnit: String = "cm",

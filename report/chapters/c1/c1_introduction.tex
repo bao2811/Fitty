@@ -1,0 +1,88 @@
+\chapter{Đặt vấn đề}
+
+\section{Bối cảnh và lý do chọn đề tài}
+
+Trong những năm gần đây, nhu cầu rèn luyện sức khỏe và theo dõi thể trạng cá nhân trên thiết bị di động ngày càng tăng. Người dùng không chỉ mong muốn có một công cụ ghi chép bài tập đơn thuần mà còn cần một hệ thống có khả năng hỗ trợ xây dựng lộ trình tập luyện phù hợp, cung cấp hướng dẫn trực quan, theo dõi tiến độ theo thời gian và duy trì động lực tập luyện mỗi ngày. Đặc biệt, với nhóm người mới bắt đầu, việc tự xây dựng kế hoạch tập, lựa chọn bài tập phù hợp và đánh giá hiệu quả thường gặp nhiều khó khăn do thiếu kiến thức chuyên môn và thiếu công cụ hỗ trợ nhất quán.
+
+Bên cạnh đó, nhiều ứng dụng hiện nay thường chỉ giải quyết từng phần riêng lẻ của bài toán, chẳng hạn như quản lý bài tập, theo dõi dinh dưỡng, nhắc lịch vận động hoặc hiển thị thống kê cơ bản. Việc thiếu liên kết giữa các chức năng khiến trải nghiệm sử dụng bị rời rạc, người dùng phải thao tác ở nhiều nơi để hoàn thành một quy trình thống nhất từ xác định mục tiêu, nhận kế hoạch tập, thực hiện buổi tập đến theo dõi tiến độ dài hạn. Vì vậy, nhu cầu về một ứng dụng có luồng sử dụng mạch lạc, mức cá nhân hóa phù hợp và khả năng hoạt động ổn định trong điều kiện sử dụng thực tế là rất rõ ràng.
+
+Xuất phát từ thực tế đó, đề tài xây dựng ứng dụng \textbf{Fitty} được lựa chọn nhằm phát triển một hệ thống hỗ trợ tập luyện và theo dõi sức khỏe cá nhân trên nền tảng Android. Hệ thống hướng tới việc kết hợp các thành phần quan trọng trong cùng một ứng dụng, bao gồm quản lý truy cập, thu thập hồ sơ ban đầu, hình thành kế hoạch tập khởi đầu, tra cứu nội dung bài tập, hỗ trợ thực hiện buổi tập, theo dõi quá trình luyện tập và duy trì tương tác qua thông báo. Đây là một bài toán có ý nghĩa thực tiễn cao, phù hợp với xu hướng ứng dụng di động thông minh trong lĩnh vực sức khỏe và thể hình.
+
+\section{Mô tả bài toán}
+
+Bài toán đặt ra là xây dựng một ứng dụng di động cho phép người dùng thiết lập mục tiêu tập luyện, cung cấp kế hoạch tập phù hợp với hồ sơ cá nhân, hỗ trợ truy cập nội dung bài tập và ghi nhận tiến độ luyện tập theo thời gian. Hệ thống cần bảo đảm người dùng có thể bắt đầu sử dụng từ những thông tin đầu vào cơ bản, sau đó nhận được một luồng trải nghiệm xuyên suốt từ giai đoạn khởi tạo hồ sơ đến giai đoạn thực hiện và đánh giá quá trình tập luyện.
+
+\subsection{Đầu vào của hệ thống}
+
+Đầu vào chính của hệ thống bao gồm:
+
+\begin{itemize}
+    \item thông tin tài khoản và trạng thái truy cập của người dùng;
+    \item dữ liệu hồ sơ ban đầu như mục tiêu tập luyện, thể trạng, lịch tập mong muốn, điều kiện dụng cụ và một số lựa chọn liên quan tới dinh dưỡng;
+    \item yêu cầu tra cứu nội dung bài tập theo nhóm cơ hoặc theo bài tập cụ thể;
+    \item dữ liệu phát sinh trong quá trình sử dụng như buổi tập đã hoàn thành, bữa ăn đã ghi nhận, thông báo nhắc việc và các chỉ số tiến độ.
+\end{itemize}
+
+\subsection{Đầu ra của hệ thống}
+
+Từ các đầu vào trên, hệ thống cần cung cấp các đầu ra tương ứng:
+
+\begin{itemize}
+    \item trạng thái khởi động và điều hướng người dùng đến đúng giai đoạn sử dụng;
+    \item kế hoạch tập luyện khởi đầu và danh sách buổi tập được cá nhân hóa theo hồ sơ người dùng;
+    \item danh sách bài tập, nội dung mô tả, media hướng dẫn và các gợi ý thực hiện;
+    \item kết quả theo dõi buổi tập, tiến độ luyện tập, chuỗi ngày hoạt động và một số số liệu tổng hợp;
+    \item các thông báo phục vụ việc nhắc nhở, duy trì tương tác và hỗ trợ hình thành thói quen sử dụng ứng dụng.
+\end{itemize}
+
+\subsection{Phạm vi và giả định}
+
+Trong phạm vi của đề tài, hệ thống tập trung vào một ứng dụng di động hỗ trợ tập luyện và theo dõi sức khỏe cá nhân trên nền tảng Android. Hệ thống khai thác hạ tầng dịch vụ đám mây cho các chức năng cần đồng bộ và lưu trữ tập trung, đồng thời kết hợp lưu trữ cục bộ để bảo đảm khả năng truy cập nhanh và duy trì trải nghiệm cơ bản khi điều kiện mạng không ổn định. Một số nội dung như thông tin hướng dẫn, danh mục bài tập và mẫu kế hoạch khởi đầu được tổ chức theo hướng có thể cập nhật linh hoạt để thuận lợi cho vận hành.
+
+Đề tài giả định người dùng có thiết bị di động thông minh, có thể truy cập mạng trong các giai đoạn xác thực tài khoản, đồng bộ dữ liệu và nhận thông báo. Khi mạng không khả dụng, hệ thống ưu tiên sử dụng dữ liệu đã lưu cục bộ để duy trì các chức năng tra cứu và theo dõi cơ bản.
+
+\section{Mục tiêu của đề tài}
+
+Mục tiêu tổng quát của đề tài là xây dựng một ứng dụng di động hỗ trợ người dùng hình thành và duy trì kế hoạch tập luyện cá nhân hóa với trải nghiệm sử dụng mạch lạc, trực quan và ổn định. Từ mục tiêu tổng quát đó, đề tài hướng đến các mục tiêu cụ thể sau:
+
+\begin{itemize}
+    \item xây dựng luồng quản lý truy cập và xác định trạng thái khởi động của người dùng;
+    \item xây dựng quy trình thu thập hồ sơ ban đầu để tạo ra kế hoạch tập khởi đầu phù hợp;
+    \item tổ chức nội dung bài tập theo cấu trúc thuận tiện cho việc tra cứu và học theo;
+    \item hỗ trợ thực hiện buổi tập, ghi nhận kết quả và duy trì lịch tập;
+    \item xây dựng các chức năng theo dõi tiến độ, hồ sơ người dùng và một số chỉ số sức khỏe cơ bản;
+    \item tích hợp cơ chế nhắc nhở và duy trì tương tác để tăng khả năng hình thành thói quen;
+    \item áp dụng phương án kiến trúc phù hợp để bảo đảm khả năng mở rộng và bảo trì hệ thống.
+\end{itemize}
+
+\section{Phạm vi nghiên cứu và triển khai}
+
+Đề tài tập trung vào việc phân tích, thiết kế và xây dựng nguyên mẫu chức năng cho một ứng dụng di động hỗ trợ tập luyện cá nhân hóa. Trọng tâm của phạm vi nghiên cứu là các luồng nghiệp vụ chính và cách tổ chức hệ thống ở mức kiến trúc, dữ liệu và tương tác. Các nội dung chính trong phạm vi đề tài bao gồm:
+
+\begin{itemize}
+    \item mô hình hóa luồng truy cập, khởi tạo hồ sơ và hình thành kế hoạch tập ban đầu;
+    \item thiết kế phân hệ nội dung bài tập, buổi tập, theo dõi tiến độ và hồ sơ người dùng;
+    \item tổ chức dữ liệu người dùng, dữ liệu kế hoạch, dữ liệu bài tập và dữ liệu theo dõi;
+    \item đề xuất cách kết hợp lưu trữ cục bộ với dữ liệu đám mây nhằm tăng tính liên tục của trải nghiệm;
+    \item xây dựng nguyên mẫu thể hiện các luồng nghiệp vụ cốt lõi của hệ thống.
+\end{itemize}
+
+Đề tài không đi sâu vào việc nghiên cứu thuật toán trí tuệ nhân tạo mới hay tối ưu hóa ở mức hạ tầng triển khai. Các thành phần có yếu tố thông minh trong hệ thống chủ yếu được xem như dịch vụ hỗ trợ cho trải nghiệm người dùng. Trọng tâm học thuật của đề tài nằm ở phân tích yêu cầu, đề xuất phương án thiết kế hệ thống, mô hình dữ liệu và đánh giá nguyên mẫu theo các mục tiêu đã đặt ra.
+
+\section{Ý nghĩa thực tiễn của đề tài}
+
+Về mặt thực tiễn, hệ thống Fitty có thể hỗ trợ người dùng phổ thông tiếp cận việc tập luyện và theo dõi sức khỏe theo cách dễ sử dụng hơn. Việc gom các chức năng quan trọng như hồ sơ ban đầu, kế hoạch tập, thư viện bài tập, theo dõi tiến độ và thông báo trong cùng một ứng dụng giúp giảm thao tác rời rạc, tăng khả năng duy trì thói quen tập luyện. Ngoài ra, cách tiếp cận kết hợp dữ liệu động và lưu trữ cục bộ cũng có giá trị tham khảo cho các bài toán ứng dụng di động cần cá nhân hóa nội dung và tối ưu trải nghiệm trong môi trường mạng không ổn định.
+
+\section{Cấu trúc của báo cáo}
+
+Báo cáo được tổ chức thành bốn chương chính ngoài phần mở đầu, kết luận và tài liệu tham khảo:
+
+\begin{itemize}
+    \item \textbf{Chương 1 -- Đặt vấn đề}: trình bày bối cảnh, bài toán, mục tiêu, phạm vi và ý nghĩa của đề tài.
+    \item \textbf{Chương 2 -- Phân tích và thiết kế hệ thống}: mô tả yêu cầu hệ thống, kiến trúc tổng thể, mô hình dữ liệu và cách thiết kế các luồng nghiệp vụ chính ở mức khái quát.
+    \item \textbf{Chương 3 -- Nền tảng và công nghệ sử dụng}: giới thiệu các nền tảng, công nghệ và định hướng kỹ thuật được lựa chọn để làm cơ sở xây dựng hệ thống.
+    \item \textbf{Chương 4 -- Cài đặt, kiểm thử và triển khai hệ thống}: trình bày phần hiện thực, thực nghiệm, kiểm thử và các kết quả đạt được của nguyên mẫu.
+\end{itemize}
+
+Với cấu trúc trên, báo cáo đi từ việc xác định bối cảnh và bài toán thực tiễn đến phân tích, thiết kế, lựa chọn nền tảng kỹ thuật, hiện thực và đánh giá một hệ thống ứng dụng di động hỗ trợ tập luyện và theo dõi sức khỏe cá nhân hóa.
+

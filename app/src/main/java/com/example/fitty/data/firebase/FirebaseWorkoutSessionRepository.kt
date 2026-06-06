@@ -104,6 +104,33 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
         Result.success(Unit)
     } catch (e: Exception) { Result.failure(e) }
 
+    override suspend fun updateExerciseLog(uid: String, sessionId: String, exercise: ExerciseLog): Result<Unit> = try {
+        if (exercise.id.isBlank()) {
+            throw IllegalArgumentException("Missing exercise log id")
+        }
+
+        val now = System.currentTimeMillis()
+        sessions(uid).document(sessionId).collection("exercise_logs").document(exercise.id)
+            .set(
+                mapOf(
+                    "exerciseId" to exercise.exerciseId,
+                    "name" to exercise.name,
+                    "orderIndex" to exercise.orderIndex,
+                    "plannedSets" to exercise.plannedSets,
+                    "completedSets" to exercise.completedSets,
+                    "repsBySet" to exercise.repsBySet,
+                    "weightKgBySet" to exercise.weightKgBySet,
+                    "durationSeconds" to exercise.durationSeconds,
+                    "completed" to exercise.completed,
+                    "updatedAt" to now
+                ),
+                SetOptions.merge()
+            ).await()
+        sessions(uid).document(sessionId)
+            .set(mapOf("updatedAt" to now), SetOptions.merge()).await()
+        Result.success(Unit)
+    } catch (e: Exception) { Result.failure(e) }
+
     override suspend fun abandonSession(uid: String, sessionId: String): Result<Unit> = try {
         sessions(uid).document(sessionId).update("status", "abandoned", "updatedAt", FieldValue.serverTimestamp()).await()
         Result.success(Unit)
