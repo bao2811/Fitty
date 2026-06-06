@@ -60,6 +60,9 @@ class FirebaseUserRepository @Inject constructor(
             "settings.weightUnit" to settings.weightUnit,
             "settings.heightUnit" to settings.heightUnit,
             "settings.energyUnit" to settings.energyUnit,
+            "settings.calorieTarget" to settings.calorieTarget,
+            "settings.waterGoalMl" to settings.waterGoalMl,
+            "settings.mealTargetPerDay" to settings.mealTargetPerDay,
             "settings.aiConsent" to settings.aiConsent,
             "settings.photoStorageEnabled" to settings.photoStorageEnabled,
             "updatedAt" to FieldValue.serverTimestamp()

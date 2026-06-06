@@ -90,6 +90,7 @@ import com.example.fitty.R
 import com.example.fitty.core.designsystem.component.FittySectionHeader
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.AppNotificationType
 import com.example.fitty.domain.model.FittyUser
@@ -98,6 +99,7 @@ import com.example.fitty.domain.model.HomeContentConfig
 import com.example.fitty.domain.model.HomeTaskCategory
 import com.example.fitty.domain.model.HomeTaskDraft
 import com.example.fitty.domain.model.HomeTaskStatus
+import com.example.fitty.domain.model.ScheduledWorkout
 import com.example.fitty.domain.model.preferredDisplayName
 import com.example.fitty.data.content.LocalContentFallbacks
 import com.example.fitty.domain.repository.AppNotificationRepository
@@ -136,7 +138,8 @@ data class HomeTaskUi(
     val description: String,
     val time: String,
     val status: HomeTaskStatus,
-    val reminderEnabled: Boolean
+    val reminderEnabled: Boolean,
+    val isPlanBacked: Boolean = false
 )
 
 data class HomeTaskPresetUi(
@@ -231,6 +234,8 @@ data class HomeUiState(
     val notifications: List<HomeNotificationUi> = emptyList(),
     val unreadNotificationCount: Int = 0,
     val presetTasks: List<HomeTaskPresetUi> = emptyList(),
+    val customTasks: List<HomeTaskUi> = emptyList(),
+    val planWorkoutTask: HomeTaskUi? = null,
     val heightCm: Int? = null,
     val weightKg: Int? = null,
     val targetWeightKg: Int? = null,
@@ -262,7 +267,7 @@ class HomeViewModel @Inject constructor(
     private val trackingRepository: com.example.fitty.domain.repository.TrackingRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private var homeContentConfig: HomeContentConfig = localContentFallbacks.home(Locale.getDefault().language)
+    private var homeContentConfig: HomeContentConfig = localContentFallbacks.home(AppLocaleManager.resolveStoredLanguage(context))
     private var homeBehaviorConfig: HomeBehaviorConfig = localContentFallbacks.homeBehaviorConfig()
     private val _uiState = MutableStateFlow(
         initialHomeUiState(context, homeContentConfig).copy(
@@ -284,25 +289,44 @@ class HomeViewModel @Inject constructor(
 
     private fun loadContent() {
         viewModelScope.launch {
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
-            homeContentConfig = contentRepository.getHomeContent(language)
-            homeBehaviorConfig = contentRepository.getHomeBehaviorConfig()
-            val sources = listOf(
-                ContentDebugSource(
-                    "Home content",
-                    if (contentRepository.usedFallbackFor("home_content")) ContentSourceState.Fallback else ContentSourceState.Remote,
-                    contentRepository.fallbackDetailFor("home_content")
-                        ?: if (contentRepository.usedFallbackFor("home_content")) "Using local fallback" else "Loaded language=$language from Firebase"
-                ),
-                ContentDebugSource(
-                    "Home behavior",
-                    if (contentRepository.usedFallbackFor("home_behavior")) ContentSourceState.Fallback else ContentSourceState.Remote,
-                    contentRepository.fallbackDetailFor("home_behavior")
-                        ?: if (contentRepository.usedFallbackFor("home_behavior")) "Using local fallback" else "Loaded from Firebase"
+            runCatching {
+                val language = AppLocaleManager.resolveStoredLanguage(context)
+                homeContentConfig = contentRepository.getHomeContent(language)
+                homeBehaviorConfig = contentRepository.getHomeBehaviorConfig()
+                val sources = listOf(
+                    ContentDebugSource(
+                        "Home content",
+                        if (contentRepository.usedFallbackFor("home_content")) ContentSourceState.Fallback else ContentSourceState.Remote,
+                        contentRepository.fallbackDetailFor("home_content")
+                            ?: if (contentRepository.usedFallbackFor("home_content")) "Using local fallback" else "Loaded language=$language from Firebase"
+                    ),
+                    ContentDebugSource(
+                        "Home behavior",
+                        if (contentRepository.usedFallbackFor("home_behavior")) ContentSourceState.Fallback else ContentSourceState.Remote,
+                        contentRepository.fallbackDetailFor("home_behavior")
+                            ?: if (contentRepository.usedFallbackFor("home_behavior")) "Using local fallback" else "Loaded from Firebase"
+                    )
                 )
-            )
-            _uiState.update { state ->
-                state.applyContent(context, homeContentConfig).copy(contentSources = sources)
+                _uiState.update { state ->
+                    state.applyContent(context, homeContentConfig).copy(contentSources = sources)
+                }
+            }.onFailure {
+                _uiState.update { state ->
+                    state.copy(
+                        contentSources = listOf(
+                            ContentDebugSource(
+                                "Home content",
+                                ContentSourceState.Fallback,
+                                it.message ?: "Unexpected error while loading content"
+                            ),
+                            ContentDebugSource(
+                                "Home behavior",
+                                ContentSourceState.Fallback,
+                                "Using local fallback after content load failure"
+                            )
+                        )
+                    ).applyContent(context, homeContentConfig)
+                }
             }
         }
     }
@@ -344,9 +368,6 @@ class HomeViewModel @Inject constructor(
                             ).applyContent(context, homeContentConfig)
                         }
                     }
-                    if (user != null) {
-                        ensureDefaultTasks(user = user, workoutTitle = null)
-                    }
                 }
                 .onFailure {
                     _uiState.update { current ->
@@ -364,13 +385,15 @@ class HomeViewModel @Inject constructor(
             runCatching { getHomeDashboardUseCase() }
                 .onSuccess { dashboard ->
                     if (dashboard == null) return@onSuccess
-                    ensureDefaultTasks(
-                        user = dashboard.user,
-                        workoutTitle = dashboard.todayWorkout?.title
-                    )
                     _uiState.update { current ->
                         val summary = dashboard.dailySummary
                         val workout = dashboard.todayWorkout
+                        val mealTarget = dashboard.user.settings.mealTargetPerDay ?: 0
+                        val planWorkoutTask = buildPlanWorkoutTask(
+                            user = dashboard.user,
+                            workout = workout,
+                            workoutsCompleted = summary?.progress?.workoutsCompleted ?: 0
+                        )
                         current.copy(
                             focusMetrics = listOf(
                                 HomeFocusMetricUi(
@@ -379,7 +402,8 @@ class HomeViewModel @Inject constructor(
                                 ),
                                 HomeFocusMetricUi(
                                     context.getString(R.string.home_metric_meals_logged),
-                                    "${summary?.mealsLoggedCount ?: 0}/3"
+                                    if (mealTarget > 0) "${summary?.mealsLoggedCount ?: 0}/$mealTarget"
+                                    else "${summary?.mealsLoggedCount ?: 0}"
                                 ),
                                 HomeFocusMetricUi(
                                     context.getString(R.string.home_metric_water),
@@ -433,25 +457,15 @@ class HomeViewModel @Inject constructor(
                                 title = context.getString(R.string.home_insight_title),
                                 message = summary.insightText,
                                 actions = homeContentConfig.insightActions
-                            ) else current.insight
+                            ) else current.insight,
+                            planWorkoutTask = planWorkoutTask,
+                            tasks = mergeHomeTasks(
+                                customTasks = current.customTasks,
+                                planWorkoutTask = planWorkoutTask
+                            )
                         ).applyContent(context, homeContentConfig)
                     }
                 }
-        }
-    }
-
-    private fun ensureDefaultTasks(user: FittyUser, workoutTitle: String?) {
-        viewModelScope.launch {
-            homeTaskRepository.ensureTasks(
-                dateKey = todayDateKey,
-                defaults = buildDefaultTasks(
-                    context = context,
-                    user = user,
-                    dateKey = todayDateKey,
-                    workoutTitle = workoutTitle,
-                    content = homeContentConfig
-                )
-            )
         }
     }
 
@@ -487,6 +501,7 @@ class HomeViewModel @Inject constructor(
     }
 
     internal fun setTaskStatus(taskId: Long, status: HomeTaskStatus) {
+        if (taskId <= 0L) return
         viewModelScope.launch {
             homeTaskRepository.updateTaskStatus(
                 taskId = taskId,
@@ -496,12 +511,14 @@ class HomeViewModel @Inject constructor(
     }
 
     internal fun toggleTaskReminder(taskId: Long, enabled: Boolean) {
+        if (taskId <= 0L) return
         viewModelScope.launch {
             homeTaskRepository.updateTaskReminder(taskId, enabled)
         }
     }
 
     internal fun deleteTask(taskId: Long) {
+        if (taskId <= 0L) return
         viewModelScope.launch {
             homeTaskRepository.deleteTask(taskId)
         }
@@ -536,18 +553,25 @@ class HomeViewModel @Inject constructor(
     private fun observeTasks() {
         viewModelScope.launch {
             homeTaskRepository.observeTasks(todayDateKey).collect { tasks ->
+                val customTasks = tasks.filterNot { it.isDefault }.map { task ->
+                    HomeTaskUi(
+                        id = task.id,
+                        category = task.category,
+                        title = task.title,
+                        description = task.description,
+                        time = formatTaskTime(task.timeMinutes),
+                        status = task.status,
+                        reminderEnabled = task.reminderEnabled
+                    )
+                }
                 _uiState.update { current ->
-                    current.copy(tasks = tasks.map { task ->
-                        HomeTaskUi(
-                            id = task.id,
-                            category = task.category,
-                            title = task.title,
-                            description = task.description,
-                            time = formatTaskTime(task.timeMinutes),
-                            status = task.status,
-                            reminderEnabled = task.reminderEnabled
+                    current.copy(
+                        customTasks = customTasks,
+                        tasks = mergeHomeTasks(
+                            customTasks = customTasks,
+                            planWorkoutTask = current.planWorkoutTask
                         )
-                    })
+                    )
                 }
             }
         }
@@ -627,6 +651,7 @@ class HomeViewModel @Inject constructor(
             // Fetch daily summary and meal logs independently so one failure doesn't block the other
             val summary = runCatching { trackingRepository.getDailySummary(uid, todayDateKey) }.getOrNull()
             val mealLogs = runCatching { trackingRepository.getMealLogs(uid, todayDateKey) }.getOrDefault(emptyList())
+            val user = runCatching { getCurrentUserUseCase() }.getOrNull()
 
             val workoutsCompleted = summary?.progress?.workoutsCompleted ?: 0
             val workoutTarget = summary?.targets?.workouts ?: 1
@@ -654,6 +679,7 @@ class HomeViewModel @Inject constructor(
             // Use mealsLogged from daily summary if meal logs are empty (query may have failed)
             val mealsLogged = if (mealLogs.isNotEmpty()) mealLogs.size
                 else summary?.progress?.mealsLogged ?: 0
+            val mealTarget = user?.settings?.mealTargetPerDay ?: 0
 
             _uiState.update { current ->
                 current.copy(
@@ -664,7 +690,7 @@ class HomeViewModel @Inject constructor(
                         ),
                         HomeFocusMetricUi(
                             label = context.getString(R.string.home_metric_meals_logged),
-                            value = "$mealsLogged/3"
+                            value = if (mealTarget > 0) "$mealsLogged/$mealTarget" else "$mealsLogged"
                         ),
                         HomeFocusMetricUi(
                             label = context.getString(R.string.home_metric_water),
@@ -1186,7 +1212,7 @@ private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, 
                                 .weight(1f)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(Color.White.copy(alpha = 0.15f))
-                                .padding(vertical = 10.dp, horizontal = 12.dp),
+                                .padding(vertical = 10.dp, horizontal = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1198,8 +1224,12 @@ private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, 
                                 )
                                 Text(
                                     metric.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.75f)
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    softWrap = false,
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }
@@ -1394,8 +1424,10 @@ private fun TaskCard(
                     label = { Text(task.status.toDisplayLabel(context), style = MaterialTheme.typography.labelSmall) },
                     shape = RoundedCornerShape(14.dp)
                 )
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                if (!task.isPlanBacked) {
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                    }
                 }
             }
             Column(
@@ -1409,17 +1441,17 @@ private fun TaskCard(
                     TaskStatusOption(
                         selected = task.status == HomeTaskStatus.Todo,
                         label = stringResource(R.string.home_task_status_todo),
-                        onClick = { onSelectStatus(HomeTaskStatus.Todo) }
+                        onClick = { if (!task.isPlanBacked) onSelectStatus(HomeTaskStatus.Todo) }
                     )
                     TaskStatusOption(
                         selected = task.status == HomeTaskStatus.InProgress,
                         label = stringResource(R.string.home_task_status_in_progress),
-                        onClick = { onSelectStatus(HomeTaskStatus.InProgress) }
+                        onClick = { if (!task.isPlanBacked) onSelectStatus(HomeTaskStatus.InProgress) }
                     )
                     TaskStatusOption(
                         selected = task.status == HomeTaskStatus.Completed,
                         label = stringResource(R.string.home_task_status_completed),
-                        onClick = { onSelectStatus(HomeTaskStatus.Completed) }
+                        onClick = { if (!task.isPlanBacked) onSelectStatus(HomeTaskStatus.Completed) }
                     )
                 }
                 Row(
@@ -1446,6 +1478,7 @@ private fun TaskCard(
                     Switch(
                         checked = task.reminderEnabled,
                         onCheckedChange = onToggleReminder,
+                        enabled = !task.isPlanBacked,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = FittyPink,
@@ -2410,6 +2443,8 @@ private fun greetingForNow(context: Context): String {
 
 private fun HomeUiState.preserveDynamicState(current: HomeUiState): HomeUiState = copy(
     tasks = current.tasks,
+    customTasks = current.customTasks,
+    planWorkoutTask = current.planWorkoutTask,
     notifications = current.notifications,
     unreadNotificationCount = current.unreadNotificationCount,
     showNotifications = current.showNotifications,
@@ -2418,6 +2453,47 @@ private fun HomeUiState.preserveDynamicState(current: HomeUiState): HomeUiState 
     focusMetrics = current.focusMetrics,
     nutrition = current.nutrition
 )
+
+private fun mergeHomeTasks(
+    customTasks: List<HomeTaskUi>,
+    planWorkoutTask: HomeTaskUi?
+): List<HomeTaskUi> {
+    return listOfNotNull(planWorkoutTask) + customTasks
+}
+
+private fun buildPlanWorkoutTask(
+    user: FittyUser,
+    workout: ScheduledWorkout?,
+    workoutsCompleted: Int
+): HomeTaskUi? {
+    val resolvedWorkout = workout ?: return null
+    if (resolvedWorkout.title.isBlank()) return null
+    val timeMinutes = preferredWorkoutMinutes(user.onboarding.preferredTime)
+    val status = if (workoutsCompleted > 0 || resolvedWorkout.status.equals("completed", ignoreCase = true)) {
+        HomeTaskStatus.Completed
+    } else {
+        HomeTaskStatus.Todo
+    }
+    return HomeTaskUi(
+        id = PLAN_WORKOUT_TASK_ID,
+        category = HomeTaskCategory.Workout,
+        title = resolvedWorkout.title,
+        description = contextWorkoutTaskDescription(resolvedWorkout),
+        time = formatTaskTime(timeMinutes),
+        status = status,
+        reminderEnabled = false,
+        isPlanBacked = true
+    )
+}
+
+private fun contextWorkoutTaskDescription(workout: ScheduledWorkout): String {
+    return listOf(
+        "${workout.durationMinutes} min",
+        workout.difficulty.ifBlank { workout.equipment }.ifBlank { workout.title }
+    ).joinToString(" • ")
+}
+
+private const val PLAN_WORKOUT_TASK_ID = -1L
 
 private fun HomeTaskStatus.toDisplayLabel(context: Context): String = when (this) {
     HomeTaskStatus.Todo -> context.getString(R.string.home_task_status_todo)

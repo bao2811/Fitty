@@ -283,7 +283,11 @@ class FirebaseContentRepository @Inject constructor(
     private fun com.google.firebase.firestore.DocumentSnapshot.toPracticeCategory(language: String): PracticeCategoryContent? {
         val labels = get("labels").asMap()
         val requestedLanguage = normalizeLanguage(language)
-        val resolvedLabel = labels.string(requestedLanguage, labels.string("en", getString("label").orEmpty()))
+        val resolvedLabel = if (requestedLanguage == "en") {
+            labels.string("en", getString("label").orEmpty())
+        } else {
+            labels.string(requestedLanguage, "")
+        }
             .ifBlank { return null }
         return PracticeCategoryContent(
             id = getString("id").orEmpty().ifBlank { id },
@@ -301,8 +305,10 @@ class FirebaseContentRepository @Inject constructor(
         val scheduled = get("scheduledWorkoutTemplates").asMap()
         if (preview.isEmpty() && planMeta.isEmpty() && scheduled.isEmpty()) return null
         val translations = get("translations").asMap()
-        val translation = translations[normalizeLanguage(language)].asMap()
-        val englishTranslation = translations["en"].asMap()
+        val normalizedLanguage = normalizeLanguage(language)
+        val translation = translations[normalizedLanguage].asMap()
+        if (translation.isEmpty() && normalizedLanguage != "en") return null
+        val englishTranslation = if (normalizedLanguage == "en") translations["en"].asMap() else emptyMap<String, Any?>()
         val previewTranslation = translation["preview"].asMap().ifEmpty { englishTranslation["preview"].asMap() }
         val planTranslation = translation["planMeta"].asMap().ifEmpty { englishTranslation["planMeta"].asMap() }
         val scheduledTranslation = translation["scheduledWorkoutTemplates"].asMap().ifEmpty { englishTranslation["scheduledWorkoutTemplates"].asMap() }
@@ -367,7 +373,12 @@ class FirebaseContentRepository @Inject constructor(
     private fun com.google.firebase.firestore.DocumentSnapshot.resolveTranslation(language: String): Map<*, *> {
         val translations = get("translations").asMap()
         val normalized = normalizeLanguage(language)
-        return translations[normalized].asMap().ifEmpty { translations["en"].asMap() }
+        val requested = translations[normalized].asMap()
+        return when {
+            requested.isNotEmpty() -> requested
+            normalized == "en" -> translations["en"].asMap()
+            else -> emptyMap<String, Any?>()
+        }
     }
 
     private fun Map<*, *>.templateList(

@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppLocaleManager.applyLanguage(
-            runBlocking { preferences.appLanguage() }
+            runBlocking { preferences.appLanguage().orEmpty().ifBlank { "vi" } }
         )
         FittyNotificationManager.createChannels(this)
         requestNotificationPermissionIfNeeded()

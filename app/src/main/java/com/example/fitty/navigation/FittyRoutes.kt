@@ -40,6 +40,7 @@ object MainRoutes {
     const val Track = "track"
     const val Coach = "coach"
     const val Profile = "profile"
+    const val ExerciseLibrary = "exercise_library"
     const val CategoryExerciseList = "category_exercises/{categoryId}/{categoryLabel}/{bodyPartKeys}"
 
     fun categoryExerciseList(

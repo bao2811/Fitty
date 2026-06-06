@@ -150,7 +150,10 @@ class FirebaseTrackingRepository @Inject constructor(
             latestBodyFat = measurements.firstOrNull()?.bodyFatPercent,
             bodyMeasurements = measurements,
             targetWeight = targetWeightVal,
-            bmi = bmiVal
+            bmi = bmiVal,
+            calorieTarget = (user.get("settings.calorieTarget") as? Number)?.toInt(),
+            waterGoalMl = (user.get("settings.waterGoalMl") as? Number)?.toInt(),
+            mealTargetPerDay = (user.get("settings.mealTargetPerDay") as? Number)?.toInt()
         )
     }
 
@@ -234,6 +237,7 @@ class FirebaseTrackingRepository @Inject constructor(
                 steps = (t["steps"] as? Number)?.toInt() ?: 8000),
             progress = DailySummaryProgress(caloriesConsumed = (p["caloriesConsumed"] as? Number)?.toInt() ?: 0,
                 caloriesBurned = (p["caloriesBurned"] as? Number)?.toInt() ?: 0,
+                activeMinutes = (p["activeMinutes"] as? Number)?.toInt() ?: 0,
                 waterMl = (p["waterMl"] as? Number)?.toInt() ?: 0, workoutsCompleted = (p["workoutsCompleted"] as? Number)?.toInt() ?: 0,
                 mealsLogged = (p["mealsLogged"] as? Number)?.toInt() ?: 0,
                 steps = (p["steps"] as? Number)?.toInt() ?: 0,
@@ -282,7 +286,7 @@ class FirebaseTrackingRepository @Inject constructor(
     private fun DailySummary.toMap(): Map<String, Any?> = mapOf("dateKey" to dateKey,
         "targets" to mapOf("calories" to targets.calories, "waterMl" to targets.waterMl, "workouts" to targets.workouts, "steps" to targets.steps),
         "progress" to mapOf("caloriesConsumed" to progress.caloriesConsumed, "caloriesBurned" to progress.caloriesBurned,
-            "waterMl" to progress.waterMl, "workoutsCompleted" to progress.workoutsCompleted,
+            "activeMinutes" to progress.activeMinutes, "waterMl" to progress.waterMl, "workoutsCompleted" to progress.workoutsCompleted,
             "mealsLogged" to progress.mealsLogged, "steps" to progress.steps,
             "proteinGrams" to progress.proteinGrams, "carbsGrams" to progress.carbsGrams, "fatGrams" to progress.fatGrams),
         "summaries" to mapOf("todayWorkoutTitle" to todayWorkoutTitle, "mealsLoggedCount" to mealsLoggedCount, "currentStreak" to currentStreak, "insightText" to insightText),

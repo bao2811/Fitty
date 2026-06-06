@@ -12,7 +12,11 @@ data class PlanInstance(
     val status: String = "draft",
     val explanation: String = "",
     val currentWeek: Int = 1,
-    val nextWorkoutDate: String = ""
+    val nextWorkoutDate: String = "",
+    val previewTitle: String = "",
+    val previewSubtitle: String = "",
+    val previewDetails: List<StarterPlanPreviewDetail> = emptyList(),
+    val previewExercises: List<WorkoutExercise> = emptyList()
 )
 
 data class ScheduledWorkout(

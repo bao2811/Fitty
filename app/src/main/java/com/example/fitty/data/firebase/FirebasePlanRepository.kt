@@ -111,7 +111,26 @@ class FirebasePlanRepository @Inject constructor(
             workoutsPerWeek = getLong("workoutsPerWeek")?.toInt() ?: 3, equipment = getString("equipment").orEmpty(),
             trainingStyle = getString("trainingStyle").orEmpty(), status = getString("status").orEmpty(),
             explanation = getString("explanation").orEmpty(), currentWeek = getLong("currentWeek")?.toInt() ?: 1,
-            nextWorkoutDate = getString("nextWorkoutDate").orEmpty())
+            nextWorkoutDate = getString("nextWorkoutDate").orEmpty(),
+            previewTitle = getString("previewTitle").orEmpty(),
+            previewSubtitle = getString("previewSubtitle").orEmpty(),
+            previewDetails = (get("previewDetails") as? List<Map<String, Any?>>)?.map { detail ->
+                StarterPlanPreviewDetail(
+                    iconKey = detail["iconKey"] as? String ?: "",
+                    title = detail["title"] as? String ?: "",
+                    body = detail["body"] as? String ?: ""
+                )
+            } ?: emptyList(),
+            previewExercises = (get("previewExercises") as? List<Map<String, Any?>>)?.map { exercise ->
+                WorkoutExercise(
+                    exerciseId = exercise["exerciseId"] as? String ?: "",
+                    name = exercise["name"] as? String ?: "",
+                    sets = (exercise["sets"] as? Number)?.toInt() ?: 0,
+                    reps = exercise["reps"] as? String,
+                    durationSeconds = (exercise["durationSeconds"] as? Number)?.toInt(),
+                    targetWeightKg = (exercise["targetWeightKg"] as? Number)?.toFloat()
+                )
+            } ?: emptyList())
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -163,7 +182,26 @@ class FirebasePlanRepository @Inject constructor(
 
     private fun PlanInstance.toMap(): Map<String, Any?> = mapOf("sourceProgramId" to sourceProgramId, "name" to name, "goal" to goal,
         "durationWeeks" to durationWeeks, "workoutsPerWeek" to workoutsPerWeek, "equipment" to equipment, "trainingStyle" to trainingStyle,
-        "status" to status, "explanation" to explanation, "currentWeek" to currentWeek, "nextWorkoutDate" to nextWorkoutDate, "updatedAt" to FieldValue.serverTimestamp())
+        "status" to status, "explanation" to explanation, "currentWeek" to currentWeek, "nextWorkoutDate" to nextWorkoutDate,
+        "previewTitle" to previewTitle, "previewSubtitle" to previewSubtitle,
+        "previewDetails" to previewDetails.map { detail ->
+            mapOf(
+                "iconKey" to detail.iconKey,
+                "title" to detail.title,
+                "body" to detail.body
+            )
+        },
+        "previewExercises" to previewExercises.map { exercise ->
+            mapOf(
+                "exerciseId" to exercise.exerciseId,
+                "name" to exercise.name,
+                "sets" to exercise.sets,
+                "reps" to exercise.reps,
+                "durationSeconds" to exercise.durationSeconds,
+                "targetWeightKg" to exercise.targetWeightKg
+            )
+        },
+        "updatedAt" to FieldValue.serverTimestamp())
 
     private fun ScheduledWorkout.toMap(): Map<String, Any?> = mapOf("dateKey" to dateKey, "weekNumber" to weekNumber, "orderInWeek" to orderInWeek,
         "title" to title, "durationMinutes" to durationMinutes, "estimatedCalories" to estimatedCalories, "difficulty" to difficulty,

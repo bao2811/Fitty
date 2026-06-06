@@ -81,13 +81,21 @@ class CompleteWorkoutSessionUseCase @Inject constructor(
         // 3. Update daily summary (create if not exists)
         val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val existing = trackingRepository.getDailySummary(uid, today)
-        val baseSummary = existing ?: com.example.fitty.domain.model.DailySummary(dateKey = today)
+        val user = userRepository.getCurrentUser(uid)
+        val baseSummary = existing ?: com.example.fitty.domain.model.DailySummary(
+            dateKey = today,
+            targets = com.example.fitty.domain.model.DailySummaryTargets(
+                calories = user?.settings?.calorieTarget ?: 2100,
+                waterMl = user?.settings?.waterGoalMl ?: 2500
+            )
+        )
         val sessionTitle = workoutSessionRepository.getSession(uid, sessionId)?.title.orEmpty()
         val updated = baseSummary.copy(
             todayWorkoutTitle = sessionTitle.ifBlank { baseSummary.todayWorkoutTitle },
             progress = baseSummary.progress.copy(
                 workoutsCompleted = baseSummary.progress.workoutsCompleted + 1,
-                caloriesBurned = baseSummary.progress.caloriesBurned + caloriesBurned
+                caloriesBurned = baseSummary.progress.caloriesBurned + caloriesBurned,
+                activeMinutes = baseSummary.progress.activeMinutes + durationMinutes
             )
         )
         val summaryUpdateResult = trackingRepository.updateDailySummary(uid, today, updated)
@@ -96,7 +104,6 @@ class CompleteWorkoutSessionUseCase @Inject constructor(
         }
 
         // 4. Update user stats (increment totalWorkouts)
-        val user = userRepository.getCurrentUser(uid)
         if (user != null) {
             val updatedStats = user.stats.copy(
                 totalWorkouts = user.stats.totalWorkouts + 1

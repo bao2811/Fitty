@@ -53,6 +53,7 @@ sealed class CoachSuggestion {
 
 data class CoachContext(
     val userName: String = "",
+    val language: String = "en",
     val goal: String = "",
     val fitnessLevel: String = "",
     val activePlanName: String = "",

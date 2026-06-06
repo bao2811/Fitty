@@ -16,6 +16,7 @@ interface WorkoutSessionRepository {
         perceivedEffort: Int?,
         exercises: List<ExerciseLog>
     ): Result<Unit>
+    suspend fun updateExerciseLog(uid: String, sessionId: String, exercise: ExerciseLog): Result<Unit>
     suspend fun abandonSession(uid: String, sessionId: String): Result<Unit>
     suspend fun getRecentSessions(uid: String, limit: Int = 10): List<WorkoutSession>
 }

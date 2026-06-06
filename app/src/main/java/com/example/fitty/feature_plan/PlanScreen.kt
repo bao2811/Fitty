@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +23,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +54,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.fitty.R
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.ExerciseSyncSuccessStyle
 import com.example.fitty.core.ui.toStatusText
 import com.example.fitty.data.content.LocalContentFallbacks
@@ -139,7 +143,7 @@ class PlanViewModel @Inject constructor(
 
     private fun loadContent() {
         viewModelScope.launch {
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
+            val language = AppLocaleManager.resolveStoredLanguage(context)
             practiceCategories = contentRepository.getPracticeCategories(language).map { it.toUiCategory() }
             val usedFallback = contentRepository.usedFallbackFor("practice_categories")
             _uiState.update { state ->

@@ -48,11 +48,14 @@ data class FittyStats(
 )
 
 data class FittySettings(
-    val language: String = "en",
+    val language: String = "vi",
     val themeMode: String = "system",
     val weightUnit: String = "kg",
     val heightUnit: String = "cm",
     val energyUnit: String = "kcal",
+    val calorieTarget: Int? = null,
+    val waterGoalMl: Int? = null,
+    val mealTargetPerDay: Int? = null,
     val aiConsent: Boolean = true,
     val photoStorageEnabled: Boolean = true
 )

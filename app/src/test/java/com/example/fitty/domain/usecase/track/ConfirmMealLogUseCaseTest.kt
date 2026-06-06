@@ -74,6 +74,8 @@ private class FakeTrackingRepository : TrackingRepository {
 
     override suspend fun uploadScanImage(uid: String, localImageUri: String): Result<String> = Result.success("uploaded://image")
 
+    override suspend fun uploadBodyScanImage(uid: String, localImageUri: String): Result<String> = Result.success("uploaded://body")
+
     override suspend fun saveBodyScan(uid: String, bodyScan: BodyScan): Result<String> = Result.success("body-1")
 
     override suspend fun getBodyScans(uid: String, limit: Int): List<BodyScan> = emptyList()

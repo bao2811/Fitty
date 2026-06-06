@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.fitty.R
+import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.data.content.ExercisePrescriptionResolver
@@ -15,6 +16,7 @@ import com.example.fitty.domain.model.ExerciseQuery
 import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.QuickWorkoutConfig
 import com.example.fitty.domain.model.ScheduledWorkout
+import com.example.fitty.domain.model.WorkoutExercise
 import com.example.fitty.domain.model.WorkoutSession
 import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.domain.repository.ExerciseCatalogRepository
@@ -42,6 +44,7 @@ data class WorkoutExerciseItem(
     val targetRepsLabel: String? = null,
     val targetWeightKg: Float? = null,
     val targetWeightLabel: String? = null,
+    val targetWeightBasisLabel: String? = null,
     val repsBySetInput: List<String> = emptyList(),
     val weightKgBySetInput: List<String> = emptyList(),
     val elapsedSeconds: Int = 0,
@@ -97,6 +100,16 @@ class WorkoutSessionViewModel @Inject constructor(
         }
     }
 
+    private fun targetWeightBasisLabel(targetWeightKg: Float?, targetWeightLabel: String?): String? {
+        val weightKg = currentUser?.profile?.weightKg ?: return null
+        if (targetWeightKg == null && targetWeightLabel.isNullOrBlank()) return null
+        return if (currentLanguage.lowercase(java.util.Locale.US).startsWith("vi")) {
+            "Theo cân nặng $weightKg kg"
+        } else {
+            "Based on ${weightKg} kg body weight"
+        }
+    }
+
     private val _uiState = MutableStateFlow(
         WorkoutSessionUiState(
             title = context.getString(R.string.plan_quick_workout_title),
@@ -119,7 +132,7 @@ class WorkoutSessionViewModel @Inject constructor(
             "waist", "upper legs", "lower legs", "cardio", "neck"
         )
     )
-    private var currentLanguage: String = java.util.Locale.getDefault().language
+    private var currentLanguage: String = AppLocaleManager.resolveStoredLanguage(context)
     private var currentUser: FittyUser? = null
     private var prescriptionCatalog: List<ExercisePrescriptionContent> = emptyList()
 
@@ -142,7 +155,7 @@ class WorkoutSessionViewModel @Inject constructor(
 
     private fun loadSessionContextAndExercises() {
         viewModelScope.launch {
-            currentLanguage = sessionRepository.getAppLanguage().orEmpty().ifBlank { java.util.Locale.getDefault().language }
+            currentLanguage = AppLocaleManager.resolveStoredLanguage(context)
             currentUser = runCatching { getCurrentUserUseCase() }.getOrNull()
             quickWorkoutConfig = contentRepository.getQuickWorkoutConfig(currentLanguage)
             prescriptionCatalog = contentRepository.getExercisePrescriptions(currentLanguage)
@@ -315,6 +328,7 @@ class WorkoutSessionViewModel @Inject constructor(
                 targetRepsLabel = recommendation?.reps ?: exercise.defaultRepsText.ifBlank { null },
                 targetWeightKg = targetWeight,
                 targetWeightLabel = recommendation?.targetWeightLabel,
+                targetWeightBasisLabel = targetWeightBasisLabel(targetWeight, recommendation?.targetWeightLabel),
                 repsBySetInput = List(plannedSets) { "" },
                 weightKgBySetInput = List(plannedSets) { defaultWeightInput(targetWeight) }
             )
@@ -339,6 +353,7 @@ class WorkoutSessionViewModel @Inject constructor(
                 targetRepsLabel = planned.reps,
                 targetWeightKg = planned.targetWeightKg,
                 targetWeightLabel = null,
+                targetWeightBasisLabel = targetWeightBasisLabel(planned.targetWeightKg, null),
                 repsBySetInput = List(plannedSets) { "" },
                 weightKgBySetInput = List(plannedSets) { defaultWeightInput(planned.targetWeightKg) }
             )
@@ -459,6 +474,16 @@ class WorkoutSessionViewModel @Inject constructor(
                     source = if (planId.isNotBlank()) "plan" else "quick_template",
                     status = "in_progress",
                     startedAt = System.currentTimeMillis(),
+                    plannedExercises = _uiState.value.exerciseItems.map { item ->
+                        WorkoutExercise(
+                            exerciseId = item.exercise.id,
+                            name = item.exercise.name,
+                            sets = item.plannedSets,
+                            reps = item.targetRepsLabel,
+                            durationSeconds = item.requiredSeconds.takeIf { item.plannedSets == 0 },
+                            targetWeightKg = item.targetWeightKg
+                        )
+                    },
                     exercises = exerciseLogs
                 )
                 workoutSessionRepository.startSession(uid, session)
@@ -528,6 +553,9 @@ class WorkoutSessionViewModel @Inject constructor(
                 ).toInt()
             )
         }
+        viewModelScope.launch {
+            persistCompletedExercise(idx)
+        }
         val next = _uiState.value.exerciseItems.indexOfFirst { !it.isCompleted && it != item }
         if (next >= 0) selectExercise(next)
     }
@@ -548,26 +576,8 @@ class WorkoutSessionViewModel @Inject constructor(
             return
         }
         _uiState.update { it.copy(isSubmittingSession = true, error = null) }
-        val exerciseLogs = state.exerciseItems.filter { it.isCompleted }.mapIndexed { index, item ->
-            val parsedReps = item.repsBySetInput.mapNotNull { input -> input.toIntOrNull() }
-            val parsedWeights = item.weightKgBySetInput.mapNotNull { input -> input.toFloatOrNull() }
-            ExerciseLog(
-                id = item.logId,
-                exerciseId = item.exercise.id,
-                name = item.exercise.name,
-                orderIndex = index,
-                plannedSets = item.plannedSets,
-                completedSets = when {
-                    item.plannedSets > 0 && parsedReps.isNotEmpty() -> parsedReps.size
-                    item.plannedSets > 0 && item.isCompleted -> item.plannedSets
-                    item.isCompleted -> 1
-                    else -> 0
-                },
-                repsBySet = parsedReps,
-                weightKgBySet = parsedWeights,
-                durationSeconds = item.elapsedSeconds,
-                completed = true
-            )
+        val exerciseLogs = state.exerciseItems.mapIndexedNotNull { index, item ->
+            item.takeIf { it.isCompleted }?.toCompletedExerciseLog(index)
         }
         viewModelScope.launch {
             completeWorkoutSessionUseCase(
@@ -609,6 +619,49 @@ class WorkoutSessionViewModel @Inject constructor(
                     startGlobalTimer()
                 }
         }
+    }
+
+    private suspend fun persistCompletedExercise(index: Int) {
+        val uid = sessionRepository.getCurrentUserId() ?: return
+        val sessionId = firestoreSessionId.ifBlank { _uiState.value.sessionId }
+        if (sessionId.isBlank()) return
+
+        var item = _uiState.value.exerciseItems.getOrNull(index) ?: return
+        if (item.logId.isBlank()) {
+            syncExerciseLogIds(uid = uid, sessionId = sessionId)
+            item = _uiState.value.exerciseItems.getOrNull(index) ?: return
+        }
+        if (item.logId.isBlank() || !item.isCompleted) return
+
+        val exerciseLog = item.toCompletedExerciseLog(index)
+        workoutSessionRepository.updateExerciseLog(uid, sessionId, exerciseLog)
+            .onFailure { error ->
+                _uiState.update {
+                    it.copy(error = error.message ?: context.getString(R.string.workout_finish_failed))
+                }
+            }
+    }
+
+    private fun WorkoutExerciseItem.toCompletedExerciseLog(orderIndex: Int): ExerciseLog {
+        val parsedReps = repsBySetInput.mapNotNull { input -> input.toIntOrNull() }
+        val parsedWeights = weightKgBySetInput.mapNotNull { input -> input.toFloatOrNull() }
+        return ExerciseLog(
+            id = logId,
+            exerciseId = exercise.id,
+            name = exercise.name,
+            orderIndex = orderIndex,
+            plannedSets = plannedSets,
+            completedSets = when {
+                plannedSets > 0 && parsedReps.isNotEmpty() -> parsedReps.size
+                plannedSets > 0 && isCompleted -> plannedSets
+                isCompleted -> 1
+                else -> 0
+            },
+            repsBySet = parsedReps,
+            weightKgBySet = parsedWeights,
+            durationSeconds = elapsedSeconds,
+            completed = true
+        )
     }
 
     private fun startGlobalTimer() {

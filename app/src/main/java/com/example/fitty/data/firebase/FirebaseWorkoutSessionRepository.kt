@@ -23,6 +23,16 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
         val ref = sessions(uid).document()
         ref.set(mapOf("planId" to session.planId, "scheduledWorkoutId" to session.scheduledWorkoutId,
             "title" to session.title, "source" to session.source, "status" to "in_progress",
+            "plannedExercises" to session.plannedExercises.map { exercise ->
+                mapOf(
+                    "exerciseId" to exercise.exerciseId,
+                    "name" to exercise.name,
+                    "sets" to exercise.sets,
+                    "reps" to exercise.reps,
+                    "durationSeconds" to exercise.durationSeconds,
+                    "targetWeightKg" to exercise.targetWeightKg
+                )
+            },
             "startedAt" to startedAt, "createdAt" to startedAt,
             "updatedAt" to startedAt), SetOptions.merge()).await()
         // Save exercise logs as subcollection
@@ -49,6 +59,17 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
                 weightKgBySet = (e.get("weightKgBySet") as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() } ?: emptyList(),
                 durationSeconds = e.getLong("durationSeconds")?.toInt(), completed = e.getBoolean("completed") ?: false)
         }
+        @Suppress("UNCHECKED_CAST")
+        val plannedExercises = (doc.get("plannedExercises") as? List<Map<String, Any?>>)?.map { exercise ->
+            com.example.fitty.domain.model.WorkoutExercise(
+                exerciseId = exercise["exerciseId"] as? String ?: "",
+                name = exercise["name"] as? String ?: "",
+                sets = (exercise["sets"] as? Number)?.toInt() ?: 0,
+                reps = exercise["reps"] as? String,
+                durationSeconds = (exercise["durationSeconds"] as? Number)?.toInt(),
+                targetWeightKg = (exercise["targetWeightKg"] as? Number)?.toFloat()
+            )
+        } ?: emptyList()
         return WorkoutSession(id = doc.id, planId = doc.getString("planId").orEmpty(),
             scheduledWorkoutId = doc.getString("scheduledWorkoutId").orEmpty(), title = doc.getString("title").orEmpty(),
             source = doc.getString("source") ?: "plan", status = doc.getString("status") ?: "in_progress",
@@ -57,6 +78,7 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
             caloriesBurned = doc.getLong("caloriesBurned")?.toInt() ?: 0,
             completionRate = doc.getDouble("completionRate")?.toFloat() ?: 0f,
             perceivedEffort = doc.getLong("perceivedEffort")?.toInt(), notes = doc.getString("notes"),
+            plannedExercises = plannedExercises,
             exercises = exercises)
     }
 
@@ -79,6 +101,33 @@ class FirebaseWorkoutSessionRepository @Inject constructor(
             }
         }
         // Note: stats update is handled by CompleteWorkoutSessionUseCase
+        Result.success(Unit)
+    } catch (e: Exception) { Result.failure(e) }
+
+    override suspend fun updateExerciseLog(uid: String, sessionId: String, exercise: ExerciseLog): Result<Unit> = try {
+        if (exercise.id.isBlank()) {
+            throw IllegalArgumentException("Missing exercise log id")
+        }
+
+        val now = System.currentTimeMillis()
+        sessions(uid).document(sessionId).collection("exercise_logs").document(exercise.id)
+            .set(
+                mapOf(
+                    "exerciseId" to exercise.exerciseId,
+                    "name" to exercise.name,
+                    "orderIndex" to exercise.orderIndex,
+                    "plannedSets" to exercise.plannedSets,
+                    "completedSets" to exercise.completedSets,
+                    "repsBySet" to exercise.repsBySet,
+                    "weightKgBySet" to exercise.weightKgBySet,
+                    "durationSeconds" to exercise.durationSeconds,
+                    "completed" to exercise.completed,
+                    "updatedAt" to now
+                ),
+                SetOptions.merge()
+            ).await()
+        sessions(uid).document(sessionId)
+            .set(mapOf("updatedAt" to now), SetOptions.merge()).await()
         Result.success(Unit)
     } catch (e: Exception) { Result.failure(e) }
 

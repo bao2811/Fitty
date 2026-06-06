@@ -81,7 +81,14 @@ class ConfirmMealLogUseCase @Inject constructor(
 
             // Update daily summary: meal count + macro fields
             val summary = trackingRepository.getDailySummary(uid, summaryDateKey)
-            val baseSummary = summary ?: DailySummary(dateKey = summaryDateKey)
+            val user = userRepository.getCurrentUser(uid)
+            val baseSummary = summary ?: DailySummary(
+                dateKey = summaryDateKey,
+                targets = com.example.fitty.domain.model.DailySummaryTargets(
+                    calories = user?.settings?.calorieTarget ?: 2100,
+                    waterMl = user?.settings?.waterGoalMl ?: 2500
+                )
+            )
             val updated = baseSummary.copy(
                 mealsLoggedCount = baseSummary.mealsLoggedCount + 1,
                 progress = baseSummary.progress.copy(
@@ -96,7 +103,6 @@ class ConfirmMealLogUseCase @Inject constructor(
 
             // Keep aggregate user stats in sync with Track/Home summary cards.
             runCatching {
-                val user = userRepository.getCurrentUser(uid)
                 if (user != null) {
                     userRepository.updateStats(
                         uid,

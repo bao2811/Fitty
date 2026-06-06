@@ -28,6 +28,37 @@ import org.junit.Test
 class WorkoutSessionUseCasesTest {
 
     @Test
+    fun `complete workout updates summary active minutes and workout totals`() = runTest {
+        val planRepository = FakePlanRepository()
+        val trackingRepository = FakeTrackingRepository()
+        val userRepository = FakeUserRepository()
+        val workoutRepository = FakeWorkoutSessionRepository()
+        val useCase = CompleteWorkoutSessionUseCase(
+            workoutSessionRepository = workoutRepository,
+            planRepository = planRepository,
+            trackingRepository = trackingRepository,
+            userRepository = userRepository,
+            sessionRepository = FakeSessionRepository()
+        )
+
+        val result = useCase(
+            sessionId = "session-1",
+            durationMinutes = 30,
+            caloriesBurned = 220,
+            completionRate = 1f,
+            perceivedEffort = null,
+            exercises = listOf(ExerciseLog(id = "log-1", exerciseId = "push_up", completed = true)),
+            planId = "",
+            scheduledWorkoutId = ""
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, trackingRepository.updatedSummaries.size)
+        assertEquals(30, trackingRepository.updatedSummaries.single().progress.activeMinutes)
+        assertEquals(1, userRepository.updatedStatsCount)
+    }
+
+    @Test
     fun `complete workout fails when scheduled workout status update fails`() = runTest {
         val planRepository = FakePlanRepository(updateStatusResult = Result.failure(IllegalStateException("plan update failed")))
         val trackingRepository = FakeTrackingRepository()
@@ -113,6 +144,7 @@ private class FakeTrackingRepository : TrackingRepository {
     override suspend fun saveMealScanRecord(uid: String, record: MealScanRecord): Result<String> = Result.success("scan-1")
     override suspend fun getMealScanHistory(uid: String, limit: Int): List<MealScanRecord> = emptyList()
     override suspend fun uploadScanImage(uid: String, localImageUri: String): Result<String> = Result.success("uploaded://image")
+    override suspend fun uploadBodyScanImage(uid: String, localImageUri: String): Result<String> = Result.success("uploaded://body")
     override suspend fun saveBodyScan(uid: String, bodyScan: BodyScan): Result<String> = Result.success("body-1")
     override suspend fun getBodyScans(uid: String, limit: Int): List<BodyScan> = emptyList()
     override suspend fun getLatestBodyScan(uid: String): BodyScan? = null

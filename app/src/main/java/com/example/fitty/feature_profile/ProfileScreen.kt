@@ -85,6 +85,7 @@ data class ProfileUiState(
     val avatarFeedback: String? = null, val avatarFeedbackIsError: Boolean = false,
     val bodyFatLabel: String = "--", val postureScoreLabel: String = "--",
     val fcmToken: String = "", val isLoadingFcmToken: Boolean = false, val fcmFeedback: String? = null,
+    val fcmFeedbackIsError: Boolean = false,
     val contentDiagnostics: List<ContentDebugSource> = emptyList(),
     val isLoadingContentDiagnostics: Boolean = false,
     val contentDiagnosticsFeedback: String? = null
@@ -148,8 +149,10 @@ class ProfileViewModel @Inject constructor(
                     weightLabel = liveWeight?.let { "%.0f ${user?.settings?.weightUnit ?: "kg"}".format(it) } ?: state.weightLabel,
                     bmiLabel = liveBmi,
                     calorieTargetLabel = summary?.targets?.calories?.let { "${it} ${user?.settings?.energyUnit ?: "kcal"}" }
+                        ?: user?.settings?.calorieTarget?.let { "${it} ${user.settings.energyUnit}" }
                         ?: state.calorieTargetLabel,
                     waterGoalLabel = summary?.targets?.waterMl?.let { "%.1fL".format(it / 1000f) }
+                        ?: user?.settings?.waterGoalMl?.let { "%.1fL".format(it / 1000f) }
                         ?: state.waterGoalLabel,
                     currentStreak = stats.currentStreak,
                     bestStreak = stats.bestStreak,
@@ -269,14 +272,15 @@ class ProfileViewModel @Inject constructor(
     fun loadFcmToken() {
         if (!BuildConfig.DEBUG) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingFcmToken = true, fcmFeedback = null) }
+            _uiState.update { it.copy(isLoadingFcmToken = true, fcmFeedback = null, fcmFeedbackIsError = false) }
             runCatching { firebaseMessaging.token.await() }
                 .onSuccess { token ->
                     _uiState.update {
                         it.copy(
                             fcmToken = token,
                             isLoadingFcmToken = false,
-                            fcmFeedback = context.getString(R.string.profile_fcm_token_loaded)
+                            fcmFeedback = context.getString(R.string.profile_fcm_token_loaded),
+                            fcmFeedbackIsError = false
                         )
                     }
                 }
@@ -284,7 +288,8 @@ class ProfileViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isLoadingFcmToken = false,
-                            fcmFeedback = error.message ?: context.getString(R.string.profile_fcm_token_failed)
+                            fcmFeedback = error.message ?: context.getString(R.string.profile_fcm_token_failed),
+                            fcmFeedbackIsError = true
                         )
                     }
                 }
@@ -296,18 +301,28 @@ class ProfileViewModel @Inject constructor(
         val token = _uiState.value.fcmToken
         val clipboardManager = context.getSystemService(ClipboardManager::class.java) ?: return
         if (token.isBlank()) {
-            _uiState.update { it.copy(fcmFeedback = context.getString(R.string.profile_fcm_token_empty)) }
+            _uiState.update {
+                it.copy(
+                    fcmFeedback = context.getString(R.string.profile_fcm_token_empty),
+                    fcmFeedbackIsError = true
+                )
+            }
             return
         }
         clipboardManager.setPrimaryClip(ClipData.newPlainText("fitty_fcm_token", token))
-        _uiState.update { it.copy(fcmFeedback = context.getString(R.string.profile_fcm_token_copied)) }
+        _uiState.update {
+            it.copy(
+                fcmFeedback = context.getString(R.string.profile_fcm_token_copied),
+                fcmFeedbackIsError = false
+            )
+        }
     }
 
     fun refreshContentDiagnostics() {
         if (!BuildConfig.DEBUG) return
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingContentDiagnostics = true, contentDiagnosticsFeedback = null) }
-            val language = sessionRepository.getAppLanguage().orEmpty().ifBlank { Locale.getDefault().language }
+            val language = AppLocaleManager.resolveStoredLanguage(context)
             val user = cachedUser
             runCatching {
                 contentRepository.getHomeContent(language)
@@ -411,9 +426,6 @@ fun ProfileScreen(
         item { PreferenceSection(state) }
         item { AppSettingsSection(state, onToggleTheme, onToggleLanguage) }
         item { PrivacySection(state, onToggleAiConsent, onTogglePhotoStorage) }
-        if (BuildConfig.DEBUG) {
-            item { PushDebugSection(state, onLoadFcmToken, onCopyFcmToken) }
-        }
         item { LogoutSection(onLogout, onDeleteAccount = { showDeleteDialog = true }) }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
@@ -612,92 +624,6 @@ private fun BodyMetricsSection(state: ProfileUiState) {
 }
 
 @Composable
-private fun PushDebugSection(state: ProfileUiState, onLoadFcmToken: () -> Unit, onCopyFcmToken: () -> Unit) {
-    val context = LocalContext.current
-    val notificationsEnabled = remember { mutableStateOf(FittyNotificationManager.canPostNotifications(context)) }
-    LaunchedEffect(state.fcmFeedback) {
-        notificationsEnabled.value = FittyNotificationManager.canPostNotifications(context)
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FittySectionHeader(stringResource(R.string.profile_push_debug_title))
-        SettingsCard {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.profile_push_debug_subtitle),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = stringResource(R.string.profile_push_debug_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = stringResource(
-                        if (notificationsEnabled.value) {
-                            R.string.profile_notifications_enabled
-                        } else {
-                            R.string.profile_notifications_disabled
-                        }
-                    ),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (notificationsEnabled.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                )
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                ) {
-                    Text(
-                        text = state.fcmToken.ifBlank { stringResource(R.string.profile_fcm_token_placeholder) },
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.fillMaxWidth().padding(12.dp)
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = onLoadFcmToken,
-                        enabled = !state.isLoadingFcmToken,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        if (state.isLoadingFcmToken) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        } else {
-                            Text(stringResource(R.string.profile_fcm_load_token))
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = onCopyFcmToken,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(stringResource(R.string.profile_fcm_copy_token))
-                    }
-                }
-                OutlinedButton(
-                    onClick = { FittyNotificationManager.openNotificationSettings(context) },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(stringResource(R.string.profile_open_notification_settings))
-                }
-                state.fcmFeedback?.let { feedback ->
-                    Text(
-                        text = feedback,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun LogoutSection(onLogout: () -> Unit, onDeleteAccount: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         FittyPrimaryButton(text = stringResource(R.string.profile_log_out), onClick = onLogout)
@@ -778,8 +704,11 @@ private fun FittyUser.toProfileUiState(context: Context): ProfileUiState {
         goalProgress = progress, goalProgressLabel = context.getString(R.string.profile_setup_complete, (progress * 100).roundToInt()),
         heightLabel = profile.heightCm?.let { context.getString(R.string.profile_measurement_value, it, settings.heightUnit) } ?: context.getString(R.string.profile_measurement_unknown, settings.heightUnit),
         weightLabel = profile.weightKg?.let { context.getString(R.string.profile_measurement_value, it, settings.weightUnit) } ?: context.getString(R.string.profile_measurement_unknown, settings.weightUnit),
-        bmiLabel = calculateBmi(profile.weightKg, profile.heightCm), calorieTargetLabel = context.getString(R.string.profile_calorie_placeholder),
-        waterGoalLabel = context.getString(R.string.profile_not_set), trainingDaysCountLabel = context.getString(R.string.profile_days_count, onboarding.workoutDays.size),
+        bmiLabel = calculateBmi(profile.weightKg, profile.heightCm),
+        calorieTargetLabel = settings.calorieTarget?.let { context.getString(R.string.profile_measurement_value, it, settings.energyUnit) }
+            ?: context.getString(R.string.profile_calorie_placeholder),
+        waterGoalLabel = settings.waterGoalMl?.let { "%.1fL".format(it / 1000f) } ?: context.getString(R.string.profile_not_set),
+        trainingDaysCountLabel = context.getString(R.string.profile_days_count, onboarding.workoutDays.size),
         workoutPreferenceLabel = context.getString(R.string.profile_workout_preference_format, fitness, preferredTime), trainingDaysLabel = trainingDays,
         equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(context.getString(R.string.profile_not_set)), dietaryLabel = onboarding.nutritionStyle.toDisplayLabel(context.getString(R.string.profile_not_set)),
         languageLabel = settings.language.toLanguageLabel(context), themeLabel = settings.themeMode.toDisplayLabel(context.getString(R.string.profile_theme_default)),

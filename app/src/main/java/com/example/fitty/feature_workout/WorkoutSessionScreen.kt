@@ -1,14 +1,19 @@
 package com.example.fitty.feature_workout
 
 import android.os.Build
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,7 +36,6 @@ import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.SportsScore
-import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,14 +45,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,13 +62,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.foundation.text.KeyboardOptions
 import coil.ImageLoader
 import coil.compose.SubcomposeAsyncImage
 import coil.decode.GifDecoder
@@ -85,6 +93,14 @@ private fun formatTargetWeight(item: WorkoutExerciseItem): String? {
     return item.targetWeightLabel ?: formatWeightKg(item.targetWeightKg)
 }
 
+private fun formatTargetWeightBasisShort(item: WorkoutExerciseItem): String {
+    return item.targetWeightBasisLabel
+        ?.replace("Theo cân nặng ", "theo ")
+        ?.replace("Based on ", "based on ")
+        ?.replace(" body weight", "")
+        .orEmpty()
+}
+
 @Composable
 fun WorkoutSessionRoute(
     sessionId: String,
@@ -104,8 +120,6 @@ fun WorkoutSessionRoute(
         onPauseExerciseTimer = viewModel::pauseExerciseTimer,
         onCompleteExercise = viewModel::completeExercise,
         onSelectExercise = viewModel::selectExercise,
-        onUpdateSetReps = viewModel::updateSetReps,
-        onUpdateSetWeight = viewModel::updateSetWeight,
         onFinish = { viewModel.finishWorkout(onBack) },
         onBack = onBack
     )
@@ -119,39 +133,52 @@ private fun WorkoutSessionScreen(
     onPauseExerciseTimer: () -> Unit,
     onCompleteExercise: () -> Unit,
     onSelectExercise: (Int) -> Unit,
-    onUpdateSetReps: (Int, String) -> Unit,
-    onUpdateSetWeight: (Int, String) -> Unit,
     onFinish: () -> Unit,
     onBack: () -> Unit
 ) {
     val totalMin = state.totalElapsedSeconds / 60
     val totalSec = state.totalElapsedSeconds % 60
+    val listState = rememberLazyListState()
+    var headerVisible by remember { mutableStateOf(true) }
 
+    LaunchedEffect(listState) {
+        var lastIndex = listState.firstVisibleItemIndex
+        var lastOffset = listState.firstVisibleItemScrollOffset
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                val scrollingDown = index > lastIndex || (index == lastIndex && offset > lastOffset)
+                val scrollingUp = index < lastIndex || (index == lastIndex && offset < lastOffset)
+                if (scrollingDown) headerVisible = false
+                if (scrollingUp) headerVisible = true
+                lastIndex = index
+                lastOffset = offset
+            }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFFFBFE))
+    ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown()
+                    headerVisible = true
+                }
+            },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            horizontal = 16.dp, vertical = 12.dp
+            start = 16.dp,
+            top = 85.dp,
+            end = 16.dp,
+            bottom = if (state.exerciseItems.isNotEmpty() && !state.isLoadingExercises) 112.dp else 12.dp
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // ── Header ──
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.common_back))
-                }
-                Text(
-                    state.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.size(48.dp))
-            }
-        }
         if (state.error != null && state.exerciseItems.isNotEmpty()) {
             item {
                 Card(
@@ -222,106 +249,25 @@ private fun WorkoutSessionScreen(
                     isWorkoutRunning = state.isRunning,
                     onStartTimer = onStartExerciseTimer,
                     onPauseTimer = onPauseExerciseTimer,
-                    onComplete = onCompleteExercise,
-                    onUpdateSetReps = onUpdateSetReps,
-                    onUpdateSetWeight = onUpdateSetWeight
+                    onComplete = onCompleteExercise
                 )
             }
 
             // ── Stats Bar ──
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    MiniStat(
-                        icon = Icons.Outlined.FitnessCenter,
-                        value = "${state.completedCount}/${state.totalCount}",
-                        label = stringResource(R.string.workout_stat_exercises),
-                        modifier = Modifier.weight(1f)
-                    )
-                    MiniStat(
-                        icon = Icons.Outlined.LocalFireDepartment,
-                        value = "${state.estimatedCalories}",
-                        label = stringResource(R.string.common_kcal),
-                        modifier = Modifier.weight(1f)
-                    )
-                    MiniStat(
-                        icon = Icons.Outlined.Timer,
-                        value = "%02d:%02d".format(totalMin, totalSec),
-                        label = stringResource(R.string.workout_stat_total),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            
 
             // ── Exercise List ──
             // ── Action Buttons ──
-            item {
-                Spacer(Modifier.height(4.dp))
-                when {
-                    state.isCompleted -> {
-                        Button(
-                            onClick = onBack,
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = GreenDone),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) {
-                            Icon(Icons.Outlined.CheckCircle, null, Modifier.size(20.dp))
-                            Text(" ${stringResource(R.string.workout_complete_back)}", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    !state.isRunning -> {
-                        Button(
-                            onClick = onStart,
-                            enabled = !state.isSubmittingSession,
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
-                            modifier = Modifier.fillMaxWidth().height(56.dp)
-                        ) {
-                            if (state.isSubmittingSession) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
-                                )
-                            } else {
-                                Icon(Icons.Outlined.PlayArrow, null, Modifier.size(24.dp))
-                                Text(" ${stringResource(R.string.workout_start_session)}", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    else -> {
-                        Button(
-                            onClick = onFinish,
-                            enabled = !state.isSubmittingSession,
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.tertiary
-                            ),
-                            modifier = Modifier.fillMaxWidth().height(52.dp)
-                        ) {
-                            if (state.isSubmittingSession) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
-                                )
-                            } else {
-                                Icon(Icons.Outlined.SportsScore, null, Modifier.size(20.dp))
-                                Text(" ${stringResource(R.string.workout_finish_session)}", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
+            
 
             item {
-                Text(
-                    stringResource(R.string.workout_exercise_list_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        stringResource(R.string.workout_exercise_list_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
             }
             itemsIndexed(state.exerciseItems, key = { i, item -> item.exercise.id + i }) { index, item ->
                 ExerciseListItem(
@@ -334,10 +280,201 @@ private fun WorkoutSessionScreen(
 
             item { Spacer(Modifier.height(16.dp)) }
         }
+        }
+        AnimatedVisibility(
+            visible = headerVisible,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(start = 16.dp, top = 24.dp, end = 16.dp)
+        ) {
+            QuickWorkoutFloatingHeader(
+                title = state.title,
+                subtitle = if (state.isRunning) {
+                    "%02d:%02d".format(totalMin, totalSec)
+                } else {
+                    stringResource(R.string.plan_quick_workout_body)
+                },
+                onBack = onBack
+            )
+        }
+        AnimatedVisibility(
+            visible = state.exerciseItems.isNotEmpty() && !state.isLoadingExercises,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+        ) {
+            WorkoutPrimaryAction(
+                state = state,
+                onBack = onBack,
+                onStart = onStart,
+                onFinish = onFinish
+            )
+        }
     }
 }
 
 // ── Active Exercise Card ─────────────────────────────────────────────
+@Composable
+private fun QuickWorkoutFloatingHeader(
+    title: String,
+    subtitle: String,
+    onBack: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.96f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFF1F8))
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back),
+                    tint = Color.Black
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFFF1F8)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.FitnessCenter,
+                    contentDescription = null,
+                    tint = FittyPink,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutPrimaryAction(
+    state: WorkoutSessionUiState,
+    onBack: () -> Unit,
+    onStart: () -> Unit,
+    onFinish: () -> Unit
+) {
+    val totalMin = state.totalElapsedSeconds / 60
+    val totalSec = state.totalElapsedSeconds % 60
+
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.97f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "${state.completedCount}/${state.totalCount} • ${state.estimatedCalories} kcal • %02d:%02d".format(totalMin, totalSec),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            when {
+                state.isCompleted -> {
+                    Button(
+                        onClick = onBack,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = GreenDone),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp))
+                        Text(" ${stringResource(R.string.workout_complete_back)}", fontWeight = FontWeight.Bold)
+                    }
+                }
+                !state.isRunning -> {
+                    Button(
+                        onClick = onStart,
+                        enabled = !state.isSubmittingSession,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        if (state.isSubmittingSession) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                        } else {
+                            Icon(Icons.Outlined.PlayArrow, null, Modifier.size(20.dp))
+                            Text(" ${stringResource(R.string.workout_start_session)}", fontWeight = FontWeight.ExtraBold)
+                        }
+                    }
+                }
+                else -> {
+                    Button(
+                        onClick = onFinish,
+                        enabled = !state.isSubmittingSession,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        if (state.isSubmittingSession) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                        } else {
+                            Icon(Icons.Outlined.SportsScore, null, Modifier.size(18.dp))
+                            Text(" ${stringResource(R.string.workout_finish_session)}", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun ActiveExerciseCard(
@@ -345,247 +482,517 @@ private fun ActiveExerciseCard(
     isWorkoutRunning: Boolean,
     onStartTimer: () -> Unit,
     onPauseTimer: () -> Unit,
-    onComplete: () -> Unit,
-    onUpdateSetReps: (Int, String) -> Unit,
-    onUpdateSetWeight: (Int, String) -> Unit
+    onComplete: () -> Unit
 ) {
     if (item == null) return
     val imageLoader = rememberGifImageLoader()
     val ex = item.exercise
+    val canComplete = item.elapsedSeconds >= item.requiredSeconds
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        QuickWorkoutHero(item = item, imageLoader = imageLoader)
+        QuickMetricsBox(item = item)
+        QuickTimerCard(item = item, canComplete = canComplete)
+        if (!item.isCompleted && isWorkoutRunning) {
+            QuickWorkoutControls(
+                item = item,
+                canComplete = canComplete,
+                onStartTimer = onStartTimer,
+                onPauseTimer = onPauseTimer,
+                onComplete = onComplete
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickMetricsBox(item: WorkoutExerciseItem) {
+    val ex = item.exercise
+    val primary = ex.primaryMuscleGroup.ifBlank { ex.target.ifBlank { ex.bodyPart } }
+    val secondary = ex.targetMuscles
+        .filterNot { it.equals(primary, ignoreCase = true) }
+        .distinct()
+        .take(2)
+    val level = when (ex.difficulty.lowercase(Locale.US)) {
+        "advanced", "hard", "expert" -> 2
+        "beginner", "easy" -> 0
+        else -> 1
+    }
+    val suggestionText = listOfNotNull(
+        item.targetRepsLabel ?: "${item.requiredSeconds}s",
+        formatTargetWeight(item)
+    ).joinToString(" • ")
+
+    val weightBasisShort = formatTargetWeightBasisShort(item)
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(stringResource(R.string.workout_intensity_title), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Brush.horizontalGradient(listOf(Color(0xFF43A047), Color(0xFFFFA000), FittyPink)))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(when (level) {
+                                    0 -> Alignment.CenterStart
+                                    2 -> Alignment.CenterEnd
+                                    else -> Alignment.Center
+                                })
+                                .size(10.dp)
+                                .background(Color.White, CircleShape)
+                                .padding(2.dp)
+                                .background(Color(0xFFFF8A00), CircleShape)
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        IntensityLabel(stringResource(R.string.workout_intensity_light), Color(0xFF43A047), level == 0)
+                        IntensityLabel(stringResource(R.string.workout_intensity_medium_short), Color(0xFFFF8A00), level == 1)
+                        IntensityLabel(stringResource(R.string.workout_intensity_heavy), FittyPink, level == 2)
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(0.82f)
+                        .background(FittyPink.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 7.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.LocalFireDepartment, null, tint = FittyPink, modifier = Modifier.size(13.dp))
+                        Text(stringResource(R.string.workout_suggestion_title), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        text = stringResource(R.string.workout_suggestion_with_target, item.targetRepsLabel ?: "${item.requiredSeconds}s"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            QuickMetricDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                QuickTargetMetric(Icons.Outlined.Refresh, item.targetRepsLabel ?: stringResource(R.string.exercise_prescription_duration, item.requiredSeconds), if (item.plannedSets > 0) stringResource(R.string.workout_unit_reps) else stringResource(R.string.workout_unit_seconds))
+                QuickTargetMetric(Icons.Outlined.FitnessCenter, formatTargetWeight(item) ?: "-", weightBasisShort)
+                QuickTargetMetric(Icons.Outlined.SportsScore, if (item.plannedSets > 0) item.plannedSets.toString() else "1", stringResource(R.string.workout_unit_set))
+            }
+
+            QuickMetricDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Brush.verticalGradient(listOf(FittyPink.copy(alpha = 0.14f), Color(0xFFF7F3F6)))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.FitnessCenter, null, tint = FittyPink, modifier = Modifier.size(20.dp))
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(stringResource(R.string.workout_target_muscle_groups), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                    MuscleLine(primary.ifBlank { stringResource(R.string.workout_primary_muscle_fallback) }, ex.target.ifBlank { ex.bodyPart }, stringResource(R.string.workout_primary_badge), primary = true)
+                    secondary.forEach { muscle -> MuscleLine(muscle, ex.bodyPart, stringResource(R.string.workout_secondary_badge), primary = false) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickMetricDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Color(0xFFF1E3ED))
+    )
+}
+
+@Composable
+private fun QuickWorkoutHero(
+    item: WorkoutExerciseItem,
+    imageLoader: ImageLoader
+) {
+    val ex = item.exercise
+    val context = LocalContext.current
+    val gifModel: Any? = when {
+        ex.localGifPath.isNotBlank() -> File(ex.localGifPath)
+        ex.gifUrl.isNotBlank() -> ex.gifUrl
+        ex.localThumbnailPath.isNotBlank() -> File(ex.localThumbnailPath)
+        ex.thumbnailUrl.isNotBlank() -> ex.thumbnailUrl
+        else -> null
+    }
+    val muscleLabel = ex.primaryMuscleGroup.ifBlank { ex.target.ifBlank { ex.bodyPart } }
     val elapsedMin = item.elapsedSeconds / 60
     val elapsedSec = item.elapsedSeconds % 60
     val reqMin = item.requiredSeconds / 60
     val reqSec = item.requiredSeconds % 60
     val progress = (item.elapsedSeconds.toFloat() / item.requiredSeconds).coerceAtMost(1f)
-    val canComplete = item.elapsedSeconds >= item.requiredSeconds
 
-    Card(
-        shape = RoundedCornerShape(28.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(252.dp)
+            .clip(RoundedCornerShape(0.dp))
+            .background(Color(0xFF24242A)),
+        contentAlignment = Alignment.Center
     ) {
+        when {
+            item.isGifLoading -> CircularProgressIndicator(color = Color.White, modifier = Modifier.size(42.dp))
+            gifModel != null -> {
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(gifModel)
+                        .crossfade(true)
+                        .build(),
+                    imageLoader = imageLoader,
+                    contentDescription = ex.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    loading = {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = FittyPink, modifier = Modifier.size(36.dp))
+                        }
+                    }
+                )
+            }
+            else -> {
+                Icon(
+                    Icons.Outlined.FitnessCenter,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.56f),
+                    modifier = Modifier.size(74.dp)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.48f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.58f)
+                        )
+                    )
+                )
+        )
+
         Column(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // Exercise name
             Text(
                 text = ex.name.ifBlank { ex.id },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                fontWeight = FontWeight.ExtraBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            exerciseInstructionText(ex)?.takeIf { it.isNotBlank() }?.let { instructionText ->
+            if (muscleLabel.isNotBlank()) {
+                WorkoutTargetChip(muscleLabel)
+            }
+        }
+
+        exerciseInstructionText(ex).takeIf { it.isNotBlank() }?.let {
+            Text(
+                text = "Hướng dẫn",
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(14.dp)
+                    .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                if (item.isTimerRunning && !item.isPaused) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
+            Text(
+                text = "%02d:%02d".format(elapsedMin, elapsedSec),
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(999.dp)),
+                color = FittyPink,
+                trackColor = Color.White.copy(alpha = 0.34f)
+            )
+            Text(
+                text = "%02d:%02d".format(reqMin, reqSec),
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickTimerCard(
+    item: WorkoutExerciseItem,
+    canComplete: Boolean
+) {
+    if (!item.isTimerRunning && !item.isCompleted && item.elapsedSeconds == 0) return
+    val elapsedMin = item.elapsedSeconds / 60
+    val elapsedSec = item.elapsedSeconds % 60
+    val reqMin = item.requiredSeconds / 60
+    val reqSec = item.requiredSeconds % 60
+    val progress = (item.elapsedSeconds.toFloat() / item.requiredSeconds).coerceAtMost(1f)
+
+    QuickInfoCard {
+        Text(
+            text = stringResource(R.string.workout_timer_format, elapsedMin, elapsedSec, reqMin, reqSec),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.ExtraBold,
+            color = if (canComplete) GreenDone else FittyPink
+        )
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp)),
+            color = if (canComplete) GreenDone else FittyPink,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+        Text(
+            text = when {
+                item.isCompleted -> stringResource(R.string.workout_status_completed)
+                canComplete -> stringResource(R.string.workout_status_ready_to_complete)
+                else -> stringResource(R.string.workout_status_in_progress)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun QuickWorkoutControls(
+    item: WorkoutExerciseItem,
+    canComplete: Boolean,
+    onStartTimer: () -> Unit,
+    onPauseTimer: () -> Unit,
+    onComplete: () -> Unit
+) {
+    if (!item.isTimerRunning) {
+        Button(
+            onClick = onStartTimer,
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+        ) {
+            Icon(Icons.Outlined.PlayArrow, null, Modifier.size(22.dp))
+            Text(
+                text = " ${stringResource(R.string.workout_start_exercise_with_duration, item.requiredSeconds)}",
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = onPauseTimer,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+            ) {
+                Icon(
+                    if (item.isPaused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
+                    null,
+                    modifier = Modifier.size(18.dp)
+                )
                 Text(
-                    text = instructionText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
+                    text = " ${if (item.isPaused) stringResource(R.string.workout_resume) else stringResource(R.string.workout_pause)}",
+                    fontWeight = FontWeight.Bold
                 )
             }
-            WorkoutPrescriptionSummary(item = item)
-
-            // GIF preview
-            val gifModel: Any? = when {
-                ex.localGifPath.isNotBlank() -> File(ex.localGifPath)
-                ex.gifUrl.isNotBlank() -> ex.gifUrl
-                ex.localThumbnailPath.isNotBlank() -> File(ex.localThumbnailPath)
-                ex.thumbnailUrl.isNotBlank() -> ex.thumbnailUrl
-                else -> null
+            Button(
+                onClick = onComplete,
+                enabled = canComplete,
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = GreenDone,
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+            ) {
+                Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp))
+                Text(" ${stringResource(R.string.common_done)}", fontWeight = FontWeight.ExtraBold)
             }
+        }
+    }
+}
 
+@Composable
+private fun QuickInfoCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun IntensityLabel(
+    text: String,
+    color: Color,
+    selected: Boolean
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = color.copy(alpha = if (selected) 1f else 0.82f),
+        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold
+    )
+}
+
+@Composable
+private fun QuickTargetMetric(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    value: String,
+    label: String
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .background(FittyPink.copy(alpha = 0.10f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = FittyPink, modifier = Modifier.size(14.dp))
+        }
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (label.isNotBlank()) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun MuscleLine(
+    title: String,
+    subtitle: String,
+    badge: String,
+    primary: Boolean
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1.4f)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFFE8DEF8)),
-                contentAlignment = Alignment.Center
-            ) {
-                when {
-                    item.isGifLoading -> {
-                        CircularProgressIndicator(color = FittyPink, modifier = Modifier.size(42.dp))
-                    }
-                    item.isCompleted -> {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Outlined.CheckCircle, null,
-                                tint = GreenDone, modifier = Modifier.size(56.dp)
-                            )
-                            Text(stringResource(R.string.workout_exercise_completed), fontWeight = FontWeight.Bold, color = GreenDone)
-                        }
-                    }
-                    gifModel != null -> {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(gifModel).crossfade(true).build(),
-                            imageLoader = imageLoader,
-                            contentDescription = ex.name,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                            loading = {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = FittyPink, modifier = Modifier.size(36.dp))
-                                }
-                            }
-                        )
-                    }
-                    else -> {
-                        Icon(
-                            Icons.Outlined.FitnessCenter, null,
-                            tint = Color.White.copy(alpha = 0.5f),
-                            modifier = Modifier.size(48.dp)
-                        )
-                    }
-                }
-            }
-
-            // Timer display (visible when timer started)
-            if (item.isTimerRunning || item.isCompleted) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color = if (canComplete) GreenDone.copy(alpha = 0.08f)
-                            else FittyPink.copy(alpha = 0.06f),
-                            shape = RoundedCornerShape(14.dp)
-                        )
-                        .padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.workout_timer_format, elapsedMin, elapsedSec, reqMin, reqSec),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (canComplete) GreenDone else FittyPink
+                    .size(if (primary) 9.dp else 7.dp)
+                    .background(if (primary) FittyPink else MaterialTheme.colorScheme.outline, CircleShape)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = badge,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (primary) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(
+                        if (primary) FittyPink.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surfaceVariant,
+                        RoundedCornerShape(999.dp)
                     )
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth().height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = if (canComplete) GreenDone else FittyPink,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                    Text(
-                        text = when {
-                            item.isCompleted -> stringResource(R.string.workout_status_completed)
-                            canComplete -> stringResource(R.string.workout_status_ready_to_complete)
-                            else -> stringResource(R.string.workout_status_in_progress)
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            if (item.plannedSets > 0) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = stringResource(R.string.workout_sets_and_weight_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    repeat(item.plannedSets) { setIndex ->
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.workout_set_label, setIndex + 1),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Column(horizontalAlignment = Alignment.End) {
-                                    item.targetRepsLabel?.takeIf { it.isNotBlank() }?.let { reps ->
-                                        Text(
-                                            text = stringResource(R.string.workout_target_reps_label, reps),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                        formatTargetWeight(item)?.let { weightLabel ->
-                                        Text(
-                                            text = stringResource(R.string.workout_target_weight_label, weightLabel),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                OutlinedTextField(
-                                    value = item.repsBySetInput.getOrElse(setIndex) { "" },
-                                    onValueChange = { onUpdateSetReps(setIndex, it) },
-                                    label = { Text(stringResource(R.string.workout_reps_field)) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    enabled = !item.isCompleted,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = item.weightKgBySetInput.getOrElse(setIndex) { "" },
-                                    onValueChange = { onUpdateSetWeight(setIndex, it) },
-                                    label = { Text(stringResource(R.string.workout_weight_field)) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                    singleLine = true,
-                                    enabled = !item.isCompleted,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Action buttons for active exercise
-            if (!item.isCompleted && isWorkoutRunning) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (!item.isTimerRunning) {
-                        Button(
-                            onClick = onStartTimer,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Outlined.PlayArrow, null, Modifier.size(20.dp))
-                            Text(" ${stringResource(R.string.workout_start_exercise_with_duration, item.requiredSeconds)}", fontWeight = FontWeight.Bold)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = onPauseTimer,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                if (item.isPaused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
-                                null, modifier = Modifier.size(18.dp)
-                            )
-                            Text(" ${if (item.isPaused) stringResource(R.string.workout_resume) else stringResource(R.string.workout_pause)}", fontWeight = FontWeight.SemiBold)
-                        }
-                        Button(
-                            onClick = onComplete,
-                            enabled = canComplete,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = GreenDone,
-                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Outlined.CheckCircle, null, Modifier.size(18.dp))
-                            Text(" ${stringResource(R.string.common_done)}", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        }
+        if (subtitle.isNotBlank()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -713,59 +1120,6 @@ private fun ExerciseListItem(
 }
 
 @Composable
-private fun WorkoutPrescriptionSummary(item: WorkoutExerciseItem) {
-    val ex = item.exercise
-    val summary = when {
-        item.plannedSets > 0 -> {
-            formatTargetWeight(item)?.let { weightLabel ->
-                stringResource(
-                    R.string.workout_sets_summary_with_weight,
-                    item.plannedSets,
-                    item.targetRepsLabel ?: stringResource(R.string.workout_reps_not_set),
-                    weightLabel
-                )
-            } ?: stringResource(
-                R.string.workout_sets_summary,
-                item.plannedSets,
-                item.targetRepsLabel ?: stringResource(R.string.workout_reps_not_set)
-            )
-        }
-        else -> stringResource(R.string.exercise_prescription_duration, item.requiredSeconds)
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                brush = Brush.linearGradient(
-                    listOf(FittyPink.copy(alpha = 0.12f), Color(0xFFFFF7FB))
-                ),
-                shape = RoundedCornerShape(20.dp)
-            )
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = stringResource(R.string.workout_prescription_title),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = summary,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        WorkoutTargetChipRow(item = item)
-        if (item.plannedSets == 0 && ex.defaultRepsText.isNotBlank()) {
-            Text(
-                text = stringResource(R.string.workout_target_reps_label, ex.defaultRepsText),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
 private fun WorkoutTargetChipRow(item: WorkoutExerciseItem) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (item.plannedSets > 0) {
@@ -804,35 +1158,6 @@ private fun exerciseInstructionText(exercise: com.example.fitty.domain.model.Exe
 }
 
 // ── Mini Stat Card ───────────────────────────────────────────────────
-
-@Composable
-private fun MiniStat(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    value: String,
-    label: String,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier.padding(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(icon, null, tint = FittyPink, modifier = Modifier.size(18.dp))
-            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(
-                label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
 
 // ── GIF ImageLoader ──────────────────────────────────────────────────
 

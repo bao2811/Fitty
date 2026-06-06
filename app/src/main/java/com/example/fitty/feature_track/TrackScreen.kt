@@ -2,8 +2,10 @@ package com.example.fitty.feature_track
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -281,6 +283,7 @@ class TrackViewModel @Inject constructor(
                 val totalWorkoutsCompleted = stats.dailySummaries.sumOf { s -> s.progress.workoutsCompleted }
                 val totalWorkoutTarget = stats.dailySummaries.sumOf { s -> s.targets.workouts }.coerceAtLeast(1)
                 val totalCalBurned = stats.dailySummaries.sumOf { s -> s.progress.caloriesBurned }
+                val totalActiveMinutes = stats.dailySummaries.sumOf { s -> s.progress.activeMinutes }
                 val avgCal = if (stats.dailySummaries.isNotEmpty()) totalCalBurned / stats.dailySummaries.size else 0
 
                 // Map weekly active days to actual days of the week (Mon=0..Sun=6)
@@ -311,7 +314,7 @@ class TrackViewModel @Inject constructor(
                         statWorkouts = stats.totalWorkouts.toString(),
                         statMeals = stats.totalMealsLogged.toString(),
                         statStreak = context.getString(R.string.track_days_value, stats.currentStreak),
-                        statActiveMin = "${stats.totalWorkouts * behaviorConfig.activeMinutesPerWorkout}",
+                        statActiveMin = "$totalActiveMinutes",
                         statBestStreak = context.getString(R.string.track_days_value, stats.bestStreak),
                         statAvgCalories = context.getString(R.string.track_kcal_value, avgCal),
                         statProteinAvg = context.getString(R.string.track_grams_value, totalProtein / dayCount),
@@ -332,10 +335,11 @@ class TrackViewModel @Inject constructor(
                         bmi = stats.bmi?.let { b -> "%.1f".format(b) } ?: "--",
                         progressWorkouts = "$totalWorkoutsCompleted/$totalWorkoutTarget",
                         progressWorkoutPercent = (totalWorkoutsCompleted.toFloat() / totalWorkoutTarget).coerceIn(0f, 1f),
-                        progressMeals = context.getString(R.string.track_progress_total_meals, stats.totalMealsLogged),
-                        progressMealPercent = if (stats.dailySummaries.isNotEmpty()) {
-                            val mealTarget = stats.dailySummaries.size * behaviorConfig.mealTargetPerDay
-                            (stats.totalMealsLogged.toFloat() / mealTarget).coerceIn(0f, 1f)
+                        progressMeals = stats.mealTargetPerDay?.takeIf { it > 0 }?.let { mealTarget ->
+                            "${stats.totalMealsLogged}/$mealTarget"
+                        } ?: context.getString(R.string.track_progress_total_meals, stats.totalMealsLogged),
+                        progressMealPercent = if ((stats.mealTargetPerDay ?: 0) > 0) {
+                            (stats.totalMealsLogged.toFloat() / stats.mealTargetPerDay!!).coerceIn(0f, 1f)
                         } else {
                             0f
                         },
@@ -520,6 +524,14 @@ private fun TrackScreen(
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
+    val openAppSettings = {
+        context.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+    }
 
     FittyLazyScreen {
         item {
@@ -541,13 +553,29 @@ private fun TrackScreen(
                 )
             }
             when (selectedTab) {
-                TrackTab.Meals -> { item { MealsTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onConfirmMeal = onConfirmMeal) } }
+                TrackTab.Meals -> {
+                    item { MealsTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onConfirmMeal = onConfirmMeal) }
+                }
                 TrackTab.Body -> {
                     item { BodyTab(state = state, onOpenCamera = onOpenCamera, onSubmitImage = onSubmitImage, onSaveBodyScan = onSaveBodyScan) }
                     item { BodyHistorySection(state) }
                 }
-                TrackTab.Progress -> { item { ProgressTab(state) } }
-                TrackTab.Stats -> { item { StatsTab(state) } }
+                TrackTab.Progress -> {
+                    item { ProgressTab(state) }
+                }
+                TrackTab.Stats -> {
+                    item { StatsTab(state) }
+                }
+            }
+            if (selectedTab == TrackTab.Meals || selectedTab == TrackTab.Body) {
+                item {
+                    RecoveryHintCard(
+                        state = state,
+                        onOpenCamera = onOpenCamera,
+                        onSubmitImage = onSubmitImage,
+                        onOpenAppSettings = openAppSettings
+                    )
+                }
             }
         }
     }
@@ -1208,6 +1236,81 @@ private fun CameraAnalysisCard(
 
             state.analysisResult?.let { result ->
                 AnalysisResultCard(result)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecoveryHintCard(
+    state: TrackUiState,
+    onOpenCamera: () -> Unit,
+    onSubmitImage: () -> Unit,
+    onOpenAppSettings: () -> Unit
+) {
+    val error = state.captureError ?: return
+    val permissionDenied = error.contains("permission", ignoreCase = true) ||
+        error.contains("quyền", ignoreCase = true)
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (permissionDenied) {
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+            }
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = if (permissionDenied) {
+                    stringResource(R.string.track_recovery_permission_title)
+                } else {
+                    stringResource(R.string.track_recovery_retry_title)
+                },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = if (permissionDenied) {
+                    stringResource(R.string.track_recovery_permission_body)
+                } else {
+                    stringResource(R.string.track_recovery_retry_body)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = if (permissionDenied) onOpenAppSettings else onOpenCamera,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        if (permissionDenied) {
+                            stringResource(R.string.track_open_app_settings)
+                        } else {
+                            stringResource(R.string.track_take_photo)
+                        }
+                    )
+                }
+                if (!permissionDenied && state.capturedImageUri != null) {
+                    Button(
+                        onClick = onSubmitImage,
+                        enabled = !state.isSubmittingImage,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(stringResource(R.string.track_retry_analysis))
+                    }
+                }
             }
         }
     }
