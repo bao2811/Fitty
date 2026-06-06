@@ -26,3 +26,6 @@ local.properties
 /.scripts
 *.log
 /chapters
+
+/report
+report/
