@@ -23,6 +23,9 @@ object AppLocaleManager {
     fun resolveStoredLanguage(context: Context): String {
         val locale = AppCompatDelegate.getApplicationLocales()[0]
             ?: context.resources.configuration.locales[0]
-        return if (locale.language.equals("vi", ignoreCase = true)) "vi" else "en"
+        return when {
+            locale.language.equals("en", ignoreCase = true) -> "en"
+            else -> "vi"
+        }
     }
 }

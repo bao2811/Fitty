@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -302,7 +303,14 @@ fun OnboardingScreen(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ChoiceList(values, state.equipment, onEquipmentSelected)
         OutlinedTextField(value = state.injuryNote, onValueChange = onInjuryNoteChanged, label = { Text(stringResource(R.string.onboarding_injury_optional)) },
-            shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, cursorColor = FittyPink), modifier = Modifier.fillMaxWidth())
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+            shape = RoundedCornerShape(16.dp), colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.Black,
+                unfocusedTextColor = Color.Black,
+                disabledTextColor = Color.Black.copy(alpha = 0.7f),
+                focusedBorderColor = FittyPink,
+                cursorColor = FittyPink
+            ), modifier = Modifier.fillMaxWidth())
     }
 }
 @Composable private fun NutritionStep(state: OnboardingUiState, nutritionValues: List<OnboardingChoiceContent>, restrictionValues: List<OnboardingChoiceContent>, onNutritionSelected: (String) -> Unit, onRestrictionToggled: (String) -> Unit) {
@@ -341,5 +349,13 @@ fun OnboardingScreen(
 @Composable private fun NumberField(label: String, value: String, onValueChange: (String) -> Unit) {
     OutlinedTextField(value = value, onValueChange = onValueChange, label = { Text(label) },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = RoundedCornerShape(16.dp),
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink), modifier = Modifier.fillMaxWidth())
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.Black,
+            unfocusedTextColor = Color.Black,
+            disabledTextColor = Color.Black.copy(alpha = 0.7f),
+            focusedBorderColor = FittyPink,
+            focusedLabelColor = FittyPink,
+            cursorColor = FittyPink
+        ), modifier = Modifier.fillMaxWidth())
 }

@@ -22,11 +22,17 @@ class PreferencesSessionRepository @Inject constructor(
     }
 
     override suspend fun saveUserSession(user: FittyUser) {
+        val storedLanguage = preferences.appLanguage().orEmpty()
+        val resolvedLanguage = storedLanguage
+            .takeIf { it == "vi" || it == "en" }
+            ?: user.settings.language
+                .takeIf { it == "vi" }
+            ?: "vi"
         preferences.setCurrentUserId(user.uid)
         preferences.setSignedIn(!user.guest)
         preferences.setGuestModeEnabled(user.guest)
         preferences.setOnboardingCompleted(user.onboardingCompleted)
-        preferences.setAppLanguage(user.settings.language)
+        preferences.setAppLanguage(resolvedLanguage)
         preferences.setLastSignedInAt(
             if (user.guest) null else System.currentTimeMillis()
         )
