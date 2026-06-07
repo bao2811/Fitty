@@ -475,11 +475,14 @@ private fun ProfileHeader(
                 if (state.isEditing) {
                     OutlinedTextField(
                         value = state.editName, onValueChange = onEditNameChanged,
-                        textStyle = MaterialTheme.typography.titleMedium.copy(color = Color.White, fontWeight = FontWeight.Bold),
+                        textStyle = MaterialTheme.typography.titleMedium.copy(color = Color.Black, fontWeight = FontWeight.Bold),
                         singleLine = true, isError = state.editError != null,
                         colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.Black,
+                            unfocusedTextColor = Color.Black,
+                            disabledTextColor = Color.Black.copy(alpha = 0.7f),
                             focusedBorderColor = Color.White, unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
-                            cursorColor = Color.White, errorBorderColor = Color(0xFFFF6B6B)
+                            cursorColor = Color.Black, errorBorderColor = Color(0xFFFF6B6B)
                         ),
                         modifier = Modifier.fillMaxWidth(),
                         supportingText = state.editError?.let { { Text(it, color = Color(0xFFFF6B6B)) } }

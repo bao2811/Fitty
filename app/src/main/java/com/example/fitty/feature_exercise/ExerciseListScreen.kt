@@ -231,7 +231,11 @@ fun ExerciseListScreen(
                     label = { Text(stringResource(R.string.exercise_search_label)) },
                     singleLine = true,
                     shape = RoundedCornerShape(18.dp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
                     colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.Black,
+                        unfocusedTextColor = Color.Black,
+                        disabledTextColor = Color.Black.copy(alpha = 0.7f),
                         focusedBorderColor = ExerciseListAccent,
                         focusedLeadingIconColor = ExerciseListAccent
                     )

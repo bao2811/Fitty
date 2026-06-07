@@ -79,8 +79,12 @@ internal fun FittyAuthTextField(
         supportingText = { error?.let { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         visualTransformation = visualTransformation,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
         shape = RoundedCornerShape(18.dp),
         colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.Black,
+            unfocusedTextColor = Color.Black,
+            disabledTextColor = Color.Black.copy(alpha = 0.7f),
             focusedBorderColor = FittyGradientStart,
             focusedLabelColor = FittyGradientStart,
             cursorColor = FittyGradientStart,

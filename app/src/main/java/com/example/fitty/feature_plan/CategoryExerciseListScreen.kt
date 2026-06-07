@@ -47,6 +47,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -437,7 +438,16 @@ private fun CategoryExerciseListScreen(
                             onValueChange = onSearchQueryChange,
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text(stringResource(R.string.exercise_search_label)) }
+                            label = { Text(stringResource(R.string.exercise_search_label)) },
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.Black,
+                                unfocusedTextColor = Color.Black,
+                                disabledTextColor = Color.Black.copy(alpha = 0.7f),
+                                focusedBorderColor = FittyPink,
+                                focusedLabelColor = FittyPink,
+                                cursorColor = FittyPink
+                            )
                         )
                         Text(
                             text = "${state.completedExerciseIds.size}/${state.filteredExerciseItems.size} đã tập",

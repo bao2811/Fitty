@@ -52,6 +52,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -1240,19 +1241,33 @@ private fun TodaySummaryCard(state: HomeUiState, onStartToday: () -> Unit = {}, 
                         onClick = onStartToday,
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FittyPink),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp),
                         modifier = Modifier.weight(1f).height(52.dp)
                     ) {
-                        Text(state.focusPrimaryActionLabel, fontWeight = FontWeight.Bold)
+                        Text(
+                            state.focusPrimaryActionLabel,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     OutlinedButton(
                         onClick = onViewPlan,
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.5f)),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                         modifier = Modifier.weight(1f).height(52.dp)
                     ) {
-                        Text(state.focusSecondaryActionLabel, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            state.focusSecondaryActionLabel,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
@@ -1279,12 +1294,15 @@ private fun TodayTasksSection(
     onToggleTaskReminder: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit
 ) {
-    val presetTasks = remember(state.tasks, state.presetTasks) {
+    var hiddenQuickPresetKeys by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    val presetTasks = remember(state.tasks, state.presetTasks, hiddenQuickPresetKeys) {
         state.presetTasks.filterNot { preset ->
             state.tasks.any { task ->
                 task.title.equals(preset.title, ignoreCase = true) &&
                     task.time == formatTaskTime(preset.timeMinutes)
             }
+        }.filterNot { preset ->
+            quickPresetKey(preset) in hiddenQuickPresetKeys
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1328,6 +1346,21 @@ private fun TodayTasksSection(
                         presetTasks.take(4).forEach { preset ->
                             AssistChip(
                                 onClick = { onAddPresetTask(preset) },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            hiddenQuickPresetKeys = hiddenQuickPresetKeys + quickPresetKey(preset)
+                                        },
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                },
                                 label = { Text("${preset.title} • ${formatTaskTime(preset.timeMinutes)}") }
                             )
                         }
@@ -1425,8 +1458,16 @@ private fun TaskCard(
                     shape = RoundedCornerShape(14.dp)
                 )
                 if (!task.isPlanBacked) {
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.DeleteOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -2233,6 +2274,8 @@ private fun AddTaskDialog(
                     },
                     label = { Text(stringResource(R.string.home_task_field_title)) },
                     modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+                    colors = inputTextFieldColors(),
                     singleLine = true
                 )
                 Text(
@@ -2266,6 +2309,8 @@ private fun AddTaskDialog(
                     onValueChange = { description = it },
                     label = { Text(stringResource(R.string.home_task_field_description)) },
                     modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+                    colors = inputTextFieldColors(),
                     maxLines = 2
                 )
                 OutlinedTextField(
@@ -2277,6 +2322,8 @@ private fun AddTaskDialog(
                     label = { Text(stringResource(R.string.home_task_field_time)) },
                     placeholder = { Text(stringResource(R.string.home_task_field_time_hint)) },
                     modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black),
+                    colors = inputTextFieldColors(),
                     singleLine = true
                 )
                 Row(
@@ -2530,6 +2577,10 @@ private fun formatTaskTime(timeMinutes: Int): String {
     return time.format(DateTimeFormatter.ofPattern("HH:mm"))
 }
 
+private fun quickPresetKey(preset: HomeTaskPresetUi): String {
+    return "${preset.title}|${preset.timeMinutes}|${preset.category}"
+}
+
 private fun formatNotificationTime(context: Context, createdAt: Long): String {
     val diff = System.currentTimeMillis() - createdAt
     return when {
@@ -2673,6 +2724,16 @@ private fun BodyMetricTile(value: String, unit: String, label: String, modifier:
 }
 
 @Composable
+private fun inputTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = Color.Black,
+    unfocusedTextColor = Color.Black,
+    disabledTextColor = Color.Black.copy(alpha = 0.7f),
+    focusedBorderColor = FittyPink,
+    focusedLabelColor = FittyPink,
+    cursorColor = FittyPink
+)
+
+@Composable
 private fun EditBodyMetricsDialog(currentHeightCm: Int?, currentWeightKg: Int?, currentTargetWeightKg: Int?, onDismiss: () -> Unit, onSave: (Int?, Int?, Int?) -> Unit) {
     var height by remember { mutableStateOf(currentHeightCm?.toString() ?: "") }
     var weight by remember { mutableStateOf(currentWeightKg?.toString() ?: "") }
@@ -2684,9 +2745,9 @@ private fun EditBodyMetricsDialog(currentHeightCm: Int?, currentWeightKg: Int?, 
                     Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(FittyPink.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AccessibilityNew, null, tint = FittyPink, modifier = Modifier.size(24.dp)) }
                     Text(stringResource(R.string.home_update_body_metrics), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 }
-                OutlinedTextField(value = height, onValueChange = { height = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_height)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(value = weight, onValueChange = { weight = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_weight)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(value = targetWeight, onValueChange = { targetWeight = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_target_weight)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = height, onValueChange = { height = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_height)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black), colors = inputTextFieldColors())
+                OutlinedTextField(value = weight, onValueChange = { weight = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_weight)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black), colors = inputTextFieldColors())
+                OutlinedTextField(value = targetWeight, onValueChange = { targetWeight = it.filter { c -> c.isDigit() } }, label = { Text(stringResource(R.string.home_body_input_target_weight)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.Black), colors = inputTextFieldColors())
                 val h = height.toIntOrNull(); val w = weight.toIntOrNull()
                 if (h != null && h > 0 && w != null && w > 0) {
                     val previewBmi = w.toFloat() / ((h.toFloat() / 100f) * (h.toFloat() / 100f))

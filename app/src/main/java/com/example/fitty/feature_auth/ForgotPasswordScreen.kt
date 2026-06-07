@@ -169,7 +169,15 @@ private fun ForgotPasswordScreen(
                         supportingText = { state.emailError?.let { Text(it) } },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         shape = RoundedCornerShape(16.dp),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FittyPink, focusedLabelColor = FittyPink, cursorColor = FittyPink),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = androidx.compose.ui.graphics.Color.Black),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = androidx.compose.ui.graphics.Color.Black,
+                            unfocusedTextColor = androidx.compose.ui.graphics.Color.Black,
+                            disabledTextColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.7f),
+                            focusedBorderColor = FittyPink,
+                            focusedLabelColor = FittyPink,
+                            cursorColor = FittyPink
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

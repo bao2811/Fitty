@@ -794,7 +794,11 @@ private fun ChatInputBar(
                 },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(24.dp),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.Black),
                 colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.Black,
+                    unfocusedTextColor = Color.Black,
+                    disabledTextColor = Color.Black.copy(alpha = 0.7f),
                     focusedBorderColor = FittyPink,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     cursorColor = FittyPink,
