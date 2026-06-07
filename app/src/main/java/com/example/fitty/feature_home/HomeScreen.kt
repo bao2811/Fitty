@@ -1279,12 +1279,15 @@ private fun TodayTasksSection(
     onToggleTaskReminder: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit
 ) {
-    val presetTasks = remember(state.tasks, state.presetTasks) {
+    var hiddenQuickPresetKeys by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    val presetTasks = remember(state.tasks, state.presetTasks, hiddenQuickPresetKeys) {
         state.presetTasks.filterNot { preset ->
             state.tasks.any { task ->
                 task.title.equals(preset.title, ignoreCase = true) &&
                     task.time == formatTaskTime(preset.timeMinutes)
             }
+        }.filterNot { preset ->
+            quickPresetKey(preset) in hiddenQuickPresetKeys
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1328,6 +1331,21 @@ private fun TodayTasksSection(
                         presetTasks.take(4).forEach { preset ->
                             AssistChip(
                                 onClick = { onAddPresetTask(preset) },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            hiddenQuickPresetKeys = hiddenQuickPresetKeys + quickPresetKey(preset)
+                                        },
+                                        modifier = Modifier.size(22.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                },
                                 label = { Text("${preset.title} • ${formatTaskTime(preset.timeMinutes)}") }
                             )
                         }
@@ -1425,8 +1443,16 @@ private fun TaskCard(
                     shape = RoundedCornerShape(14.dp)
                 )
                 if (!task.isPlanBacked) {
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Outlined.DeleteOutline, contentDescription = null)
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.DeleteOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -2528,6 +2554,10 @@ private fun formatTaskTime(timeMinutes: Int): String {
     val normalized = timeMinutes.coerceIn(0, 23 * 60 + 59)
     val time = LocalTime.of(normalized / 60, normalized % 60)
     return time.format(DateTimeFormatter.ofPattern("HH:mm"))
+}
+
+private fun quickPresetKey(preset: HomeTaskPresetUi): String {
+    return "${preset.title}|${preset.timeMinutes}|${preset.category}"
 }
 
 private fun formatNotificationTime(context: Context, createdAt: Long): String {
