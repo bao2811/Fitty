@@ -26,6 +26,8 @@ local.properties
 /.scripts
 *.log
 /chapters
-
+.csg/
+.omx/
 /report
 report/
+gradle.properties

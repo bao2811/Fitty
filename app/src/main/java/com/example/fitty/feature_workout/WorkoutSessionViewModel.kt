@@ -90,6 +90,7 @@ class WorkoutSessionViewModel @Inject constructor(
     private val gifDownloadManager: ExerciseGifDownloader,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+    private val countdownAudioPlayer = WorkoutCountdownAudioPlayer()
 
     private fun defaultWeightInput(targetWeightKg: Float?): String {
         val target = targetWeightKg ?: return ""
@@ -531,7 +532,11 @@ class WorkoutSessionViewModel @Inject constructor(
                     if (!current.isTimerRunning) break
                     continue
                 }
-                updateItem(idx) { it.copy(elapsedSeconds = it.elapsedSeconds + 1) }
+                val nextElapsedSeconds = current.elapsedSeconds + 1
+                updateItem(idx) { it.copy(elapsedSeconds = nextElapsedSeconds) }
+                if (WorkoutCountdownSignal.shouldPlayTick(nextElapsedSeconds, current.requiredSeconds)) {
+                    countdownAudioPlayer.playTick()
+                }
             }
         }
     }
@@ -684,5 +689,10 @@ class WorkoutSessionViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    override fun onCleared() {
+        countdownAudioPlayer.release()
+        super.onCleared()
     }
 }
