@@ -60,12 +60,15 @@ data class WorkoutSessionUiState(
     val title: String = "",
     val isRunning: Boolean = false,
     val isPaused: Boolean = false,
+    val isResting: Boolean = false,
     val isCompleted: Boolean = false,
     val isSubmittingSession: Boolean = false,
     val totalElapsedSeconds: Int = 0,
     val exerciseItems: List<WorkoutExerciseItem> = emptyList(),
     val activeIndex: Int = 0,
     val estimatedCalories: Int = 0,
+    val restElapsedSeconds: Int = 0,
+    val restDurationSeconds: Int = 60,
     val isLoadingExercises: Boolean = true,
     val hasResolvedExercises: Boolean = false,
     val error: String? = null,
@@ -91,6 +94,7 @@ class WorkoutSessionViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val countdownAudioPlayer = WorkoutCountdownAudioPlayer()
+    private val restDurationSeconds = 60
 
     private fun defaultWeightInput(targetWeightKg: Float?): String {
         val target = targetWeightKg ?: return ""
@@ -123,6 +127,7 @@ class WorkoutSessionViewModel @Inject constructor(
     val uiState: StateFlow<WorkoutSessionUiState> = _uiState
 
     private var globalTimerRunning = false
+    private var restTimerRunning = false
     private var planId: String = ""
     private var scheduledWorkoutId: String = ""
     private var firestoreSessionId: String = ""
@@ -146,6 +151,7 @@ class WorkoutSessionViewModel @Inject constructor(
         _uiState.value = WorkoutSessionUiState(
             sessionId = sessionId,
             title = context.getString(R.string.plan_quick_workout_title),
+            restDurationSeconds = restDurationSeconds,
             contentSources = listOf(
                 ContentDebugSource("Quick workout config", ContentSourceState.Fallback, "Using local fallback until remote load completes"),
                 ContentDebugSource("Exercise prescriptions", ContentSourceState.Fallback, "Using local fallback until remote load completes")
@@ -404,6 +410,7 @@ class WorkoutSessionViewModel @Inject constructor(
     }
 
     fun selectExercise(index: Int) {
+        if (_uiState.value.isResting) return
         _uiState.update { state ->
             state.copy(
                 activeIndex = index,
@@ -520,6 +527,7 @@ class WorkoutSessionViewModel @Inject constructor(
     }
 
     fun startExerciseTimer() {
+        if (_uiState.value.isResting) return
         val idx = _uiState.value.activeIndex
         val item = _uiState.value.exerciseItems.getOrNull(idx) ?: return
         if (item.isCompleted || item.isTimerRunning) return
@@ -542,6 +550,7 @@ class WorkoutSessionViewModel @Inject constructor(
     }
 
     fun pauseExerciseTimer() {
+        if (_uiState.value.isResting) return
         val idx = _uiState.value.activeIndex
         updateItem(idx) { it.copy(isPaused = !it.isPaused) }
     }
@@ -562,12 +571,26 @@ class WorkoutSessionViewModel @Inject constructor(
             persistCompletedExercise(idx)
         }
         val next = _uiState.value.exerciseItems.indexOfFirst { !it.isCompleted && it != item }
-        if (next >= 0) selectExercise(next)
+        if (next >= 0) {
+            prepareRestForNextExercise(next)
+        }
+    }
+
+    fun skipRest() {
+        if (!_uiState.value.isResting) return
+        stopRestTimer()
+        _uiState.update {
+            it.copy(
+                isResting = false,
+                restElapsedSeconds = 0
+            )
+        }
     }
 
     fun finishWorkout(onComplete: () -> Unit) {
         if (_uiState.value.isSubmittingSession) return
         globalTimerRunning = false
+        stopRestTimer()
         val state = _uiState.value
         val sessionId = firestoreSessionId.ifBlank { state.sessionId }
         if (sessionId.isBlank()) {
@@ -605,7 +628,9 @@ class WorkoutSessionViewModel @Inject constructor(
                             isCompleted = true,
                             isRunning = false,
                             isPaused = false,
+                            isResting = false,
                             isSubmittingSession = false,
+                            restElapsedSeconds = 0,
                             error = null
                         )
                     }
@@ -617,6 +642,7 @@ class WorkoutSessionViewModel @Inject constructor(
                         it.copy(
                             isCompleted = false,
                             isRunning = true,
+                            isResting = false,
                             isSubmittingSession = false,
                             error = error.message ?: context.getString(R.string.workout_finish_failed)
                         )
@@ -681,6 +707,50 @@ class WorkoutSessionViewModel @Inject constructor(
         }
     }
 
+    private fun prepareRestForNextExercise(nextIndex: Int) {
+        stopRestTimer()
+        _uiState.update { state ->
+            state.copy(
+                activeIndex = nextIndex,
+                isResting = true,
+                restElapsedSeconds = 0,
+                exerciseItems = state.exerciseItems.mapIndexed { i, current ->
+                    current.copy(isActive = i == nextIndex)
+                }
+            )
+        }
+        prefetchGif(nextIndex)
+        startRestTimer()
+    }
+
+    private fun startRestTimer() {
+        restTimerRunning = true
+        viewModelScope.launch {
+            while (restTimerRunning) {
+                delay(1000)
+                if (!restTimerRunning) break
+                val state = _uiState.value
+                if (!state.isResting) break
+                val nextElapsed = state.restElapsedSeconds + 1
+                if (nextElapsed >= state.restDurationSeconds) {
+                    _uiState.update {
+                        it.copy(
+                            isResting = false,
+                            restElapsedSeconds = 0
+                        )
+                    }
+                    restTimerRunning = false
+                } else {
+                    _uiState.update { it.copy(restElapsedSeconds = nextElapsed) }
+                }
+            }
+        }
+    }
+
+    private fun stopRestTimer() {
+        restTimerRunning = false
+    }
+
     private fun updateItem(index: Int, transform: (WorkoutExerciseItem) -> WorkoutExerciseItem) {
         _uiState.update { state ->
             state.copy(
@@ -692,6 +762,7 @@ class WorkoutSessionViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        stopRestTimer()
         countdownAudioPlayer.release()
         super.onCleared()
     }

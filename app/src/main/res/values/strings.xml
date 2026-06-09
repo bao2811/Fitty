@@ -307,6 +307,11 @@
     <string name="workout_status_in_progress">Working...</string>
     <string name="workout_resume">Resume</string>
     <string name="workout_pause">Pause</string>
+    <string name="workout_rest_title">Recovery break</string>
+    <string name="workout_rest_next_up">Next up: %1$s</string>
+    <string name="workout_rest_format">Rest %1$02ds / %2$02ds</string>
+    <string name="workout_rest_header_format">Rest %1$02ds/%2$02ds</string>
+    <string name="workout_rest_skip">Skip rest</string>
     <string name="workout_start_exercise_with_duration">Start · %1$ds</string>
     <string name="workout_seconds_format">%1$ds</string>
     <string name="workout_sets_and_weight_title">Sets, reps and weight</string>

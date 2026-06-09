@@ -15,7 +15,7 @@ internal class WorkoutCountdownAudioPlayer {
 
     fun playTick() {
         runCatching {
-            val generator = toneGenerator ?: ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            val generator = toneGenerator ?: ToneGenerator(AudioManager.STREAM_MUSIC, 100)
                 .also { toneGenerator = it }
             generator.startTone(ToneGenerator.TONE_PROP_BEEP, 180)
         }

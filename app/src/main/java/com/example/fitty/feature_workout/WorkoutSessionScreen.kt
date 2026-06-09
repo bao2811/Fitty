@@ -119,6 +119,7 @@ fun WorkoutSessionRoute(
         onStartExerciseTimer = viewModel::startExerciseTimer,
         onPauseExerciseTimer = viewModel::pauseExerciseTimer,
         onCompleteExercise = viewModel::completeExercise,
+        onSkipRest = viewModel::skipRest,
         onSelectExercise = viewModel::selectExercise,
         onFinish = { viewModel.finishWorkout(onBack) },
         onBack = onBack
@@ -132,6 +133,7 @@ private fun WorkoutSessionScreen(
     onStartExerciseTimer: () -> Unit,
     onPauseExerciseTimer: () -> Unit,
     onCompleteExercise: () -> Unit,
+    onSkipRest: () -> Unit,
     onSelectExercise: (Int) -> Unit,
     onFinish: () -> Unit,
     onBack: () -> Unit
@@ -247,9 +249,13 @@ private fun WorkoutSessionScreen(
                 ActiveExerciseCard(
                     item = state.activeExercise,
                     isWorkoutRunning = state.isRunning,
+                    isResting = state.isResting,
+                    restElapsedSeconds = state.restElapsedSeconds,
+                    restDurationSeconds = state.restDurationSeconds,
                     onStartTimer = onStartExerciseTimer,
                     onPauseTimer = onPauseExerciseTimer,
-                    onComplete = onCompleteExercise
+                    onComplete = onCompleteExercise,
+                    onSkipRest = onSkipRest
                 )
             }
 
@@ -274,7 +280,7 @@ private fun WorkoutSessionScreen(
                     item = item,
                     index = index,
                     isSelected = index == state.activeIndex,
-                    onClick = { onSelectExercise(index) }
+                    onClick = { if (!state.isResting) onSelectExercise(index) }
                 )
             }
 
@@ -292,7 +298,15 @@ private fun WorkoutSessionScreen(
             QuickWorkoutFloatingHeader(
                 title = state.title,
                 subtitle = if (state.isRunning) {
-                    "%02d:%02d".format(totalMin, totalSec)
+                    if (state.isResting) {
+                        stringResource(
+                            R.string.workout_rest_header_format,
+                            state.restElapsedSeconds,
+                            state.restDurationSeconds
+                        )
+                    } else {
+                        "%02d:%02d".format(totalMin, totalSec)
+                    }
                 } else {
                     stringResource(R.string.plan_quick_workout_body)
                 },
@@ -480,9 +494,13 @@ private fun WorkoutPrimaryAction(
 private fun ActiveExerciseCard(
     item: WorkoutExerciseItem?,
     isWorkoutRunning: Boolean,
+    isResting: Boolean,
+    restElapsedSeconds: Int,
+    restDurationSeconds: Int,
     onStartTimer: () -> Unit,
     onPauseTimer: () -> Unit,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    onSkipRest: () -> Unit
 ) {
     if (item == null) return
     val imageLoader = rememberGifImageLoader()
@@ -492,14 +510,79 @@ private fun ActiveExerciseCard(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         QuickWorkoutHero(item = item, imageLoader = imageLoader)
         QuickMetricsBox(item = item)
-        QuickTimerCard(item = item, canComplete = canComplete)
-        if (!item.isCompleted && isWorkoutRunning) {
+        if (isResting) {
+            RestTimerCard(
+                nextExerciseName = ex.name.ifBlank { ex.id },
+                elapsedSeconds = restElapsedSeconds,
+                durationSeconds = restDurationSeconds,
+                onSkipRest = onSkipRest
+            )
+        } else {
+            QuickTimerCard(item = item, canComplete = canComplete)
+        }
+        if (!isResting && !item.isCompleted && isWorkoutRunning) {
             QuickWorkoutControls(
                 item = item,
                 canComplete = canComplete,
                 onStartTimer = onStartTimer,
                 onPauseTimer = onPauseTimer,
                 onComplete = onComplete
+            )
+        }
+    }
+}
+
+@Composable
+private fun RestTimerCard(
+    nextExerciseName: String,
+    elapsedSeconds: Int,
+    durationSeconds: Int,
+    onSkipRest: () -> Unit
+) {
+    val progress = (elapsedSeconds.toFloat() / durationSeconds).coerceIn(0f, 1f)
+
+    QuickInfoCard {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = stringResource(R.string.workout_rest_title),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = FittyPink
+            )
+            Text(
+                text = stringResource(R.string.workout_rest_next_up, nextExerciseName),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = stringResource(R.string.workout_rest_format, elapsedSeconds, durationSeconds),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.ExtraBold
+        )
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(999.dp)),
+            color = FittyPink,
+            trackColor = FittyPink.copy(alpha = 0.14f)
+        )
+        Button(
+            onClick = onSkipRest,
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFFFF1F8),
+                contentColor = FittyPink
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.workout_rest_skip),
+                fontWeight = FontWeight.ExtraBold
             )
         }
     }
