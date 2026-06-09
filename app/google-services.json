@@ -12,7 +12,20 @@
           "package_name": "com.UET.mobile"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "773465761432-qlpepo2funrki40t3mj7qkk1qbv4tac9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.UET.mobile",
+            "certificate_hash": "badf36142b87398f60e4a6eb0d5d451ac543edba"
+          }
+        },
+        {
+          "client_id": "773465761432-db3to6fplg0en7fbvphiqtcbpso2i8ar.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyA-m0bRm4CTOfhYWVRxSUNokpRaYfL-1wA"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "773465761432-db3to6fplg0en7fbvphiqtcbpso2i8ar.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
