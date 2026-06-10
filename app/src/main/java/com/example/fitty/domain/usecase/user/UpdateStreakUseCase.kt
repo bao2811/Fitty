@@ -1,5 +1,6 @@
 package com.example.fitty.domain.usecase.user
 
+import com.example.fitty.domain.model.withRecalculatedAchievements
 import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.repository.UserRepository
 import java.time.LocalDate
@@ -58,7 +59,7 @@ class UpdateStreakUseCase @Inject constructor(
             val updatedStats = stats.copy(
                 totalWorkouts = newTotalWorkouts,
                 mealsLogged = newMealsLogged
-            )
+            ).withRecalculatedAchievements()
             return userRepository.updateStats(uid, updatedStats)
         }
 
@@ -78,7 +79,7 @@ class UpdateStreakUseCase @Inject constructor(
             streakActiveDates = newActiveDates,
             totalWorkouts = newTotalWorkouts,
             mealsLogged = newMealsLogged
-        )
+        ).withRecalculatedAchievements()
 
         return userRepository.updateStats(uid, updatedStats)
     }

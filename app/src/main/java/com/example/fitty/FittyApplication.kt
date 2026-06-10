@@ -3,6 +3,7 @@ package com.example.fitty
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.AppCheckProviderFactory
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
@@ -25,6 +26,9 @@ class FittyApplication : Application(), Configuration.Provider {
             .build()
 
     private fun installFirebaseAppCheck() {
+        val firebaseReady = FirebaseApp.getApps(this).isNotEmpty() || FirebaseApp.initializeApp(this) != null
+        if (!firebaseReady) return
+
         val providerFactory = if (BuildConfig.DEBUG) {
             debugAppCheckProviderFactory() ?: PlayIntegrityAppCheckProviderFactory.getInstance()
         } else {

@@ -867,4 +867,22 @@
     <string name="auth_back_to_sign_in">Back to Sign In</string>
     <string name="auth_email_address">Email address</string>
     <string name="auth_send_reset_link">Send Reset Link</string>
+    <string name="achievement_first_workout_title">First Workout</string>
+    <string name="achievement_first_workout_desc">Complete one workout session.</string>
+    <string name="achievement_five_workouts_title">Five-Workout Run</string>
+    <string name="achievement_five_workouts_desc">Complete 5 workouts.</string>
+    <string name="achievement_first_meal_title">First Meal Logged</string>
+    <string name="achievement_first_meal_desc">Save your first meal scan or manual meal.</string>
+    <string name="achievement_three_meals_title">Meal Rhythm</string>
+    <string name="achievement_three_meals_desc">Log 3 meals.</string>
+    <string name="achievement_three_day_streak_title">3-Day Spark</string>
+    <string name="achievement_three_day_streak_desc">Stay active for 3 days.</string>
+    <string name="achievement_seven_day_streak_title">Weekly Consistency</string>
+    <string name="achievement_seven_day_streak_desc">Keep a 7-day active streak.</string>
+    <string name="home_achievement_unlocked_summary">%1$d unlocked - %2$s</string>
+    <string name="home_achievement_progress_summary">%1$d/%2$d - %3$s</string>
+    <string name="home_achievement_progress_chip">%1$d/%2$d</string>
+    <string name="profile_achievements">Achievements</string>
+    <string name="profile_achievement_progress">%1$d/%2$d</string>
+    <string name="profile_achievement_unlocked">Unlocked</string>
 </resources>

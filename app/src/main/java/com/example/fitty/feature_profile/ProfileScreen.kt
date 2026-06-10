@@ -45,6 +45,8 @@ import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.ContentDebugSource
 import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.FittyLazyScreen
+import com.example.fitty.domain.model.FittyAchievementCatalog
+import com.example.fitty.domain.model.FittyAchievementProgress
 import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.preferredDisplayName
 import com.example.fitty.domain.repository.ContentRepository
@@ -80,6 +82,7 @@ data class ProfileUiState(
     val themeLabel: String = "", val unitsLabel: String = "",
     val currentStreak: Int = 0, val bestStreak: Int = 0, val totalWorkouts: Int = 0,
     val mealsLogged: Int = 0, val achievementsUnlocked: Int = 0,
+    val achievements: List<ProfileAchievementUi> = emptyList(),
     val aiConsentEnabled: Boolean = true, val photoStorageEnabled: Boolean = true, val isGuest: Boolean = false,
     val isEditing: Boolean = false, val editName: String = "", val isSaving: Boolean = false, val editError: String? = null,
     val avatarFeedback: String? = null, val avatarFeedbackIsError: Boolean = false,
@@ -89,6 +92,14 @@ data class ProfileUiState(
     val contentDiagnostics: List<ContentDebugSource> = emptyList(),
     val isLoadingContentDiagnostics: Boolean = false,
     val contentDiagnosticsFeedback: String? = null
+)
+
+data class ProfileAchievementUi(
+    val title: String,
+    val description: String,
+    val unlocked: Boolean,
+    val progress: Float,
+    val progressLabel: String
 )
 
 @HiltViewModel
@@ -421,6 +432,7 @@ fun ProfileScreen(
     FittyLazyScreen {
         item { ProfileHeader(state, onStartEdit, onCancelEdit, onEditNameChanged, onSaveName, onAvatarPicked) }
         item { StatsOverview(state) }
+        item { AchievementSection(state) }
         item { GoalSummaryCard(state) }
         item { BodyMetricsSection(state) }
         item { PreferenceSection(state) }
@@ -534,6 +546,65 @@ private fun StatsOverview(state: ProfileUiState) {
         MiniStat(Icons.Outlined.FitnessCenter, "${state.totalWorkouts}", stringResource(R.string.profile_stats_workouts), Modifier.weight(1f))
         MiniStat(Icons.Outlined.Restaurant, "${state.mealsLogged}", stringResource(R.string.profile_stats_meals), Modifier.weight(1f))
         MiniStat(Icons.Outlined.StarOutline, "${state.bestStreak}", stringResource(R.string.profile_stats_best), Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun AchievementSection(state: ProfileUiState) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FittySectionHeader(stringResource(R.string.profile_achievements))
+        SettingsCard {
+            state.achievements.forEach { achievement ->
+                AchievementRow(achievement)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AchievementRow(achievement: ProfileAchievementUi) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (achievement.unlocked) FittyPink.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (achievement.unlocked) Icons.Outlined.CheckCircle else Icons.Outlined.EmojiEvents,
+                contentDescription = null,
+                tint = if (achievement.unlocked) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(achievement.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(
+                    if (achievement.unlocked) stringResource(R.string.profile_achievement_unlocked) else achievement.progressLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (achievement.unlocked) FittyPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Text(achievement.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LinearProgressIndicator(
+                progress = { achievement.progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = if (achievement.unlocked) FittyPink else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        }
     }
 }
 
@@ -700,6 +771,7 @@ private fun FittyUser.toProfileUiState(context: Context): ProfileUiState {
     val preferredTime = onboarding.preferredTime.toDisplayLabel(context.getString(R.string.profile_any_time))
     val trainingDays = onboarding.workoutDays.formatWorkoutDays(context)
     val progress = profileCompletionProgress()
+    val achievements = FittyAchievementCatalog.evaluate(stats).map { it.toProfileAchievementUi(context) }
     return ProfileUiState(isLoading = false, displayName = resolvedName, email = email,
         avatarInitial = resolvedName.firstOrNull()?.uppercaseChar()?.toString() ?: "F", avatarUrl = photoUrl,
         profileLabel = context.getString(R.string.profile_level_label, fitness), currentGoal = goal,
@@ -717,8 +789,38 @@ private fun FittyUser.toProfileUiState(context: Context): ProfileUiState {
         languageLabel = settings.language.toLanguageLabel(context), themeLabel = settings.themeMode.toDisplayLabel(context.getString(R.string.profile_theme_default)),
         unitsLabel = context.getString(R.string.profile_units_format, settings.weightUnit, settings.heightUnit, settings.energyUnit),
         currentStreak = stats.currentStreak, bestStreak = stats.bestStreak, totalWorkouts = stats.totalWorkouts,
-        mealsLogged = stats.mealsLogged, achievementsUnlocked = stats.achievementsUnlocked,
+        mealsLogged = stats.mealsLogged, achievementsUnlocked = stats.achievementsUnlocked, achievements = achievements,
         aiConsentEnabled = settings.aiConsent, photoStorageEnabled = settings.photoStorageEnabled, isGuest = guest)
+}
+
+private fun FittyAchievementProgress.toProfileAchievementUi(context: Context): ProfileAchievementUi {
+    return ProfileAchievementUi(
+        title = context.getString(titleResId()),
+        description = context.getString(descriptionResId()),
+        unlocked = unlocked,
+        progress = (displayProgress.toFloat() / target.toFloat()).coerceIn(0f, 1f),
+        progressLabel = context.getString(R.string.profile_achievement_progress, displayProgress, target)
+    )
+}
+
+private fun FittyAchievementProgress.titleResId(): Int = when (id) {
+    FittyAchievementCatalog.FIRST_WORKOUT -> R.string.achievement_first_workout_title
+    FittyAchievementCatalog.FIVE_WORKOUTS -> R.string.achievement_five_workouts_title
+    FittyAchievementCatalog.FIRST_MEAL -> R.string.achievement_first_meal_title
+    FittyAchievementCatalog.THREE_MEALS -> R.string.achievement_three_meals_title
+    FittyAchievementCatalog.THREE_DAY_STREAK -> R.string.achievement_three_day_streak_title
+    FittyAchievementCatalog.SEVEN_DAY_STREAK -> R.string.achievement_seven_day_streak_title
+    else -> R.string.profile_achievements
+}
+
+private fun FittyAchievementProgress.descriptionResId(): Int = when (id) {
+    FittyAchievementCatalog.FIRST_WORKOUT -> R.string.achievement_first_workout_desc
+    FittyAchievementCatalog.FIVE_WORKOUTS -> R.string.achievement_five_workouts_desc
+    FittyAchievementCatalog.FIRST_MEAL -> R.string.achievement_first_meal_desc
+    FittyAchievementCatalog.THREE_MEALS -> R.string.achievement_three_meals_desc
+    FittyAchievementCatalog.THREE_DAY_STREAK -> R.string.achievement_three_day_streak_desc
+    FittyAchievementCatalog.SEVEN_DAY_STREAK -> R.string.achievement_seven_day_streak_desc
+    else -> R.string.home_achievement_empty
 }
 
 private fun ProfileUiState.preserveDebugState(current: ProfileUiState): ProfileUiState = copy(

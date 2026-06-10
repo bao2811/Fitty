@@ -860,4 +860,22 @@
     <string name="plan_custom_plan_home_strength_body">Sức mạnh - 4 tuần - 4 ngày/tuần - Cập nhật 2 ngày trước</string>
     <string name="plan_custom_plan_weekend_mobility_title">Linh hoạt cuối tuần</string>
     <string name="plan_custom_plan_weekend_mobility_body">Linh hoạt - 2 tuần - 2 ngày/tuần - Bản nháp</string>
+    <string name="achievement_first_workout_title">Buổi tập đầu tiên</string>
+    <string name="achievement_first_workout_desc">Hoàn thành 1 buổi tập.</string>
+    <string name="achievement_five_workouts_title">Chuỗi 5 buổi tập</string>
+    <string name="achievement_five_workouts_desc">Hoàn thành 5 buổi tập.</string>
+    <string name="achievement_first_meal_title">Bữa ăn đầu tiên</string>
+    <string name="achievement_first_meal_desc">Lưu bữa ăn đầu tiên từ ảnh quét hoặc nhập tay.</string>
+    <string name="achievement_three_meals_title">Nhịp ăn đều</string>
+    <string name="achievement_three_meals_desc">Ghi lại 3 bữa ăn.</string>
+    <string name="achievement_three_day_streak_title">Chuỗi 3 ngày</string>
+    <string name="achievement_three_day_streak_desc">Duy trì hoạt động trong 3 ngày.</string>
+    <string name="achievement_seven_day_streak_title">Đều đặn cả tuần</string>
+    <string name="achievement_seven_day_streak_desc">Giữ chuỗi hoạt động 7 ngày.</string>
+    <string name="home_achievement_unlocked_summary">%1$d đã mở khóa - %2$s</string>
+    <string name="home_achievement_progress_summary">%1$d/%2$d - %3$s</string>
+    <string name="home_achievement_progress_chip">%1$d/%2$d</string>
+    <string name="profile_achievements">Thành tựu</string>
+    <string name="profile_achievement_progress">%1$d/%2$d</string>
+    <string name="profile_achievement_unlocked">Đã mở khóa</string>
 </resources>
