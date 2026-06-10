@@ -1,0 +1,58 @@
+\begin{thebibliography}{10}
+
+\bibitem{android_jetpack}
+{Android Developers}.
+\newblock Getting started with android jetpack, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{android_room}
+{Android Developers}.
+\newblock Save data in a local database using room, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{android_workmanager}
+{Android Developers}.
+\newblock Getting started with workmanager, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{android_compose}
+{Android Developers}.
+\newblock Jetpack compose setup and dependencies, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{android_navigation_compose}
+{Android Developers}.
+\newblock Navigation with compose, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{firebase_firestore}
+{Firebase}.
+\newblock Get started with cloud firestore, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{android_hilt}
+{Android Developers}.
+\newblock Dependency injection with hilt, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{firebase_setup}
+{Firebase}.
+\newblock Add firebase to your android project, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{firebase_auth}
+{Firebase}.
+\newblock Firebase authentication, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{firebase_fcm}
+{Firebase}.
+\newblock Firebase cloud messaging, 2026.
+\newblock Accessed: 2026-06-02.
+
+\bibitem{firebase_storage}
+{Firebase}.
+\newblock Cloud storage for firebase, 2026.
+\newblock Accessed: 2026-06-02.
+
+\end{thebibliography}

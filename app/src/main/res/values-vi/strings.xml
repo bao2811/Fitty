@@ -35,6 +35,9 @@
     <string name="auth_google_not_configured">Google Sign-In chưa được cấu hình. Hãy thêm Firebase Web client ID.</string>
     <string name="auth_google_failed">Đăng nhập Google thất bại</string>
     <string name="auth_google_cancelled">Bạn đã hủy đăng nhập Google</string>
+    <string name="auth_google_network_error">Lỗi mạng khi đăng nhập với Google</string>
+    <string name="auth_google_developer_error">Google Sign-In cấu hình chưa đúng. Hãy kiểm tra SHA-1 và OAuth client ID.</string>
+    <string name="auth_google_failed_with_code">Đăng nhập Google thất bại (mã: %1$d)</string>
     <string name="auth_no_account">Chưa có tài khoản? </string>
     <string name="auth_create_one">Tạo ngay</string>
     <string name="auth_sign_in_failed">Đăng nhập thất bại</string>
@@ -601,7 +604,7 @@
     <string name="auth_back_to_sign_in">Quay lại đăng nhập</string>
     <string name="auth_email_address">Địa chỉ email</string>
     <string name="auth_send_reset_link">Gửi liên kết đặt lại</string>
-    <string name="google_web_client_id"></string>
+    <string name="google_web_client_id">773465761432-db3to6fplg0en7fbvphiqtcbpso2i8ar.apps.googleusercontent.com</string>
     <string name="onboarding_goal_lose_weight_desc">Tạo kế hoạch calo và tập luyện thực tế.</string>
     <string name="onboarding_goal_gain_muscle_desc">Ưu tiên buổi tập sức mạnh và thói quen protein.</string>
     <string name="onboarding_goal_maintain_fitness_desc">Duy trì nhịp luyện tập cân bằng hằng tuần.</string>

@@ -26,6 +26,7 @@ import com.example.fitty.R
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 
 @Composable
 internal fun GoogleAuthButton(
@@ -58,8 +59,8 @@ internal fun GoogleAuthButton(
             } else {
                 onIdToken(idToken)
             }
-        } catch (_: ApiException) {
-            onError(context.getString(R.string.auth_google_cancelled))
+        } catch (error: ApiException) {
+            onError(context.resolveGoogleSignInError(error))
         }
     }
 
@@ -108,4 +109,13 @@ private fun Context.resolveGoogleWebClientId(): String {
         }
     }
     return getString(R.string.google_web_client_id).trim()
+}
+
+private fun Context.resolveGoogleSignInError(error: ApiException): String {
+    return when (error.statusCode) {
+        CommonStatusCodes.CANCELED -> getString(R.string.auth_google_cancelled)
+        CommonStatusCodes.NETWORK_ERROR -> getString(R.string.auth_google_network_error)
+        CommonStatusCodes.DEVELOPER_ERROR -> getString(R.string.auth_google_developer_error)
+        else -> getString(R.string.auth_google_failed_with_code, error.statusCode)
+    }
 }
