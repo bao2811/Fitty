@@ -653,8 +653,8 @@
     <string name="workout_load_failed">Không thể tải buổi tập.</string>
     <string name="workout_title_scheduled_fallback">Buổi tập theo lịch</string>
     <string name="home_insight_no_meals">Bạn chưa ghi bữa ăn nào. Hãy bắt đầu với một bữa để Fitty cá nhân hóa gợi ý dinh dưỡng.</string>
-    <string name="home_insight_gain_muscle">Tăng cơ cần sự đều đặn. Hãy ưu tiên tập sức mạnh và bổ sung đủ protein hôm nay.</string>
-    <string name="home_insight_default">Một bước nhỏ hôm nay vẫn giúp bạn tiến gần hơn tới mục tiêu.</string>
+    <string name="home_insight_gain_muscle">Mục tiêu %1$s cần nhịp protein đều đặn. Hãy thêm một bữa tối giàu đạm để giữ đúng tiến độ.</string>
+    <string name="home_insight_default">Bạn đang tạo đà cho mục tiêu %1$s. Hãy duy trì dinh dưỡng ổn định để hỗ trợ kế hoạch tập hôm nay.</string>
     <string name="home_insight_empty">Fitty sẽ hiển thị gợi ý khi có thêm dữ liệu theo dõi.</string>
     <string name="home_achievement_locked">Tiếp tục ghi bữa ăn để mở khóa cột mốc tiếp theo</string>
     <string name="home_achievement_unlocked">Đã ghi 10 bữa ăn đầu tiên</string>
@@ -662,11 +662,11 @@
     <string name="home_achievement_count">%1$d thành tựu</string>
     <string name="home_nutrition_summary">%1$d / %2$d kcal</string>
     <string name="home_greeting_title_with_name">Xin chào, %1$s</string>
-    <string name="home_workout_session_name">Buổi tập hôm nay</string>
-    <string name="home_workout_meta_format">%1$d phút • %2$s</string>
+    <string name="home_workout_session_name">Buổi %1$s</string>
+    <string name="home_workout_meta_format">%1$s • %2$s • %3$s</string>
     <string name="home_workout_empty_title">Chưa có buổi tập hôm nay</string>
     <string name="home_workout_empty_body">Hoàn tất onboarding hoặc tạo kế hoạch để Fitty gợi ý buổi tập.</string>
-    <string name="home_workout_waiting_plan_body">Kế hoạch của bạn đang được chuẩn bị.</string>
+    <string name="home_workout_waiting_plan_body">Đang chờ buổi tập theo lịch hôm nay. Thiết lập hiện tại: %1$s • %2$s • %3$s</string>
     <string name="home_default_task_goal">Duy trì thói quen hôm nay</string>
     <string name="home_macro_protein">Đạm</string>
     <string name="home_macro_carbs">Tinh bột</string>
