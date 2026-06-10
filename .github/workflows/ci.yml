@@ -72,13 +72,13 @@ jobs:
           }
 
       - name: Run Android lint
-        run: ./gradlew --no-daemon lintDebug
+        run: ./gradlew --no-daemon -Dorg.gradle.java.home="$JAVA_HOME" lintDebug
 
       - name: Run unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: ./gradlew --no-daemon -Dorg.gradle.java.home="$JAVA_HOME" testDebugUnitTest
 
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: ./gradlew --no-daemon -Dorg.gradle.java.home="$JAVA_HOME" assembleDebug
 
       - name: Upload debug APK
         if: success()
