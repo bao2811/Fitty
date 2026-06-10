@@ -46,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.ui.window.Dialog
@@ -57,6 +58,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -125,6 +127,9 @@ fun WorkoutSessionRoute(
         onOpenReplaceExercise = viewModel::openReplaceExercise,
         onDismissReplaceExercise = viewModel::dismissReplaceExercise,
         onReplaceExercise = viewModel::replaceExercise,
+        onOpenEditExercise = viewModel::openEditExercise,
+        onDismissEditExercise = viewModel::dismissEditExercise,
+        onSaveExerciseDetails = viewModel::saveExerciseDetails,
         onSelectExercise = viewModel::selectExercise,
         onFinish = { viewModel.finishWorkout(onBack) },
         onBack = onBack
@@ -142,6 +147,9 @@ private fun WorkoutSessionScreen(
     onOpenReplaceExercise: (Int) -> Unit,
     onDismissReplaceExercise: () -> Unit,
     onReplaceExercise: (String) -> Unit,
+    onOpenEditExercise: (Int) -> Unit,
+    onDismissEditExercise: () -> Unit,
+    onSaveExerciseDetails: (Int, String, String, String, String) -> Unit,
     onSelectExercise: (Int) -> Unit,
     onFinish: () -> Unit,
     onBack: () -> Unit
@@ -289,7 +297,9 @@ private fun WorkoutSessionScreen(
                     index = index,
                     isSelected = index == state.activeIndex,
                     canReplace = !state.isRunning && !state.isResting && !state.isSubmittingSession,
+                    canEdit = !state.isRunning && !state.isResting && !state.isSubmittingSession,
                     onReplace = { onOpenReplaceExercise(index) },
+                    onEdit = { onOpenEditExercise(index) },
                     onClick = { if (!state.isResting) onSelectExercise(index) }
                 )
             }
@@ -345,6 +355,17 @@ private fun WorkoutSessionScreen(
                 onDismiss = onDismissReplaceExercise,
                 onSelect = onReplaceExercise
             )
+        }
+        state.editTargetIndex?.let { targetIndex ->
+            state.exerciseItems.getOrNull(targetIndex)?.let { targetItem ->
+                EditExerciseDialog(
+                    item = targetItem,
+                    onDismiss = onDismissEditExercise,
+                    onSave = { sets, reps, weight, duration ->
+                        onSaveExerciseDetails(targetIndex, sets, reps, weight, duration)
+                    }
+                )
+            }
         }
     }
 }
@@ -1106,7 +1127,9 @@ private fun ExerciseListItem(
     index: Int,
     isSelected: Boolean,
     canReplace: Boolean,
+    canEdit: Boolean,
     onReplace: () -> Unit,
+    onEdit: () -> Unit,
     onClick: () -> Unit
 ) {
     val imageLoader = rememberGifImageLoader()
@@ -1203,17 +1226,36 @@ private fun ExerciseListItem(
                     )
                 }
                 canReplace -> {
-                    OutlinedButton(
-                        onClick = onReplace,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.End
                     ) {
-                        Text(
-                            text = stringResource(R.string.workout_replace_action),
-                            color = FittyPink,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (canEdit) {
+                            OutlinedButton(
+                                onClick = onEdit,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.workout_edit_action),
+                                    color = FittyPink,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onReplace,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.height(36.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.workout_replace_action),
+                                color = FittyPink,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
                 isSelected -> {
@@ -1229,6 +1271,102 @@ private fun ExerciseListItem(
                             Icons.Outlined.PlayArrow, stringResource(R.string.common_active),
                             tint = Color.White, modifier = Modifier.size(16.dp)
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditExerciseDialog(
+    item: WorkoutExerciseItem,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String) -> Unit
+) {
+    var sets by rememberSaveable(item.exercise.id, item.plannedSets) { mutableStateOf(item.plannedSets.toString()) }
+    var reps by rememberSaveable(item.exercise.id, item.targetRepsLabel) { mutableStateOf(item.targetRepsLabel.orEmpty()) }
+    var weight by rememberSaveable(item.exercise.id, item.targetWeightKg) { mutableStateOf(item.targetWeightKg?.toString().orEmpty()) }
+    var duration by rememberSaveable(item.exercise.id, item.requiredSeconds) { mutableStateOf(item.requiredSeconds.toString()) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(R.string.workout_edit_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = item.exercise.name.ifBlank { item.exercise.id },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                OutlinedTextField(
+                    value = sets,
+                    onValueChange = { sets = it.filter(Char::isDigit) },
+                    label = { Text(stringResource(R.string.workout_edit_sets_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = reps,
+                    onValueChange = { reps = it },
+                    label = { Text(stringResource(R.string.workout_edit_reps_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = weight,
+                    onValueChange = { input ->
+                        weight = input.filterIndexed { index, char ->
+                            char.isDigit() || (char == '.' && input.take(index).none { previousChar -> previousChar == '.' })
+                        }
+                    },
+                    label = { Text(stringResource(R.string.workout_edit_weight_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = duration,
+                    onValueChange = { duration = it.filter(Char::isDigit) },
+                    label = { Text(stringResource(R.string.workout_edit_duration_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                    ) {
+                        Text(text = stringResource(R.string.common_cancel), fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { onSave(sets, reps, weight, duration) },
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                    ) {
+                        Text(text = stringResource(R.string.common_save), fontWeight = FontWeight.ExtraBold)
                     }
                 }
             }

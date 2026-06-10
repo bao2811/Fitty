@@ -312,6 +312,12 @@
     <string name="workout_rest_format">Rest %1$02ds / %2$02ds</string>
     <string name="workout_rest_header_format">Rest %1$02ds/%2$02ds</string>
     <string name="workout_rest_skip">Skip rest</string>
+    <string name="workout_edit_action">Edit</string>
+    <string name="workout_edit_title">Adjust workout details</string>
+    <string name="workout_edit_sets_label">Sets</string>
+    <string name="workout_edit_reps_label">Reps</string>
+    <string name="workout_edit_weight_label">Weight (kg)</string>
+    <string name="workout_edit_duration_label">Time (sec)</string>
     <string name="workout_replace_action">Replace</string>
     <string name="workout_replace_title">Change exercise</string>
     <string name="workout_replace_subtitle">Related %1$s exercises</string>

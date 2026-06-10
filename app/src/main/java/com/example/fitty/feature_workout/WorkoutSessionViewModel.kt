@@ -72,6 +72,7 @@ data class WorkoutSessionUiState(
     val replacementTargetIndex: Int? = null,
     val replacementOptions: List<Exercise> = emptyList(),
     val replacementTargetLabel: String = "",
+    val editTargetIndex: Int? = null,
     val isLoadingExercises: Boolean = true,
     val hasResolvedExercises: Boolean = false,
     val error: String? = null,
@@ -495,6 +496,55 @@ class WorkoutSessionViewModel @Inject constructor(
         if (targetIndex == _uiState.value.activeIndex) {
             prefetchGif(targetIndex)
         }
+    }
+
+    fun openEditExercise(index: Int) {
+        val state = _uiState.value
+        if (state.isRunning || state.isResting || state.isSubmittingSession) return
+        if (state.exerciseItems.getOrNull(index) == null) return
+        _uiState.update { it.copy(editTargetIndex = index) }
+    }
+
+    fun dismissEditExercise() {
+        _uiState.update { it.copy(editTargetIndex = null) }
+    }
+
+    fun saveExerciseDetails(
+        index: Int,
+        setsInput: String,
+        repsInput: String,
+        weightInput: String,
+        durationInput: String
+    ) {
+        val currentItem = _uiState.value.exerciseItems.getOrNull(index) ?: return
+        val parsedSets = setsInput.toIntOrNull()?.coerceAtLeast(0) ?: currentItem.plannedSets
+        val parsedDuration = durationInput.toIntOrNull()?.coerceAtLeast(1) ?: currentItem.requiredSeconds
+        val sanitizedWeight = weightInput.trim()
+        val parsedWeight = sanitizedWeight.toFloatOrNull()
+        val nextWeight = when {
+            sanitizedWeight.isBlank() -> null
+            parsedWeight != null -> parsedWeight
+            else -> currentItem.targetWeightKg
+        }
+        val nextReps = repsInput.trim().ifBlank { null }
+
+        updateItem(index) {
+            it.copy(
+                plannedSets = parsedSets,
+                targetRepsLabel = nextReps,
+                targetWeightKg = nextWeight,
+                targetWeightLabel = null,
+                targetWeightBasisLabel = targetWeightBasisLabel(nextWeight, null),
+                requiredSeconds = parsedDuration,
+                repsBySetInput = List(parsedSets) { setIndex ->
+                    it.repsBySetInput.getOrNull(setIndex).orEmpty()
+                },
+                weightKgBySetInput = List(parsedSets) { setIndex ->
+                    it.weightKgBySetInput.getOrNull(setIndex) ?: defaultWeightInput(nextWeight)
+                }
+            )
+        }
+        _uiState.update { it.copy(editTargetIndex = null) }
     }
 
     fun updateSetReps(setIndex: Int, value: String) {
