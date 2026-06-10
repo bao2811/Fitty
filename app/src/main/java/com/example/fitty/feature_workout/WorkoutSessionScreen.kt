@@ -41,12 +41,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -120,6 +122,9 @@ fun WorkoutSessionRoute(
         onPauseExerciseTimer = viewModel::pauseExerciseTimer,
         onCompleteExercise = viewModel::completeExercise,
         onSkipRest = viewModel::skipRest,
+        onOpenReplaceExercise = viewModel::openReplaceExercise,
+        onDismissReplaceExercise = viewModel::dismissReplaceExercise,
+        onReplaceExercise = viewModel::replaceExercise,
         onSelectExercise = viewModel::selectExercise,
         onFinish = { viewModel.finishWorkout(onBack) },
         onBack = onBack
@@ -134,6 +139,9 @@ private fun WorkoutSessionScreen(
     onPauseExerciseTimer: () -> Unit,
     onCompleteExercise: () -> Unit,
     onSkipRest: () -> Unit,
+    onOpenReplaceExercise: (Int) -> Unit,
+    onDismissReplaceExercise: () -> Unit,
+    onReplaceExercise: (String) -> Unit,
     onSelectExercise: (Int) -> Unit,
     onFinish: () -> Unit,
     onBack: () -> Unit
@@ -280,6 +288,8 @@ private fun WorkoutSessionScreen(
                     item = item,
                     index = index,
                     isSelected = index == state.activeIndex,
+                    canReplace = !state.isRunning && !state.isResting && !state.isSubmittingSession,
+                    onReplace = { onOpenReplaceExercise(index) },
                     onClick = { if (!state.isResting) onSelectExercise(index) }
                 )
             }
@@ -326,6 +336,14 @@ private fun WorkoutSessionScreen(
                 onBack = onBack,
                 onStart = onStart,
                 onFinish = onFinish
+            )
+        }
+        if (state.replacementTargetIndex != null) {
+            ReplaceExerciseDialog(
+                muscleGroupLabel = state.replacementTargetLabel,
+                options = state.replacementOptions,
+                onDismiss = onDismissReplaceExercise,
+                onSelect = onReplaceExercise
             )
         }
     }
@@ -1087,6 +1105,8 @@ private fun ExerciseListItem(
     item: WorkoutExerciseItem,
     index: Int,
     isSelected: Boolean,
+    canReplace: Boolean,
+    onReplace: () -> Unit,
     onClick: () -> Unit
 ) {
     val imageLoader = rememberGifImageLoader()
@@ -1182,6 +1202,20 @@ private fun ExerciseListItem(
                         tint = GreenDone, modifier = Modifier.size(24.dp)
                     )
                 }
+                canReplace -> {
+                    OutlinedButton(
+                        onClick = onReplace,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.height(36.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.workout_replace_action),
+                            color = FittyPink,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 isSelected -> {
                     Box(
                         modifier = Modifier.size(40.dp)
@@ -1197,6 +1231,124 @@ private fun ExerciseListItem(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReplaceExerciseDialog(
+    muscleGroupLabel: String,
+    options: List<com.example.fitty.domain.model.Exercise>,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = stringResource(R.string.workout_replace_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = stringResource(R.string.workout_replace_subtitle, muscleGroupLabel),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (options.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.workout_replace_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.height(360.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        itemsIndexed(options, key = { _, item -> item.id }) { index, option ->
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                ReplaceExerciseOption(
+                                    exercise = option,
+                                    onSelect = { onSelect(option.id) }
+                                )
+                                if (index != options.lastIndex) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.common_cancel),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReplaceExerciseOption(
+    exercise: com.example.fitty.domain.model.Exercise,
+    onSelect: () -> Unit
+) {
+    val primary = exercise.primaryMuscleGroup.ifBlank { exercise.target.ifBlank { exercise.bodyPart } }
+    val secondary = exercise.targetMuscles
+        .filterNot { it.equals(primary, ignoreCase = true) }
+        .distinct()
+        .take(2)
+
+    OutlinedButton(
+        onClick = onSelect,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = exercise.name.ifBlank { exercise.id },
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                WorkoutTargetChip(primary.ifBlank { exercise.bodyPart })
+                secondary.forEach { muscle -> WorkoutTargetChip(muscle) }
+            }
+            exerciseInstructionText(exercise).takeIf { it.isNotBlank() }?.let { summary ->
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

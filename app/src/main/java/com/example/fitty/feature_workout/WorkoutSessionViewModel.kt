@@ -69,6 +69,9 @@ data class WorkoutSessionUiState(
     val estimatedCalories: Int = 0,
     val restElapsedSeconds: Int = 0,
     val restDurationSeconds: Int = 60,
+    val replacementTargetIndex: Int? = null,
+    val replacementOptions: List<Exercise> = emptyList(),
+    val replacementTargetLabel: String = "",
     val isLoadingExercises: Boolean = true,
     val hasResolvedExercises: Boolean = false,
     val error: String? = null,
@@ -141,6 +144,7 @@ class WorkoutSessionViewModel @Inject constructor(
     private var currentLanguage: String = AppLocaleManager.resolveStoredLanguage(context)
     private var currentUser: FittyUser? = null
     private var prescriptionCatalog: List<ExercisePrescriptionContent> = emptyList()
+    private var availableExercises: List<Exercise> = emptyList()
 
     fun initialize(sessionId: String, planId: String = "", scheduledWorkoutId: String = "") {
         globalTimerRunning = false
@@ -218,6 +222,7 @@ class WorkoutSessionViewModel @Inject constructor(
             }
             try {
                 exerciseRepository.observeExercises(ExerciseQuery(limit = 500)).collect { allExercises ->
+                    availableExercises = allExercises
                     val items = buildWorkoutItems(allExercises)
                     val shouldKeepLoading = allExercises.isEmpty() && items.isEmpty()
                     if (shouldKeepLoading) {
@@ -314,32 +319,7 @@ class WorkoutSessionViewModel @Inject constructor(
             selected.addAll(remaining.take(targetCount - selected.size))
         }
 
-        return selected.take(targetCount).map { exercise ->
-            val recommendation = exercisePrescriptionResolver.resolve(
-                exercise = exercise,
-                user = currentUser,
-                language = currentLanguage,
-                catalog = prescriptionCatalog
-            )
-            val duration = recommendation?.durationSeconds
-                ?: exercise.defaultDurationSeconds
-                ?: exercise.durationSeconds.takeIf { it > 0 }
-                ?: quickWorkoutConfig.defaultDurationSeconds
-            val plannedSets = recommendation?.sets
-                ?: if (exercise.defaultRepsText.isNotBlank()) quickWorkoutConfig.defaultSets else 0
-            val targetWeight = recommendation?.targetWeightKg
-            WorkoutExerciseItem(
-                exercise = exercise,
-                requiredSeconds = duration,
-                plannedSets = plannedSets,
-                targetRepsLabel = recommendation?.reps ?: exercise.defaultRepsText.ifBlank { null },
-                targetWeightKg = targetWeight,
-                targetWeightLabel = recommendation?.targetWeightLabel,
-                targetWeightBasisLabel = targetWeightBasisLabel(targetWeight, recommendation?.targetWeightLabel),
-                repsBySetInput = List(plannedSets) { "" },
-                weightKgBySetInput = List(plannedSets) { defaultWeightInput(targetWeight) }
-            )
-        }
+        return selected.take(targetCount).map(::buildWorkoutItemForExercise)
     }
 
     private fun buildPlannedWorkoutItems(allExercises: List<Exercise>): List<WorkoutExerciseItem>? {
@@ -350,22 +330,54 @@ class WorkoutSessionViewModel @Inject constructor(
         val items = plannedExercises.mapNotNull { planned ->
             val exercise = exercisesById[planned.exerciseId] ?: return@mapNotNull null
             val plannedSets = planned.sets.coerceAtLeast(0)
-            WorkoutExerciseItem(
+            buildWorkoutItemForExercise(
                 exercise = exercise,
-                requiredSeconds = planned.durationSeconds
+                plannedSetsOverride = plannedSets,
+                repsOverride = planned.reps,
+                targetWeightOverride = planned.targetWeightKg,
+                durationOverride = planned.durationSeconds
                     ?: exercise.defaultDurationSeconds
                     ?: exercise.durationSeconds.takeIf { it > 0 }
-                    ?: 30,
-                plannedSets = plannedSets,
-                targetRepsLabel = planned.reps,
-                targetWeightKg = planned.targetWeightKg,
-                targetWeightLabel = null,
-                targetWeightBasisLabel = targetWeightBasisLabel(planned.targetWeightKg, null),
-                repsBySetInput = List(plannedSets) { "" },
-                weightKgBySetInput = List(plannedSets) { defaultWeightInput(planned.targetWeightKg) }
+                    ?: 30
             )
         }
         return items.takeIf { it.isNotEmpty() }
+    }
+
+    private fun buildWorkoutItemForExercise(
+        exercise: Exercise,
+        plannedSetsOverride: Int? = null,
+        repsOverride: String? = null,
+        targetWeightOverride: Float? = null,
+        durationOverride: Int? = null
+    ): WorkoutExerciseItem {
+        val recommendation = exercisePrescriptionResolver.resolve(
+            exercise = exercise,
+            user = currentUser,
+            language = currentLanguage,
+            catalog = prescriptionCatalog
+        )
+        val duration = durationOverride
+            ?: recommendation?.durationSeconds
+            ?: exercise.defaultDurationSeconds
+            ?: exercise.durationSeconds.takeIf { it > 0 }
+            ?: quickWorkoutConfig.defaultDurationSeconds
+        val plannedSets = plannedSetsOverride
+            ?: recommendation?.sets
+            ?: if (exercise.defaultRepsText.isNotBlank()) quickWorkoutConfig.defaultSets else 0
+        val targetWeight = targetWeightOverride ?: recommendation?.targetWeightKg
+        val targetWeightLabel = recommendation?.targetWeightLabel
+        return WorkoutExerciseItem(
+            exercise = exercise,
+            requiredSeconds = duration,
+            plannedSets = plannedSets,
+            targetRepsLabel = repsOverride ?: recommendation?.reps ?: exercise.defaultRepsText.ifBlank { null },
+            targetWeightKg = targetWeight,
+            targetWeightLabel = targetWeightLabel,
+            targetWeightBasisLabel = targetWeightBasisLabel(targetWeight, targetWeightLabel),
+            repsBySetInput = List(plannedSets) { "" },
+            weightKgBySetInput = List(plannedSets) { defaultWeightInput(targetWeight) }
+        )
     }
 
     private fun hasUsablePreview(exercise: Exercise): Boolean {
@@ -420,6 +432,69 @@ class WorkoutSessionViewModel @Inject constructor(
             )
         }
         prefetchGif(index)
+    }
+
+    fun openReplaceExercise(index: Int) {
+        val state = _uiState.value
+        if (state.isRunning || state.isResting || state.isSubmittingSession) return
+        val currentItem = state.exerciseItems.getOrNull(index) ?: return
+        val relatedLabel = currentItem.exercise.primaryMuscleGroup
+            .ifBlank { currentItem.exercise.target.ifBlank { currentItem.exercise.bodyPart } }
+        val normalizedLabel = relatedLabel.trim().lowercase()
+        val candidates = availableExercises
+            .asSequence()
+            .filter(::hasUsableIdentity)
+            .filter { it.id != currentItem.exercise.id }
+            .filter { candidate ->
+                val candidateLabel = candidate.primaryMuscleGroup
+                    .ifBlank { candidate.target.ifBlank { candidate.bodyPart } }
+                    .trim()
+                    .lowercase()
+                candidateLabel == normalizedLabel
+            }
+            .sortedWith(compareBy({ !hasUsablePreview(it) }, { it.name.lowercase() }, { it.id.lowercase() }))
+            .take(12)
+            .toList()
+
+        _uiState.update {
+            it.copy(
+                replacementTargetIndex = index,
+                replacementOptions = candidates,
+                replacementTargetLabel = relatedLabel.ifBlank { currentItem.exercise.bodyPart }
+            )
+        }
+    }
+
+    fun dismissReplaceExercise() {
+        _uiState.update {
+            it.copy(
+                replacementTargetIndex = null,
+                replacementOptions = emptyList(),
+                replacementTargetLabel = ""
+            )
+        }
+    }
+
+    fun replaceExercise(exerciseId: String) {
+        val state = _uiState.value
+        val targetIndex = state.replacementTargetIndex ?: return
+        val replacement = state.replacementOptions.firstOrNull { it.id == exerciseId } ?: return
+        val replacementItem = buildWorkoutItemForExercise(replacement).copy(
+            isActive = targetIndex == state.activeIndex
+        )
+        _uiState.update {
+            it.copy(
+                exerciseItems = it.exerciseItems.mapIndexed { index, item ->
+                    if (index == targetIndex) replacementItem else item
+                },
+                replacementTargetIndex = null,
+                replacementOptions = emptyList(),
+                replacementTargetLabel = ""
+            )
+        }
+        if (targetIndex == _uiState.value.activeIndex) {
+            prefetchGif(targetIndex)
+        }
     }
 
     fun updateSetReps(setIndex: Int, value: String) {
