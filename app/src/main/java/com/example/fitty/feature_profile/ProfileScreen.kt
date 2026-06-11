@@ -388,7 +388,11 @@ class ProfileViewModel @Inject constructor(
 }
 
 @Composable
-fun ProfileRoute(onLogout: () -> Unit, viewModel: ProfileViewModel = hiltViewModel()) {
+fun ProfileRoute(
+    onLogout: () -> Unit,
+    onOpenWorkoutHistory: () -> Unit = {},
+    viewModel: ProfileViewModel = hiltViewModel()
+) {
     val state by viewModel.uiState.collectAsState()
     ProfileScreen(state, onLogout = { viewModel.logout(onLogout) }, onDeleteAccount = { viewModel.deleteAccount(onLogout) },
         onStartEdit = viewModel::startEdit, onCancelEdit = viewModel::cancelEdit,
@@ -396,7 +400,8 @@ fun ProfileRoute(onLogout: () -> Unit, viewModel: ProfileViewModel = hiltViewMod
         onAvatarPicked = viewModel::uploadAvatar,
         onToggleTheme = viewModel::toggleTheme, onToggleLanguage = viewModel::toggleLanguage,
         onToggleAiConsent = viewModel::toggleAiConsent, onTogglePhotoStorage = viewModel::togglePhotoStorage,
-        onLoadFcmToken = viewModel::loadFcmToken, onCopyFcmToken = viewModel::copyFcmToken)
+        onLoadFcmToken = viewModel::loadFcmToken, onCopyFcmToken = viewModel::copyFcmToken,
+        onOpenWorkoutHistory = onOpenWorkoutHistory)
 }
 
 @Composable
@@ -407,7 +412,8 @@ fun ProfileScreen(
     onAvatarPicked: (String) -> Unit = {},
     onToggleTheme: () -> Unit = {}, onToggleLanguage: () -> Unit = {},
     onToggleAiConsent: () -> Unit = {}, onTogglePhotoStorage: () -> Unit = {},
-    onLoadFcmToken: () -> Unit = {}, onCopyFcmToken: () -> Unit = {}
+    onLoadFcmToken: () -> Unit = {}, onCopyFcmToken: () -> Unit = {},
+    onOpenWorkoutHistory: () -> Unit = {}
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog) {
@@ -424,6 +430,7 @@ fun ProfileScreen(
         item { GoalSummaryCard(state) }
         item { BodyMetricsSection(state) }
         item { PreferenceSection(state) }
+        item { WorkoutHistorySection(onOpenWorkoutHistory) }
         item { AppSettingsSection(state, onToggleTheme, onToggleLanguage) }
         item { PrivacySection(state, onToggleAiConsent, onTogglePhotoStorage) }
         item { LogoutSection(onLogout, onDeleteAccount = { showDeleteDialog = true }) }
@@ -612,6 +619,21 @@ private fun BodyMetricsSection(state: ProfileUiState) {
             ClickableSettingsRow(Icons.Outlined.DarkMode, stringResource(R.string.profile_theme), state.themeLabel, onClick = onToggleTheme)
             ClickableSettingsRow(Icons.Outlined.Language, stringResource(R.string.profile_app_language), state.languageLabel, onClick = onToggleLanguage)
             FittySettingsRow(Icons.Outlined.Settings, stringResource(R.string.profile_units), state.unitsLabel)
+        }
+    }
+}
+
+@Composable
+private fun WorkoutHistorySection(onOpenWorkoutHistory: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FittySectionHeader(stringResource(R.string.profile_workout_history))
+        SettingsCard {
+            ClickableSettingsRow(
+                Icons.Outlined.History,
+                stringResource(R.string.profile_workout_history),
+                stringResource(R.string.profile_workout_history_desc),
+                onClick = onOpenWorkoutHistory
+            )
         }
     }
 }

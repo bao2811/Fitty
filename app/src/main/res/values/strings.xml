@@ -65,6 +65,8 @@
     <string name="profile_bmi">BMI</string>
     <string name="profile_calorie_target">Calorie Target</string>
     <string name="profile_preferences">Preferences</string>
+    <string name="profile_workout_history">Workout History</string>
+    <string name="profile_workout_history_desc">Review the last 3 workout sessions and exercise details.</string>
     <string name="profile_workout_preference">Workout Preference</string>
     <string name="profile_training_days">Training Days</string>
     <string name="profile_dietary_preference">Dietary Preference</string>
@@ -299,6 +301,10 @@
     <string name="workout_complete_back">Completed! Go back</string>
     <string name="workout_start_session">Start workout session</string>
     <string name="workout_finish_session">Finish workout session</string>
+    <string name="workout_history_title">Workout History</string>
+    <string name="workout_history_subtitle">Review the 3 most recent workout sessions with exercise details.</string>
+    <string name="workout_history_empty">No recent workout history yet.</string>
+    <string name="workout_history_session_fallback">Workout Session</string>
     <string name="workout_exercise_list_title">Exercise List</string>
     <string name="workout_exercise_completed">Completed!</string>
     <string name="workout_timer_format">Time %1$02d:%2$02d / %3$02d:%4$02d</string>

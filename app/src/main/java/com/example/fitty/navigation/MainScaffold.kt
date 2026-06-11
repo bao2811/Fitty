@@ -57,6 +57,7 @@ import com.example.fitty.feature_plan.CategoryExerciseListRoute
 import com.example.fitty.feature_plan.PlanRoute
 import com.example.fitty.feature_profile.ProfileRoute
 import com.example.fitty.feature_track.TrackRoute
+import com.example.fitty.feature_workout.WorkoutHistoryRoute
 import com.example.fitty.ui.theme.FittyPink
 import kotlinx.coroutines.delay
 
@@ -256,7 +257,17 @@ fun MainScaffold(
                     CoachRoute()
                 }
                 composable(MainRoutes.Profile) {
-                    ProfileRoute(onLogout = onLogout)
+                    ProfileRoute(
+                        onLogout = onLogout,
+                        onOpenWorkoutHistory = {
+                            tabNavController.navigate(MainRoutes.WorkoutHistory)
+                        }
+                    )
+                }
+                composable(MainRoutes.WorkoutHistory) {
+                    WorkoutHistoryRoute(
+                        onBack = { tabNavController.popBackStack() }
+                    )
                 }
             }
         }
