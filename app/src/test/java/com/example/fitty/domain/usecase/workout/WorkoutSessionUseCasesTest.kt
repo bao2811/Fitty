@@ -108,6 +108,12 @@ private class FakeWorkoutSessionRepository : WorkoutSessionRepository {
         exercises: List<ExerciseLog>
     ): Result<Unit> = Result.success(Unit)
 
+    override suspend fun updateExerciseLog(
+        uid: String,
+        sessionId: String,
+        exercise: ExerciseLog
+    ): Result<Unit> = Result.success(Unit)
+
     override suspend fun abandonSession(uid: String, sessionId: String): Result<Unit> = Result.success(Unit)
 
     override suspend fun getRecentSessions(uid: String, limit: Int): List<com.example.fitty.domain.model.WorkoutSession> = emptyList()

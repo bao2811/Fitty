@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.LocalDining
 import androidx.compose.material.icons.outlined.LocalFireDepartment
@@ -94,6 +95,9 @@ import com.example.fitty.core.ui.ContentSourceState
 import com.example.fitty.core.ui.AppLocaleManager
 import com.example.fitty.core.ui.FittyLazyScreen
 import com.example.fitty.domain.model.AppNotificationType
+import com.example.fitty.domain.model.FittyAchievementCatalog
+import com.example.fitty.domain.model.FittyAchievementProgress
+import com.example.fitty.domain.model.FittyStats
 import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.HomeBehaviorConfig
 import com.example.fitty.domain.model.HomeContentConfig
@@ -1717,7 +1721,7 @@ private fun AchievementPreviewCard(achievement: HomeAchievementPreviewUi) {
     Card(shape = RoundedCornerShape(20.dp), elevation = CardDefaults.cardElevation(defaultElevation = 3.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.tertiaryContainer), contentAlignment = Alignment.Center) {
-                Icon(Icons.Outlined.LocalDining, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(22.dp))
+                Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(22.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(achievement.itemLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -1789,6 +1793,7 @@ private fun FittyUser.toHomeUiState(context: Context, content: HomeContentConfig
     val fitnessLabel = profile.fitnessLevel.toDisplayLabel(defaultValue = context.getString(R.string.home_fitness_default))
     val equipmentLabel = onboarding.equipmentAccess.toDisplayLabel(defaultValue = context.getString(R.string.home_equipment_default))
     val workoutDays = onboarding.workoutDays.formatWorkoutDays(context)
+    val achievementPreview = buildAchievementPreviewUi(context, content, stats)
     val workoutMetaParts = buildList {
         add(durationMinutes?.let { "$it min" } ?: context.getString(R.string.home_duration_not_set))
         add(fitnessLabel)
@@ -1850,19 +1855,72 @@ private fun FittyUser.toHomeUiState(context: Context, content: HomeContentConfig
             message = content.emptyState.insightMessage,
             actions = content.insightActions
         ),
-        achievement = HomeAchievementPreviewUi(
-            sectionTitle = context.getString(R.string.home_achievement_item_label),
-            itemLabel = context.getString(R.string.home_achievement_item_label),
-            subtitle = if (stats.achievementsUnlocked > 0) {
-                context.getString(R.string.home_achievement_count, stats.achievementsUnlocked)
-            } else {
-                content.emptyState.achievementMessage
-            },
-            actionLabel = context.getString(R.string.home_action_view_all)
-        ),
+        achievement = achievementPreview,
         notifications = emptyList(),
         presetTasks = emptyList()
     )
+}
+
+private fun buildAchievementPreviewUi(
+    context: Context,
+    content: HomeContentConfig,
+    stats: FittyStats
+): HomeAchievementPreviewUi {
+    val allAchievements = FittyAchievementCatalog.evaluate(stats)
+    val unlocked = allAchievements.filter { it.unlocked }
+    val latest = unlocked.lastOrNull()
+    val next = allAchievements.firstOrNull { !it.unlocked }
+    val sectionTitle = context.getString(R.string.home_achievement_item_label)
+
+    return when {
+        latest != null -> HomeAchievementPreviewUi(
+            sectionTitle = sectionTitle,
+            itemLabel = context.getString(latest.titleResId()),
+            subtitle = context.getString(
+                R.string.home_achievement_unlocked_summary,
+                unlocked.size,
+                context.getString(latest.descriptionResId())
+            ),
+            actionLabel = context.getString(R.string.home_achievement_progress_chip, unlocked.size, allAchievements.size)
+        )
+        next != null -> HomeAchievementPreviewUi(
+            sectionTitle = sectionTitle,
+            itemLabel = context.getString(next.titleResId()),
+            subtitle = context.getString(
+                R.string.home_achievement_progress_summary,
+                next.displayProgress,
+                next.target,
+                context.getString(next.descriptionResId())
+            ),
+            actionLabel = context.getString(R.string.home_achievement_progress_chip, unlocked.size, allAchievements.size)
+        )
+        else -> HomeAchievementPreviewUi(
+            sectionTitle = sectionTitle,
+            itemLabel = sectionTitle,
+            subtitle = content.emptyState.achievementMessage,
+            actionLabel = context.getString(R.string.home_achievement_progress_chip, 0, allAchievements.size)
+        )
+    }
+}
+
+private fun FittyAchievementProgress.titleResId(): Int = when (id) {
+    FittyAchievementCatalog.FIRST_WORKOUT -> R.string.achievement_first_workout_title
+    FittyAchievementCatalog.FIVE_WORKOUTS -> R.string.achievement_five_workouts_title
+    FittyAchievementCatalog.FIRST_MEAL -> R.string.achievement_first_meal_title
+    FittyAchievementCatalog.THREE_MEALS -> R.string.achievement_three_meals_title
+    FittyAchievementCatalog.THREE_DAY_STREAK -> R.string.achievement_three_day_streak_title
+    FittyAchievementCatalog.SEVEN_DAY_STREAK -> R.string.achievement_seven_day_streak_title
+    else -> R.string.home_achievement_item_label
+}
+
+private fun FittyAchievementProgress.descriptionResId(): Int = when (id) {
+    FittyAchievementCatalog.FIRST_WORKOUT -> R.string.achievement_first_workout_desc
+    FittyAchievementCatalog.FIVE_WORKOUTS -> R.string.achievement_five_workouts_desc
+    FittyAchievementCatalog.FIRST_MEAL -> R.string.achievement_first_meal_desc
+    FittyAchievementCatalog.THREE_MEALS -> R.string.achievement_three_meals_desc
+    FittyAchievementCatalog.THREE_DAY_STREAK -> R.string.achievement_three_day_streak_desc
+    FittyAchievementCatalog.SEVEN_DAY_STREAK -> R.string.achievement_seven_day_streak_desc
+    else -> R.string.home_achievement_empty
 }
 
 private fun HomeUiState.applyContent(context: Context, content: HomeContentConfig): HomeUiState {

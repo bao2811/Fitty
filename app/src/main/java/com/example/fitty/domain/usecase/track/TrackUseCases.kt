@@ -10,6 +10,7 @@ import com.example.fitty.domain.model.MealAnalysisResult
 import com.example.fitty.domain.model.MealLog
 import com.example.fitty.domain.model.MealScanRecord
 import com.example.fitty.domain.model.ProgressStats
+import com.example.fitty.domain.model.withRecalculatedAchievements
 import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.repository.TrackingRepository
 import com.example.fitty.domain.repository.UserRepository
@@ -107,6 +108,7 @@ class ConfirmMealLogUseCase @Inject constructor(
                     userRepository.updateStats(
                         uid,
                         user.stats.copy(mealsLogged = user.stats.mealsLogged + 1)
+                            .withRecalculatedAchievements()
                     )
                 }
             }

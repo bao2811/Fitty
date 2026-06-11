@@ -3,6 +3,7 @@ package com.example.fitty.domain.usecase.workout
 import com.example.fitty.domain.model.ExerciseLog
 import com.example.fitty.domain.model.ScheduledWorkout
 import com.example.fitty.domain.model.WorkoutSession
+import com.example.fitty.domain.model.withRecalculatedAchievements
 import com.example.fitty.domain.repository.PlanRepository
 import com.example.fitty.domain.repository.SessionRepository
 import com.example.fitty.domain.repository.TrackingRepository
@@ -107,7 +108,7 @@ class CompleteWorkoutSessionUseCase @Inject constructor(
         if (user != null) {
             val updatedStats = user.stats.copy(
                 totalWorkouts = user.stats.totalWorkouts + 1
-            )
+            ).withRecalculatedAchievements()
             val statsUpdateResult = userRepository.updateStats(uid, updatedStats)
             if (statsUpdateResult.isFailure) {
                 return Result.failure(statsUpdateResult.exceptionOrNull() ?: IllegalStateException("Could not update workout stats"))
