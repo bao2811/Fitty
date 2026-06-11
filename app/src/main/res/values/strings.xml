@@ -885,4 +885,18 @@
     <string name="profile_achievements">Achievements</string>
     <string name="profile_achievement_progress">%1$d/%2$d</string>
     <string name="profile_achievement_unlocked">Unlocked</string>
+    <string name="workout_summary_title">Workout complete</string>
+    <string name="workout_summary_subtitle">Nice work. Here is your session recap.</string>
+    <string name="workout_summary_duration">Duration</string>
+    <string name="workout_summary_calories">Calories</string>
+    <string name="workout_summary_completion">Completion</string>
+    <string name="workout_summary_exercises">Exercises</string>
+    <string name="workout_summary_duration_value">%1$d min</string>
+    <string name="workout_summary_calories_value">%1$d kcal</string>
+    <string name="workout_summary_percent_value">%1$d%%</string>
+    <string name="workout_summary_exercises_value">%1$d/%2$d</string>
+    <string name="workout_achievement_unlocked_title">Achievement unlocked</string>
+    <string name="workout_achievement_unlocked_count">%1$d new achievements unlocked</string>
+    <string name="workout_achievement_no_new_title">No new achievement yet</string>
+    <string name="workout_achievement_no_new_body">Keep training to reach the next milestone.</string>
 </resources>

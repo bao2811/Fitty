@@ -13,11 +13,15 @@ import com.example.fitty.domain.model.Exercise
 import com.example.fitty.domain.model.ExercisePrescriptionContent
 import com.example.fitty.domain.model.ExerciseLog
 import com.example.fitty.domain.model.ExerciseQuery
+import com.example.fitty.domain.model.FittyAchievementCatalog
+import com.example.fitty.domain.model.FittyAchievementProgress
+import com.example.fitty.domain.model.FittyStats
 import com.example.fitty.domain.model.FittyUser
 import com.example.fitty.domain.model.QuickWorkoutConfig
 import com.example.fitty.domain.model.ScheduledWorkout
 import com.example.fitty.domain.model.WorkoutExercise
 import com.example.fitty.domain.model.WorkoutSession
+import com.example.fitty.domain.model.withRecalculatedAchievements
 import com.example.fitty.domain.repository.ContentRepository
 import com.example.fitty.domain.repository.ExerciseCatalogRepository
 import com.example.fitty.domain.repository.PlanRepository
@@ -34,6 +38,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 import javax.inject.Inject
 
 data class WorkoutExerciseItem(
@@ -76,12 +83,35 @@ data class WorkoutSessionUiState(
     val isLoadingExercises: Boolean = true,
     val hasResolvedExercises: Boolean = false,
     val error: String? = null,
+    val completionSummary: WorkoutCompletionSummaryUi? = null,
+    val achievementPopup: WorkoutAchievementUnlockUi? = null,
     val contentSources: List<ContentDebugSource> = emptyList()
 ) {
     val completedCount: Int get() = exerciseItems.count { it.isCompleted }
     val totalCount: Int get() = exerciseItems.size
     val activeExercise: WorkoutExerciseItem? get() = exerciseItems.getOrNull(activeIndex)
 }
+
+data class WorkoutCompletionSummaryUi(
+    val title: String,
+    val durationMinutes: Int,
+    val caloriesBurned: Int,
+    val completionPercent: Int,
+    val completedExercises: Int,
+    val totalExercises: Int,
+    val achievementUnlock: WorkoutAchievementUnlockUi? = null
+)
+
+data class WorkoutAchievementUnlockUi(
+    val title: String,
+    val description: String,
+    val unlockedCount: Int
+)
+
+private data class WorkoutCompletionResult(
+    val summary: WorkoutCompletionSummaryUi,
+    val finalStats: FittyStats?
+)
 
 @HiltViewModel
 class WorkoutSessionViewModel @Inject constructor(
@@ -712,7 +742,7 @@ class WorkoutSessionViewModel @Inject constructor(
         }
     }
 
-    fun finishWorkout(onComplete: () -> Unit) {
+    fun finishWorkout() {
         if (_uiState.value.isSubmittingSession) return
         globalTimerRunning = false
         stopRestTimer()
@@ -748,6 +778,8 @@ class WorkoutSessionViewModel @Inject constructor(
                 scheduledWorkoutId = scheduledWorkoutId
             )
                 .onSuccess {
+                    val completionResult = buildCompletionSummary(state)
+                    val completionSummary = completionResult.summary
                     _uiState.update {
                         it.copy(
                             isCompleted = true,
@@ -756,11 +788,15 @@ class WorkoutSessionViewModel @Inject constructor(
                             isResting = false,
                             isSubmittingSession = false,
                             restElapsedSeconds = 0,
-                            error = null
+                            error = null,
+                            completionSummary = completionSummary,
+                            achievementPopup = completionSummary.achievementUnlock
                         )
                     }
                     runCatching { updateStreakUseCase(reason = "workout", incrementActivityCounters = false) }
-                    onComplete()
+                    completionResult.finalStats?.let { stats ->
+                        currentUser = currentUser?.copy(stats = stats)
+                    }
                 }
                 .onFailure { error ->
                     _uiState.update {
@@ -775,6 +811,104 @@ class WorkoutSessionViewModel @Inject constructor(
                     startGlobalTimer()
                 }
         }
+    }
+
+    fun dismissAchievementPopup() {
+        _uiState.update { it.copy(achievementPopup = null) }
+    }
+
+    fun dismissCompletionSummary() {
+        _uiState.update { it.copy(completionSummary = null, achievementPopup = null) }
+    }
+
+    private fun buildCompletionSummary(state: WorkoutSessionUiState): WorkoutCompletionResult {
+        val beforeStats = currentUser?.stats
+        val finalStats = estimateStatsAfterWorkout(beforeStats)
+        val beforeUnlocked = beforeStats
+            ?.let { FittyAchievementCatalog.unlocked(it).map { achievement -> achievement.id }.toSet() }
+            .orEmpty()
+        val newlyUnlocked = finalStats
+            ?.let { FittyAchievementCatalog.unlocked(it).filterNot { achievement -> achievement.id in beforeUnlocked } }
+            .orEmpty()
+        val achievementUnlock = newlyUnlocked.lastOrNull()?.toUnlockUi(newlyUnlocked.size)
+        val durationMinutes = if (state.totalElapsedSeconds > 0) {
+            maxOf(1, (state.totalElapsedSeconds + 59) / 60)
+        } else {
+            0
+        }
+        val completionPercent = if (state.totalCount > 0) {
+            ((state.completedCount.toFloat() / state.totalCount) * 100f).roundToInt()
+        } else {
+            100
+        }
+
+        return WorkoutCompletionResult(
+            summary = WorkoutCompletionSummaryUi(
+                title = state.title,
+                durationMinutes = durationMinutes,
+                caloriesBurned = state.estimatedCalories,
+                completionPercent = completionPercent.coerceIn(0, 100),
+                completedExercises = state.completedCount,
+                totalExercises = state.totalCount,
+                achievementUnlock = achievementUnlock
+            ),
+            finalStats = finalStats
+        )
+    }
+
+    private fun estimateStatsAfterWorkout(stats: FittyStats?): FittyStats? {
+        stats ?: return null
+        val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val withWorkout = stats.copy(totalWorkouts = stats.totalWorkouts + 1)
+        if (withWorkout.lastActiveDate == today) {
+            return withWorkout.withRecalculatedAchievements()
+        }
+
+        val yesterday = LocalDate.now().minusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val nextStreak = if (withWorkout.lastActiveDate == yesterday) {
+            withWorkout.currentStreak + 1
+        } else {
+            1
+        }
+
+        return withWorkout.copy(
+            currentStreak = nextStreak,
+            bestStreak = maxOf(withWorkout.bestStreak, nextStreak),
+            lastActiveDate = today,
+            streakActiveDates = (withWorkout.streakActiveDates + today).takeLast(7)
+        ).withRecalculatedAchievements()
+    }
+
+    private fun FittyAchievementProgress.toUnlockUi(unlockedCount: Int): WorkoutAchievementUnlockUi {
+        return WorkoutAchievementUnlockUi(
+            title = context.getString(titleResId()),
+            description = if (unlockedCount > 1) {
+                context.getString(R.string.workout_achievement_unlocked_count, unlockedCount)
+            } else {
+                context.getString(descriptionResId())
+            },
+            unlockedCount = unlockedCount
+        )
+    }
+
+    private fun FittyAchievementProgress.titleResId(): Int = when (id) {
+        FittyAchievementCatalog.FIRST_WORKOUT -> R.string.achievement_first_workout_title
+        FittyAchievementCatalog.FIVE_WORKOUTS -> R.string.achievement_five_workouts_title
+        FittyAchievementCatalog.FIRST_MEAL -> R.string.achievement_first_meal_title
+        FittyAchievementCatalog.THREE_MEALS -> R.string.achievement_three_meals_title
+        FittyAchievementCatalog.THREE_DAY_STREAK -> R.string.achievement_three_day_streak_title
+        FittyAchievementCatalog.SEVEN_DAY_STREAK -> R.string.achievement_seven_day_streak_title
+        else -> R.string.profile_achievements
+    }
+
+    private fun FittyAchievementProgress.descriptionResId(): Int = when (id) {
+        FittyAchievementCatalog.FIRST_WORKOUT -> R.string.achievement_first_workout_desc
+        FittyAchievementCatalog.FIVE_WORKOUTS -> R.string.achievement_five_workouts_desc
+        FittyAchievementCatalog.FIRST_MEAL -> R.string.achievement_first_meal_desc
+        FittyAchievementCatalog.THREE_MEALS -> R.string.achievement_three_meals_desc
+        FittyAchievementCatalog.THREE_DAY_STREAK -> R.string.achievement_three_day_streak_desc
+        FittyAchievementCatalog.SEVEN_DAY_STREAK -> R.string.achievement_seven_day_streak_desc
+        else -> R.string.home_achievement_empty
     }
 
     private suspend fun persistCompletedExercise(index: Int) {

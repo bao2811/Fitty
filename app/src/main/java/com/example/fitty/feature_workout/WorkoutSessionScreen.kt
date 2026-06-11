@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.Pause
@@ -131,7 +132,12 @@ fun WorkoutSessionRoute(
         onDismissEditExercise = viewModel::dismissEditExercise,
         onSaveExerciseDetails = viewModel::saveExerciseDetails,
         onSelectExercise = viewModel::selectExercise,
-        onFinish = { viewModel.finishWorkout(onBack) },
+        onFinish = viewModel::finishWorkout,
+        onDismissAchievementPopup = viewModel::dismissAchievementPopup,
+        onCloseCompletionSummary = {
+            viewModel.dismissCompletionSummary()
+            onBack()
+        },
         onBack = onBack
     )
 }
@@ -152,6 +158,8 @@ private fun WorkoutSessionScreen(
     onSaveExerciseDetails: (Int, String, String, String, String) -> Unit,
     onSelectExercise: (Int) -> Unit,
     onFinish: () -> Unit,
+    onDismissAchievementPopup: () -> Unit,
+    onCloseCompletionSummary: () -> Unit,
     onBack: () -> Unit
 ) {
     val totalMin = state.totalElapsedSeconds / 60
@@ -367,6 +375,19 @@ private fun WorkoutSessionScreen(
                 )
             }
         }
+        state.achievementPopup?.let { unlock ->
+            Dialog(onDismissRequest = onDismissAchievementPopup) {
+                AchievementUnlockPopup(
+                    achievement = unlock,
+                    onDismiss = onDismissAchievementPopup
+                )
+            }
+        } ?: state.completionSummary?.let { summary ->
+            PostWorkoutSummaryDialog(
+                summary = summary,
+                onDone = onCloseCompletionSummary
+            )
+        }
     }
 }
 
@@ -525,6 +546,261 @@ private fun WorkoutPrimaryAction(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AchievementUnlockPopup(
+    achievement: WorkoutAchievementUnlockUi,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.8f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.EmojiEvents,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(23.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(R.string.workout_achievement_unlocked_title),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.75f),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = achievement.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = achievement.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Text(
+                text = stringResource(R.string.common_close),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.75f))
+                    .clickable(onClick = onDismiss)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PostWorkoutSummaryDialog(
+    summary: WorkoutCompletionSummaryUi,
+    onDone: () -> Unit
+) {
+    Dialog(onDismissRequest = onDone) {
+        Card(
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(GreenDone.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = GreenDone, modifier = Modifier.size(26.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = stringResource(R.string.workout_summary_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = summary.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Text(
+                    text = stringResource(R.string.workout_summary_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    SummaryMetricTile(
+                        label = stringResource(R.string.workout_summary_duration),
+                        value = stringResource(R.string.workout_summary_duration_value, summary.durationMinutes),
+                        icon = Icons.Outlined.PlayArrow,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SummaryMetricTile(
+                        label = stringResource(R.string.workout_summary_calories),
+                        value = stringResource(R.string.workout_summary_calories_value, summary.caloriesBurned),
+                        icon = Icons.Outlined.LocalFireDepartment,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    SummaryMetricTile(
+                        label = stringResource(R.string.workout_summary_completion),
+                        value = stringResource(R.string.workout_summary_percent_value, summary.completionPercent),
+                        icon = Icons.Outlined.SportsScore,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SummaryMetricTile(
+                        label = stringResource(R.string.workout_summary_exercises),
+                        value = stringResource(
+                            R.string.workout_summary_exercises_value,
+                            summary.completedExercises,
+                            summary.totalExercises
+                        ),
+                        icon = Icons.Outlined.FitnessCenter,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = stringResource(R.string.workout_summary_completion),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = stringResource(R.string.workout_summary_percent_value, summary.completionPercent),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = FittyPink,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { summary.completionPercent / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = FittyPink,
+                        trackColor = FittyPink.copy(alpha = 0.12f)
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+
+                SummaryAchievementRow(summary.achievementUnlock)
+
+                Button(
+                    onClick = onDone,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = FittyPink),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    Text(stringResource(R.string.common_done), fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryMetricTile(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFFFF5F9))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = FittyPink, modifier = Modifier.size(20.dp))
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
+}
+
+@Composable
+private fun SummaryAchievementRow(achievement: WorkoutAchievementUnlockUi?) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    if (achievement != null) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (achievement != null) Icons.Outlined.EmojiEvents else Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = if (achievement != null) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = achievement?.title ?: stringResource(R.string.workout_achievement_no_new_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = achievement?.description ?: stringResource(R.string.workout_achievement_no_new_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
