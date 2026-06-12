@@ -1,0 +1,327 @@
+﻿\chapter{Phân tích và thiết kế hệ thống Fitty}
+
+\section{Phân tích yêu cầu hệ thống}
+
+\subsection{Đối tượng sử dụng}
+
+Đối tượng sử dụng chính của hệ thống là người dùng cá nhân có nhu cầu tập luyện và theo dõi sức khỏe trên thiết bị di động. Nhóm này bao gồm người mới bắt đầu cần được hướng dẫn rõ ràng, người dùng muốn duy trì kế hoạch tập đều đặn, người dùng quan tâm tới kiểm soát cân nặng, tỷ lệ mỡ và chế độ dinh dưỡng, cũng như người dùng muốn theo dõi tiến độ theo ngày hoặc theo tuần. Ngoài ra, từ góc nhìn vận hành hệ thống, người phát triển hoặc quản trị nội dung còn đóng vai trò quản lý dữ liệu động trên Firebase như nội dung onboarding, danh mục nhóm cơ, mẫu kế hoạch khởi đầu và các cấu hình hành vi trong ứng dụng.
+
+\subsection{Yêu cầu chức năng}
+
+Từ việc phân tích bài toán và mục tiêu của hệ thống, các yêu cầu chức năng cốt lõi của Fitty được xác định như sau.
+
+\begin{table}[H]
+\centering
+\caption{Nhóm yêu cầu chức năng chính của hệ thống Fitty}
+\begin{tabular}{|p{1.5cm}|p{4.3cm}|p{7.2cm}|}
+\hline
+\textbf{Mã} & \textbf{Nhóm chức năng} & \textbf{Mô tả} \\ \hline
+F1 & Quản lý truy cập & Cho phép người dùng đăng ký, đăng nhập bằng email, đăng nhập Google, dùng thử ở chế độ khách, khôi phục mật khẩu và đăng xuất. \\ \hline
+F2 & Xác định trạng thái khởi động & Khi mở ứng dụng, hệ thống phải kiểm tra trạng thái đăng nhập và trạng thái onboarding để điều hướng về đúng màn hình ban đầu. \\ \hline
+F3 & Thu thập hồ sơ ban đầu & Hệ thống phải cho phép người dùng khai báo mục tiêu, thể trạng, lịch tập, thiết bị, thói quen dinh dưỡng và nhắc việc thông qua onboarding. \\ \hline
+F4 & Sinh kế hoạch tập khởi đầu & Sau onboarding, hệ thống phải tạo nội dung xem trước kế hoạch và hình thành kế hoạch tập khởi đầu cùng lịch buổi tập theo hồ sơ người dùng. \\ \hline
+F5 & Quản lý nội dung bài tập & Hệ thống phải cho phép người dùng xem danh mục bài tập theo nhóm cơ, tra cứu danh sách bài tập, xem chi tiết, xem video hướng dẫn và đọc các bước thực hiện. \\ \hline
+F6 & Thực hiện buổi tập & Hệ thống phải hỗ trợ người dùng bắt đầu buổi tập nhanh hoặc buổi tập theo lịch, ghi nhận kết quả bài tập và hoàn thành phiên tập. \\ \hline
+F7 & Theo dõi tiến độ & Hệ thống phải tổng hợp dữ liệu buổi tập, nhật ký dinh dưỡng, chuỗi ngày hoạt động, số đo cơ thể và thông tin tổng hợp theo ngày để hiển thị tiến độ cho người dùng. \\ \hline
+F8 & Quản lý hồ sơ & Hệ thống phải hiển thị và cho phép cập nhật hồ sơ cá nhân, ảnh đại diện, chỉ tiêu cơ bản và một số thiết lập người dùng. \\ \hline
+F9 & Thông báo & Hệ thống phải hỗ trợ thông báo cục bộ cho nhắc việc và thông báo đẩy để tăng tương tác. \\ \hline
+F10 & Đồng bộ nội dung động & Hệ thống phải đọc cấu hình động từ kho dữ liệu nội dung và đồng bộ dữ liệu mô tả bài tập theo mô hình ngoại tuyến ưu tiên. \\ \hline
+F11 & Hỗ trợ phân tích dinh dưỡng và thể trạng & Hệ thống phải hỗ trợ ghi nhận bữa ăn, phân tích ảnh bữa ăn, lưu lịch sử body scan và hiển thị các chỉ số phục vụ kiểm soát cơ thể. \\ \hline
+\end{tabular}
+\end{table}
+
+\subsection{Yêu cầu phi chức năng}
+
+Ngoài các chức năng nghiệp vụ, hệ thống cần thỏa mãn một số yêu cầu phi chức năng quan trọng. Các yêu cầu này cũng bám theo định hướng chung của ứng dụng Android hiện đại, nơi kiến trúc, dữ liệu cục bộ và tác vụ nền cần được tổ chức thành các lớp có trách nhiệm rõ ràng \cite{android_jetpack,android_room,android_workmanager}.
+
+\begin{itemize}
+    \item \textbf{Tính khả dụng}: người dùng có thể tiếp cận các nội dung bài tập chính ngay cả khi mạng không ổn định nhờ dữ liệu cục bộ.
+    \item \textbf{Tính nhất quán}: điều hướng ứng dụng phải thống nhất giữa các màn hình trước và sau khi xác thực.
+    \item \textbf{Khả năng mở rộng}: kiến trúc phải cho phép bổ sung thêm nguồn dữ liệu, luồng xử lý hoặc phân hệ mới mà không phá vỡ cấu trúc hiện tại.
+    \item \textbf{Khả năng bảo trì}: hệ thống cần được tách lớp rõ ràng để thuận tiện khi sửa lỗi và nâng cấp.
+    \item \textbf{Hiệu năng}: dữ liệu thường dùng như metadata bài tập và thông tin người dùng cần được truy cập nhanh, hạn chế phụ thuộc tuyệt đối vào mạng.
+    \item \textbf{Tính an toàn dữ liệu}: dữ liệu người dùng và phiên đăng nhập phải được quản lý có phạm vi rõ ràng giữa các tài khoản.
+    \item \textbf{Tính riêng tư}: các ảnh bữa ăn, ảnh body scan và chỉ số cơ thể của người dùng cần được lưu trữ và truy cập theo đúng phạm vi tài khoản.
+\end{itemize}
+
+\section{Phân tích các phân hệ chính}
+
+\subsection{Phân hệ truy cập và khởi động}
+
+Phân hệ này bao gồm các màn hình Splash, Welcome, Sign In, Sign Up, Forgot Password và logic xác định trạng thái khởi động. Từ góc nhìn nghiệp vụ, đây là điểm vào của toàn bộ hệ thống. Nếu phân hệ này hoạt động sai, người dùng có thể bị điều hướng nhầm sang onboarding hoặc luồng sử dụng chính dù chưa đủ điều kiện.
+
+Ở mức thiết kế, luồng khởi động được tổ chức theo hướng:
+
+\begin{itemize}
+    \item Splash kiểm tra trạng thái ứng dụng;
+    \item nếu chưa đăng nhập thì chuyển sang Welcome hoặc Sign In;
+    \item nếu đã đăng nhập nhưng chưa onboarding xong thì chuyển sang Onboarding;
+    \item nếu đã hoàn tất onboarding thì chuyển sang vùng chức năng chính.
+\end{itemize}
+
+Về mặt thiết kế, phân hệ này cần bảo đảm ba yêu cầu. Thứ nhất, quyết định điều hướng ban đầu phải tập trung tại một cơ chế duy nhất để tránh mâu thuẫn giữa nhiều màn hình. Thứ hai, thông tin về trạng thái phiên đăng nhập và trạng thái khởi tạo hồ sơ phải được đọc nhanh ngay khi mở ứng dụng. Thứ ba, luồng truy cập phải cho phép mở rộng thêm các phương thức đăng nhập hoặc điều kiện khởi động mới mà không làm thay đổi cấu trúc tổng thể.
+
+\subsection{Phân hệ onboarding và kế hoạch tập khởi đầu}
+
+Đây là phân hệ thu thập dữ liệu đầu vào quan trọng nhất để hệ thống cá nhân hóa trải nghiệm. Các câu trả lời onboarding được dùng để:
+
+\begin{itemize}
+    \item xây dựng hồ sơ thể trạng và mục tiêu;
+    \item xác lập các chỉ tiêu theo dõi cơ bản về luyện tập, cân nặng và dinh dưỡng;
+    \item hình thành kế hoạch tập khởi đầu và lịch tập phù hợp;
+    \item tạo nền tảng cho việc hiển thị nội dung phù hợp trong các phân hệ chính.
+\end{itemize}
+
+Từ góc nhìn thiết kế, bài toán ở đây không chỉ là lưu các câu trả lời riêng lẻ mà là chuẩn hóa chúng thành một hồ sơ đầu vào nhất quán. Hồ sơ này cần đủ đơn giản để dễ mở rộng thêm trường thông tin, nhưng cũng phải đủ chặt để trở thành cơ sở cho việc hình thành kế hoạch tập, chỉ tiêu dinh dưỡng và cơ chế nhắc việc. Vì vậy, phân hệ onboarding được xem như lớp đầu vào nghiệp vụ của toàn hệ thống.
+
+\subsection{Phân hệ nội dung bài tập}
+
+Phân hệ này cung cấp danh sách bài tập, phân nhóm theo mục tiêu tra cứu, đồng thời hỗ trợ xem chi tiết, nội dung hướng dẫn trực quan, bước thực hiện, lỗi sai thường gặp và media minh họa. Điểm đáng chú ý của phân hệ là áp dụng cách tổ chức offline-first để bảo đảm người dùng vẫn có thể truy cập nội dung cốt lõi trong điều kiện mạng thay đổi.
+
+Về mặt thiết kế, đây là phân hệ chịu tác động trực tiếp từ chất lượng kết nối mạng và dung lượng dữ liệu media. Vì vậy, hệ thống cần tách metadata bài tập khỏi các tài nguyên media, đồng thời có cơ chế đồng bộ và bộ nhớ đệm phù hợp. Cách tiếp cận này làm giảm độ trễ khi truy cập lại nội dung đã xem, đồng thời tránh việc toàn bộ trải nghiệm bị phụ thuộc hoàn toàn vào trạng thái mạng tức thời.
+
+\subsection{Phân hệ buổi tập và lịch tập}
+
+Phân hệ này liên quan trực tiếp đến giá trị cốt lõi của ứng dụng. Người dùng có thể bắt đầu buổi tập theo nhu cầu tức thời hoặc theo lịch đã hình thành trước đó. Khi hoàn thành phiên tập, hệ thống không chỉ kết thúc luồng hiện tại mà còn phải cập nhật các dữ liệu liên quan đến kế hoạch tập và tiến độ theo dõi. Vì vậy, đây là một use case liên phân hệ, đòi hỏi cơ chế điều phối nghiệp vụ nhất quán.
+
+Xét theo quan điểm thiết kế, phân hệ buổi tập phải phân biệt rõ ba thực thể: kế hoạch tập ở mức tổng thể, buổi tập theo lịch và phiên tập thực tế mà người dùng đang thực hiện. Cách tách này giúp hệ thống cập nhật trạng thái linh hoạt hơn, ví dụ một buổi tập có thể được dời lịch, bỏ qua hoặc hoàn tất mà không phá vỡ cấu trúc của toàn bộ kế hoạch.
+
+\subsection{Phân hệ theo dõi, dinh dưỡng và hồ sơ}
+
+Phân hệ theo dõi và hồ sơ có vai trò hiển thị dữ liệu người dùng dưới dạng dễ hiểu. Các thông tin tổng hợp theo ngày, ghi nhận dinh dưỡng, chỉ số cơ thể, dữ liệu body scan và mức độ duy trì thói quen được kết hợp lại để tạo cảm giác tiến bộ theo thời gian. Đây là nơi người dùng đánh giá hiệu quả sử dụng hệ thống sau một giai đoạn tập luyện.
+
+Ở góc độ thiết kế, phân hệ này đóng vai trò lớp phản hồi của hệ thống. Nếu onboarding và buổi tập tạo ra dữ liệu đầu vào và dữ liệu vận hành, thì tracking và hồ sơ là nơi những dữ liệu đó được tổng hợp thành thông tin có ý nghĩa đối với người dùng. Vì vậy, mô hình tổng hợp theo ngày, chuỗi duy trì, nhật ký bữa ăn, bản ghi số đo cơ thể và lịch sử body scan cần được tổ chức sao cho dễ tính toán, dễ mở rộng và không gây trùng lặp dữ liệu.
+
+\section{Thiết kế kiến trúc tổng thể}
+
+\subsection{Kiến trúc logic}
+
+Kiến trúc logic của hệ thống có thể mô tả như Hình~\ref{fig:seq-exercise-cache}. Trước khi quan sát hình, cần lưu ý rằng luồng này được dùng để tóm tắt cách ứng dụng đồng bộ metadata bài tập và chuẩn bị media cần thiết cho trải nghiệm ngoại tuyến. Cách tổ chức này phù hợp với định hướng phân lớp của các ứng dụng di động hiện đại, trong đó giao diện, xử lý nghiệp vụ và quản lý dữ liệu cần được tách biệt để dễ mở rộng và bảo trì \cite{android_jetpack,android_compose,android_navigation_compose,firebase_firestore}.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}
+    \tikzset{
+      seqbox/.style={draw, fill=yellow!15, minimum width=2.7cm, minimum height=1.0cm, font=\footnotesize, align=center},
+      seqline/.style={dashed},
+      seqmsg/.style={->, line width=0.5pt},
+      seqreturn/.style={->, dashed, line width=0.5pt}
+    }
+
+    \node at (-0.2,0) {\textbf{:Người dùng}};
+    \node[seqbox] (screen) at (3,0) {Màn hình\\bài tập};
+    \node[seqbox] (sync) at (7,0) {Bộ đồng bộ\\bài tập};
+    \node[seqbox] (remote) at (11,0) {Nguồn dữ liệu\\từ xa};
+    \node[seqbox] (media) at (15,0) {Bộ đệm\\media};
+    \node[seqbox] (local) at (19,0) {Kho cục bộ};
+
+    \foreach \x in {0,3,7,11,15,19} {\draw[seqline] (\x,-0.5) -- (\x,-9.2);}
+
+    \draw[seqmsg] (0,-1.2) -- node[above, font=\scriptsize] {1: Mở danh mục bài tập} (3,-1.2);
+    \draw[seqmsg] (3,-2.0) -- node[above, font=\scriptsize] {2: Yêu cầu đồng bộ nội dung} (7,-2.0);
+    \draw[seqmsg] (7,-2.8) -- node[above, font=\scriptsize] {3: Tải metadata bài tập} (11,-2.8);
+    \draw[seqreturn] (11,-3.6) -- node[below, font=\scriptsize] {4: Trả metadata và liên kết media} (7,-3.6);
+    \draw[seqmsg] (7,-4.4) -- node[above, font=\scriptsize] {5: Tải trước media cần thiết} (15,-4.4);
+    \draw[seqmsg] (7,-5.2) -- node[above, font=\scriptsize] {6: Chuẩn hóa và lưu dữ liệu} (19,-5.2);
+    \draw[seqreturn] (19,-6.0) -- node[below, font=\scriptsize] {7: Trả dữ liệu sẵn sàng dùng offline} (3,-6.0);
+    \draw[seqreturn] (3,-6.8) -- node[below, font=\scriptsize] {8: Hiển thị danh mục bài tập} (0,-6.8);
+
+    \filldraw[fill=white] (2.9,-1.4) rectangle (3.1,-6.9);
+    \filldraw[fill=white] (6.9,-2.2) rectangle (7.1,-5.4);
+    \filldraw[fill=white] (10.9,-3.0) rectangle (11.1,-3.8);
+    \filldraw[fill=white] (14.9,-4.6) rectangle (15.1,-5.1);
+    \filldraw[fill=white] (18.9,-5.4) rectangle (19.1,-6.2);
+\end{tikzpicture}
+}
+\caption{Biểu đồ tuần tự cho luồng đồng bộ bài tập và bộ nhớ đệm media}
+\label{fig:seq-exercise-cache}
+\end{figure}
+
+Biểu đồ trên cho thấy khái quát rằng luồng đồng bộ được tách thành ba bước rõ: lấy metadata, chuẩn bị media và lưu về kho cục bộ. Nhờ cách tổ chức này, danh mục bài tập có thể được khai thác ổn định hơn ngay cả khi trạng thái mạng thay đổi.
+
+\section{Thiết kế dữ liệu}
+
+\subsection{Mô hình dữ liệu người dùng}
+
+Mô hình dữ liệu người dùng là trung tâm của toàn bộ hệ thống. Ở mức khái quát, một thực thể người dùng bao gồm các nhóm thông tin:
+
+\begin{itemize}
+    \item thông tin nhận diện và trạng thái tài khoản;
+    \item thông tin hồ sơ thể trạng và mục tiêu;
+    \item dữ liệu thu thập trong giai đoạn khởi tạo hồ sơ;
+    \item thông tin về kế hoạch tập đang hoạt động;
+    \item các chỉ số thống kê và theo dõi tiến độ;
+    \item các thiết lập cá nhân liên quan tới trải nghiệm sử dụng.
+\end{itemize}
+
+\subsection{Mô hình dữ liệu kế hoạch tập}
+
+Hệ thống sử dụng ba mô hình quan trọng để quản lý kế hoạch tập:
+
+\begin{itemize}
+    \item mô hình kế hoạch tập: biểu diễn kế hoạch đang gắn với người dùng;
+    \item mô hình buổi tập theo lịch: biểu diễn từng buổi tập đã được phân bổ theo thời gian;
+    \item mô hình thành phần bài tập: biểu diễn các bài tập cấu thành một buổi tập cụ thể.
+\end{itemize}
+
+Thiết kế này cho phép phân biệt giữa kế hoạch cấp cao và từng buổi tập cụ thể, đồng thời hỗ trợ cập nhật trạng thái buổi tập độc lập.
+
+\subsection{Mô hình dữ liệu phiên tập và tracking}
+
+Ở phân hệ theo dõi, hệ thống cần mô hình hóa phiên tập đã thực hiện, dữ liệu tổng hợp theo ngày và các thống kê tiến độ. Ngoài dữ liệu tập luyện, phân hệ theo dõi còn sử dụng các nhóm mô hình:
+
+\begin{itemize}
+    \item dữ liệu bữa ăn và thành phần dinh dưỡng;
+    \item dữ liệu đo lường cơ thể;
+    \item dữ liệu ghi nhận hình ảnh hoặc đánh giá thể trạng;
+    \item dữ liệu mục tiêu và tiến độ theo ngày.
+\end{itemize}
+
+Nhờ tách mô hình như vậy, hệ thống có thể mở rộng thêm các kiểu tracking khác mà không làm rối lớp dữ liệu người dùng.
+
+\subsection{Thiết kế dữ liệu Firebase}
+
+Từ yêu cầu nghiệp vụ và cấu trúc dữ liệu của hệ thống, có thể tóm tắt các nhóm collection/document chính như Bảng~\ref{tab:firebase-design}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Thiết kế dữ liệu mức khái quát trên Firebase}
+\label{tab:firebase-design}
+\begin{tabular}{|p{4.9cm}|p{7.9cm}|}
+\hline
+\textbf{Đường dẫn dữ liệu} & \textbf{Vai trò} \\ \hline
+\path|users/{uid}| & Lưu hồ sơ người dùng, trạng thái khởi tạo và các thông tin tổng hợp. \\ \hline
+\path|users/{uid}/plan_instances| & Lưu các kế hoạch tập của người dùng. \\ \hline
+\path|users/{uid}/plan_instances/{planId}/scheduled_workouts| & Lưu từng buổi tập theo lịch thuộc một kế hoạch. \\ \hline
+\path|users/{uid}/meal_logs| & Lưu nhật ký bữa ăn, tổng năng lượng và các thành phần dinh dưỡng. \\ \hline
+\path|users/{uid}/meal_scan_history| & Lưu lịch sử ảnh bữa ăn và kết quả phân tích. \\ \hline
+\path|users/{uid}/body_scans| & Lưu dữ liệu body scan, ảnh chụp và các chỉ số thể trạng ước lượng. \\ \hline
+\path|users/{uid}/body_measurements| & Lưu dữ liệu đo cơ thể theo thời gian như cân nặng, tỷ lệ mỡ, vòng eo hoặc vòng ngực. \\ \hline
+\path|users/{uid}/daily_summaries| & Lưu dữ liệu tổng hợp theo ngày phục vụ dashboard theo dõi tiến độ. \\ \hline
+\path|users/{uid}/notification_tokens| & Lưu thông tin phục vụ thông báo đẩy. \\ \hline
+\path|exercises| & Lưu dữ liệu mô tả bài tập dùng cho đồng bộ theo mô hình ngoại tuyến ưu tiên. \\ \hline
+\path|app_content/*| & Lưu nội dung động cho các màn hình và luồng nghiệp vụ tương ứng. \\ \hline
+\path|starter_plan_templates/*| & Lưu mẫu nội dung để hình thành kế hoạch tập khởi đầu. \\ \hline
+\end{tabular}
+\end{table}
+
+\subsection{Thiết kế dữ liệu cục bộ}
+
+Ở phía thiết bị, Room đóng vai trò kho dữ liệu cục bộ cho những phần cần truy cập nhanh và có khả năng dùng lại khi ngoại tuyến \cite{android_room}. Trong đó:
+
+\begin{itemize}
+    \item bảng bài tập phục vụ tra cứu nội dung;
+    \item bảng sync state phục vụ chẩn đoán trạng thái đồng bộ;
+    \item bảng history hỗ trợ recently viewed;
+    \item bảng notification và task phục vụ trải nghiệm thường ngày trên thiết bị.
+\end{itemize}
+
+\subsection{Biểu đồ use case tổng quan}
+
+Ngoài phần mô tả yêu cầu bằng bảng, việc thể hiện các tương tác chính giữa tác nhân và hệ thống giúp làm rõ phạm vi nghiệp vụ của Fitty. Trong các biểu đồ use case dưới đây, quan hệ $\ll$include$\gg$ được dùng cho hành vi bắt buộc được tái sử dụng, còn quan hệ $\ll$extend$\gg$ được dùng cho hành vi mở rộng xuất hiện theo ngữ cảnh cụ thể. Hình~\ref{fig:data-overview} trình bày biểu đồ use case tổng quan, trong đó nhấn mạnh các nhóm chức năng chính dành cho người dùng và nhóm quản trị nội dung.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    every node/.style={font=\small,align=center},
+    usecase/.style={ellipse, draw=black, fill=white, minimum width=4.4cm, minimum height=1.65cm, align=center}
+]
+    % actors
+    \draw (-0.6,10.2) circle (0.25);
+    \draw (-0.6,9.95) -- (-0.6,9.15);
+    \draw (-1.05,9.65) -- (-0.15,9.65);
+    \draw (-0.6,9.15) -- (-1.05,8.55);
+    \draw (-0.6,9.15) -- (-0.15,8.55);
+    \node[font=\small\bfseries] at (-0.6,7.85) {Người dùng};
+
+    \draw (23.8,5.2) circle (0.25);
+    \draw (23.8,4.95) -- (23.8,4.15);
+    \draw (23.35,4.65) -- (24.25,4.65);
+    \draw (23.8,4.15) -- (23.35,3.55);
+    \draw (23.8,4.15) -- (24.25,3.55);
+    \node[font=\small\bfseries] at (23.8,2.85) {Quản trị\\nội dung};
+
+    % system boundary
+    \draw[thick] (1.4,0.2) rectangle (22.0,12.3);
+    \node[anchor=west, font=\bfseries] at (1.8,11.45) {Phân hệ Fitty};
+
+    % use cases
+    \node[usecase] (uc-auth) at (6.4,10.0) {Đăng nhập /\\Đăng ký};
+    \node[usecase] (uc-onboarding) at (13.6,10.0) {Thực hiện\\onboarding};
+    \node[usecase] (uc-plan) at (6.4,7.4) {Nhận kế hoạch\\khởi đầu};
+    \node[usecase] (uc-schedule) at (13.6,7.4) {Xem kế hoạch\\tập luyện};
+    \node[usecase] (uc-exercise) at (6.4,4.8) {Tra cứu\\bài tập};
+    \node[usecase, minimum width=5.0cm] (uc-detail) at (13.6,4.8) {Xem chi tiết và\\media hướng dẫn};
+    \node[usecase] (uc-workout) at (6.4,2.5) {Thực hiện\\buổi tập};
+    \node[usecase] (uc-progress) at (13.6,2.5) {Theo dõi\\tiến độ};
+    \node[usecase, minimum width=5.3cm] (uc-profile) at (6.4,0.95) {Quản lý hồ sơ và\\thống kê cá nhân};
+    \node[usecase, minimum width=5.0cm] (uc-notify) at (13.6,0.95) {Nhận thông báo\\nhắc nhở};
+    \node[usecase, minimum width=5.0cm] (uc-content) at (19.2,7.6) {Quản trị\\nội dung động};
+
+    % user associations
+    \draw (-0.18,9.65) -- (uc-auth.west);
+    \draw (-0.18,9.3) -- (uc-onboarding.west);
+    \draw (-0.18,8.9) -- (uc-plan.west);
+    \draw (-0.18,8.5) -- (uc-schedule.west);
+    \draw (-0.18,8.05) -- (uc-exercise.west);
+    \draw (-0.18,7.6) -- (uc-workout.west);
+    \draw (-0.18,7.15) -- (uc-progress.west);
+    \draw (-0.18,6.7) -- (uc-profile.west);
+    \draw (-0.18,6.25) -- (uc-notify.west);
+
+    % admin associations
+    \draw (23.34,4.65) -- (uc-content.east);
+
+    % internal relations
+    \draw[dashed, ->, >=stealth] (uc-plan.north east) .. controls (9.4,8.4) and (11.4,8.9) .. node[above, font=\scriptsize] {\textless\textless include\textgreater\textgreater} (uc-onboarding.south west);
+    \draw[dashed, ->, >=stealth] (uc-exercise.east) -- node[above, font=\scriptsize] {\textless\textless extend\textgreater\textgreater} (uc-detail.west);
+    \draw[dashed, ->, >=stealth] (uc-workout.north east) .. controls (8.4,3.8) and (11.2,6.0) .. node[below, font=\scriptsize] {\textless\textless extend\textgreater\textgreater} (uc-schedule.south west);
+\end{tikzpicture}
+}
+\caption{Biểu đồ use case tổng quan của hệ thống Fitty}
+\label{fig:data-overview}
+\end{figure}
+
+Biểu đồ trên cho thấy người dùng là tác nhân trung tâm của hệ thống, tương tác với các nhóm chức năng từ truy cập, khởi tạo hồ sơ, tra cứu bài tập, thực hiện buổi tập đến theo dõi tiến độ và quản lý hồ sơ. Ở phía còn lại, tác nhân quản trị nội dung chỉ tham gia vào use case quản trị nội dung động, phản ánh đúng ranh giới trách nhiệm giữa nhóm vận hành và người dùng cuối.
+
+Để làm rõ hơn các cụm chức năng trọng tâm, báo cáo tiếp tục tách riêng hai nhóm use case tiêu biểu. Nhóm thứ nhất liên quan tới khởi tạo hồ sơ và hình thành kế hoạch tập. Nhóm thứ hai liên quan tới thực hiện buổi tập và theo dõi tiến độ.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    every node/.style={font=\small,align=center},
+    usecase/.style={ellipse, draw=black, fill=white, minimum width=4.1cm, minimum height=1.65cm, align=center}
+]
+    \draw (-0.6,5.8) circle (0.25);
+    \draw (-0.6,5.55) -- (-0.6,4.75);
+    \draw (-1.05,5.25) -- (-0.15,5.25);
+    \draw (-0.6,4.75) -- (-1.05,4.15);
+    \draw (-0.6,4.75) -- (-0.15,4.15);
+    \node[font=\small\bfseries] at (-0.6,3.45) {Người dùng};
+
+    \draw[thick] (1.4,0.2) rectangle (15.2,7.4);
+    \node[anchor=west, font=\bfseries] at (1.8,6.75) {Phân hệ khởi tạo hồ sơ và kế hoạch tập};
+
+    \node[usecase] (uc-input) at (5.4,5.4) {Khai báo mục tiêu\\và thể trạng};
+    \node[usecase] (uc-onboard-detail) at (11.1,5.4) {Thực hiện\\onboarding};
+    \node[usecase] (uc-plan-detail) at (5.4,2.95) {Nhận kế hoạch\\khởi đầu};
+    \node[usecase, minimum width=4.4cm] (uc-preview) at (11.1,2.95) {Xem trước kế hoạch\\và lịch tập};
+    \node[usecase, minimum width=4.6cm] (uc-activate) at (8.25,1.0) {Kích hoạt kế hoạch\\ban đầu};
+
+    \draw (-0.16,5.2) -- (uc-input.west);
+    \draw (-0.16,4.9) -- (uc-onboard-detail.west);
+    \draw (-0.16,4.55) -- (uc-preview.west);
+
+    \draw[dashed, ->, >=stealth] (uc-input.east) -- node[above, font=\scriptsize] {\textless\textless include\textgreater\textgreater} (uc-onboard-detail.west);
+    \draw[dashed, ->, >=stealth] (uc-onboard-detail.south west) -- node[left, font=\scriptsize] {\textless\textless include\textgreater\textgreater} (uc-plan-detail.north east);
+    \draw[dashed, ->, >=stealth] (uc-plan-detail.east) -- node[above, font=\scriptsize] {\textless\textless include\textgreater\textgreater} (uc-preview.west);
+    \draw[dashed, ->, >=stealth] (uc-preview.south) -- node[right, font=\scriptsize] {\textless\textless extend\textgreater\textgreater} (uc-activate.north);
+\end{tikzpicture}
+}
+\caption{Biểu đồ use case cho cụm khởi tạo hồ sơ và kế hoạch tập}
+\label{fig:usecase-onboarding-plan}
+\end{figure}
