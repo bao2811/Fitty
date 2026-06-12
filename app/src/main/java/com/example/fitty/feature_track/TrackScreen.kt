@@ -1453,7 +1453,7 @@ private fun MacroStatPill(label: String, value: String, color: Color) {
 
 
 private fun createTrackImageUri(context: Context): Uri {
-    val imagesDir = File(context.cacheDir, "track_images").apply { mkdirs() }
+    val imagesDir = File(context.filesDir, "track_images").apply { mkdirs() }
     val imageFile = File.createTempFile(
         "track_${System.currentTimeMillis()}_",
         ".jpg",
@@ -1468,6 +1468,7 @@ private fun createTrackImageUri(context: Context): Uri {
 
 @Composable
 private fun ScanHistoryCard(scan: MealScanHistoryUi) {
+    var imageLoadFailed by rememberSaveable(scan.imageUrl) { mutableStateOf(false) }
     val dateText = if (scan.dateKey.isNotBlank()) scan.dateKey else {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
             .format(java.util.Date(scan.timestamp))
@@ -1491,11 +1492,12 @@ private fun ScanHistoryCard(scan: MealScanHistoryUi) {
                     .background(FittyPink.copy(alpha = 0.08f)),
                 contentAlignment = Alignment.Center
             ) {
-                if (scan.imageUrl.isNotBlank()) {
+                if (scan.imageUrl.isNotBlank() && !imageLoadFailed) {
                     AsyncImage(
                         model = scan.imageUrl,
                         contentDescription = stringResource(R.string.track_scan_photo),
                         contentScale = ContentScale.Crop,
+                        onError = { imageLoadFailed = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(72.dp)

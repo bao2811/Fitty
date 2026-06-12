@@ -78,7 +78,7 @@ class ConfirmMealLogUseCase @Inject constructor(
                 timestamp = System.currentTimeMillis(),
                 dateKey = finalLog.dateKey
             )
-            trackingRepository.saveMealScanRecord(uid, scanRecord)
+            val scanHistoryResult = trackingRepository.saveMealScanRecord(uid, scanRecord)
 
             // Update daily summary: meal count + macro fields
             val summary = trackingRepository.getDailySummary(uid, summaryDateKey)
@@ -111,6 +111,15 @@ class ConfirmMealLogUseCase @Inject constructor(
                             .withRecalculatedAchievements()
                     )
                 }
+            }
+
+            if (scanHistoryResult.isFailure) {
+                return Result.failure(
+                    IllegalStateException(
+                        "Đã lưu bữa ăn nhưng không lưu được lịch sử quét. Kiểm tra Firestore rules cho users/$uid/meal_scan_history.",
+                        scanHistoryResult.exceptionOrNull()
+                    )
+                )
             }
         }
         return saveResult

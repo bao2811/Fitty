@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.LocalFireDepartment
@@ -1421,15 +1422,15 @@ private fun ExerciseListItem(
     Card(
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 8.dp else 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 5.dp else 2.dp),
         modifier = Modifier.fillMaxWidth().clickable(enabled = !item.isCompleted, onClick = onClick)
     ) {
         val rowBrush = when {
             item.isCompleted -> Brush.linearGradient(
-                listOf(GreenDone.copy(alpha = 0.16f), MaterialTheme.colorScheme.surface)
+                listOf(GreenDone.copy(alpha = 0.12f), Color(0xFFFFFFFF))
             )
             isSelected -> Brush.linearGradient(
-                listOf(FittyPink.copy(alpha = 0.22f), FittyPink.copy(alpha = 0.07f), MaterialTheme.colorScheme.surface)
+                listOf(Color(0xFFFFD9EC), Color(0xFFFFF0F8))
             )
             else -> Brush.linearGradient(
                 listOf(MaterialTheme.colorScheme.surface, MaterialTheme.colorScheme.surface)
@@ -1503,33 +1504,37 @@ private fun ExerciseListItem(
                 }
                 canReplace -> {
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                         horizontalAlignment = Alignment.End
                     ) {
                         if (canEdit) {
-                            OutlinedButton(
+                            IconButton(
                                 onClick = onEdit,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.height(36.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.86f))
                             ) {
-                                Text(
-                                    text = stringResource(R.string.workout_edit_action),
-                                    color = FittyPink,
-                                    fontWeight = FontWeight.Bold
+                                Icon(
+                                    Icons.Outlined.Edit,
+                                    contentDescription = stringResource(R.string.workout_edit_action),
+                                    tint = FittyPink,
+                                    modifier = Modifier.size(17.dp)
                                 )
                             }
                         }
-                        OutlinedButton(
+                        IconButton(
                             onClick = onReplace,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(36.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.86f))
                         ) {
-                            Text(
-                                text = stringResource(R.string.workout_replace_action),
-                                color = FittyPink,
-                                fontWeight = FontWeight.Bold
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = stringResource(R.string.workout_replace_action),
+                                tint = FittyPink,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -1727,6 +1732,14 @@ private fun ReplaceExerciseOption(
     exercise: com.example.fitty.domain.model.Exercise,
     onSelect: () -> Unit
 ) {
+    val imageLoader = rememberGifImageLoader()
+    val imageModel: Any? = when {
+        exercise.localThumbnailPath.isNotBlank() -> File(exercise.localThumbnailPath)
+        exercise.thumbnailUrl.isNotBlank() -> exercise.thumbnailUrl
+        exercise.localGifPath.isNotBlank() -> File(exercise.localGifPath)
+        exercise.gifUrl.isNotBlank() -> exercise.gifUrl
+        else -> null
+    }
     val primary = exercise.primaryMuscleGroup.ifBlank { exercise.target.ifBlank { exercise.bodyPart } }
     val secondary = exercise.targetMuscles
         .filterNot { it.equals(primary, ignoreCase = true) }
@@ -1739,30 +1752,64 @@ private fun ReplaceExerciseOption(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = exercise.name.ifBlank { exercise.id },
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                WorkoutTargetChip(primary.ifBlank { exercise.bodyPart })
-                secondary.forEach { muscle -> WorkoutTargetChip(muscle) }
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFFFFEFF7)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (imageModel != null) {
+                    coil.compose.AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageModel)
+                            .crossfade(true)
+                            .build(),
+                        imageLoader = imageLoader,
+                        contentDescription = exercise.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        Icons.Outlined.FitnessCenter,
+                        contentDescription = null,
+                        tint = FittyPink.copy(alpha = 0.55f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
-            exerciseInstructionText(exercise).takeIf { it.isNotBlank() }?.let { summary ->
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Text(
-                    text = summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    text = exercise.name.ifBlank { exercise.id },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WorkoutTargetChip(primary.ifBlank { exercise.bodyPart })
+                    secondary.forEach { muscle -> WorkoutTargetChip(muscle) }
+                }
+                exerciseInstructionText(exercise).takeIf { it.isNotBlank() }?.let { summary ->
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
