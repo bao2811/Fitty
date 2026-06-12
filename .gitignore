@@ -31,3 +31,6 @@ local.properties
 /report
 report/
 gradle.properties
+/report.zip
+report.zip
+/report.zip.local-backup-20260609-0001

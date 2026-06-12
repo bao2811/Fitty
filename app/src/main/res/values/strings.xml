@@ -33,7 +33,10 @@
     <string name="auth_google_not_configured">Google sign-in is not configured. Add a Firebase Web client ID.</string>
     <string name="auth_google_failed">Google sign-in failed</string>
     <string name="auth_google_cancelled">Google sign-in was cancelled</string>
-    <string name="google_web_client_id"></string>
+    <string name="auth_google_network_error">Network error while signing in with Google</string>
+    <string name="auth_google_developer_error">Google sign-in is misconfigured. Check SHA-1 and OAuth client IDs.</string>
+    <string name="auth_google_failed_with_code">Google sign-in failed (code: %1$d)</string>
+    <string name="google_web_client_id">773465761432-db3to6fplg0en7fbvphiqtcbpso2i8ar.apps.googleusercontent.com</string>
     <string name="auth_no_account">Don\'t have an account? </string>
     <string name="auth_create_one">Create one</string>
     <string name="auth_sign_in_failed">Sign in failed</string>

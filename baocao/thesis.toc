@@ -1,0 +1,87 @@
+\contentsline {chapter}{Lời cảm ơn}{}{Doc-Start}%
+\contentsline {chapter}{Tóm tắt}{}{Doc-Start}%
+\contentsline {chapter}{Mục lục}{}{section*.1}%
+\contentsline {chapter}{Danh sách hình vẽ}{}{section*.2}%
+\contentsline {chapter}{Danh sách bảng}{}{section*.3}%
+\contentsline {chapter}{Danh mục các từ viết tắt}{}{chapter*.4}%
+\contentsline {chapter}{\numberline {1}Đặt vấn đề}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Bối cảnh và lý do chọn đề tài}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Mô tả bài toán}{1}{section.1.2}%
+\contentsline {subsection}{\numberline {1.2.1}Đầu vào của hệ thống}{2}{subsection.1.2.1}%
+\contentsline {subsection}{\numberline {1.2.2}Đầu ra của hệ thống}{2}{subsection.1.2.2}%
+\contentsline {subsection}{\numberline {1.2.3}Phạm vi và giả định}{3}{subsection.1.2.3}%
+\contentsline {section}{\numberline {1.3}Mục tiêu của đề tài}{3}{section.1.3}%
+\contentsline {section}{\numberline {1.4}Phạm vi nghiên cứu và triển khai}{4}{section.1.4}%
+\contentsline {section}{\numberline {1.5}Ý nghĩa thực tiễn của đề tài}{4}{section.1.5}%
+\contentsline {section}{\numberline {1.6}Cấu trúc của báo cáo}{5}{section.1.6}%
+\contentsline {chapter}{\numberline {2}Phân tích và thiết kế hệ thống Fitty}{6}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Phân tích yêu cầu hệ thống}{6}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}Đối tượng sử dụng}{6}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Yêu cầu chức năng}{6}{subsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.1.3}Yêu cầu phi chức năng}{8}{subsection.2.1.3}%
+\contentsline {section}{\numberline {2.2}Phân tích các phân hệ chính}{8}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Phân hệ truy cập và khởi động}{8}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}Phân hệ onboarding và kế hoạch tập khởi đầu}{9}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}Phân hệ nội dung bài tập}{9}{subsection.2.2.3}%
+\contentsline {subsection}{\numberline {2.2.4}Phân hệ buổi tập và lịch tập}{10}{subsection.2.2.4}%
+\contentsline {subsection}{\numberline {2.2.5}Phân hệ theo dõi và hồ sơ}{10}{subsection.2.2.5}%
+\contentsline {section}{\numberline {2.3}Thiết kế kiến trúc tổng thể}{11}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Kiến trúc logic}{11}{subsection.2.3.1}%
+\contentsline {section}{\numberline {2.4}Thiết kế dữ liệu}{11}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Mô hình dữ liệu người dùng}{11}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}Mô hình dữ liệu kế hoạch tập}{12}{subsection.2.4.2}%
+\contentsline {subsection}{\numberline {2.4.3}Mô hình dữ liệu phiên tập và tracking}{12}{subsection.2.4.3}%
+\contentsline {subsection}{\numberline {2.4.4}Thiết kế dữ liệu Firebase}{13}{subsection.2.4.4}%
+\contentsline {subsection}{\numberline {2.4.5}Thiết kế dữ liệu cục bộ}{13}{subsection.2.4.5}%
+\contentsline {subsection}{\numberline {2.4.6}Biểu đồ use case tổng quan}{14}{subsection.2.4.6}%
+\contentsline {subsection}{\numberline {2.4.7}Biểu đồ hoạt động tiêu biểu}{16}{subsection.2.4.7}%
+\contentsline {subsection}{\numberline {2.4.8}Biểu đồ tuần tự tiêu biểu}{19}{subsection.2.4.8}%
+\contentsline {section}{\numberline {2.5}Thiết kế cho một số cơ chế trọng tâm}{22}{section.2.5}%
+\contentsline {subsection}{\numberline {2.5.1}Hình thành kế hoạch tập khởi đầu}{22}{subsection.2.5.1}%
+\contentsline {subsection}{\numberline {2.5.2}Đồng bộ bài tập}{23}{subsection.2.5.2}%
+\contentsline {subsection}{\numberline {2.5.3}Hoàn thành buổi tập}{23}{subsection.2.5.3}%
+\contentsline {section}{\numberline {2.6}Tổng kết chương}{24}{section.2.6}%
+\contentsline {chapter}{\numberline {3}Phân tích và thiết kế hệ thống Fitty}{25}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Phân tích yêu cầu hệ thống}{25}{section.3.1}%
+\contentsline {subsection}{\numberline {3.1.1}Đối tượng sử dụng}{25}{subsection.3.1.1}%
+\contentsline {subsection}{\numberline {3.1.2}Yêu cầu chức năng}{25}{subsection.3.1.2}%
+\contentsline {subsection}{\numberline {3.1.3}Yêu cầu phi chức năng}{27}{subsection.3.1.3}%
+\contentsline {section}{\numberline {3.2}Phân tích các phân hệ chính}{27}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Phân hệ truy cập và khởi động}{27}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}Phân hệ onboarding và kế hoạch tập khởi đầu}{28}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}Phân hệ nội dung bài tập}{28}{subsection.3.2.3}%
+\contentsline {subsection}{\numberline {3.2.4}Phân hệ buổi tập và lịch tập}{29}{subsection.3.2.4}%
+\contentsline {subsection}{\numberline {3.2.5}Phân hệ theo dõi, dinh dưỡng và hồ sơ}{29}{subsection.3.2.5}%
+\contentsline {section}{\numberline {3.3}Thiết kế kiến trúc tổng thể}{30}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Kiến trúc logic}{30}{subsection.3.3.1}%
+\contentsline {section}{\numberline {3.4}Thiết kế dữ liệu}{30}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}Mô hình dữ liệu người dùng}{30}{subsection.3.4.1}%
+\contentsline {subsection}{\numberline {3.4.2}Mô hình dữ liệu kế hoạch tập}{31}{subsection.3.4.2}%
+\contentsline {subsection}{\numberline {3.4.3}Mô hình dữ liệu phiên tập và tracking}{31}{subsection.3.4.3}%
+\contentsline {subsection}{\numberline {3.4.4}Thiết kế dữ liệu Firebase}{32}{subsection.3.4.4}%
+\contentsline {subsection}{\numberline {3.4.5}Thiết kế dữ liệu cục bộ}{33}{subsection.3.4.5}%
+\contentsline {subsection}{\numberline {3.4.6}Biểu đồ use case tổng quan}{33}{subsection.3.4.6}%
+\contentsline {chapter}{\numberline {4}Cài đặt, kiểm thử và triển khai hệ thống}{35}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Môi trường cài đặt và triển khai}{35}{section.4.1}%
+\contentsline {subsection}{\numberline {4.1.1}Môi trường phát triển}{35}{subsection.4.1.1}%
+\contentsline {subsection}{\numberline {4.1.2}Môi trường chạy ứng dụng}{35}{subsection.4.1.2}%
+\contentsline {section}{\numberline {4.2}Định hướng hiện thực}{36}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Hiện thực các phân hệ chính}{36}{section.4.3}%
+\contentsline {subsection}{\numberline {4.3.1}Phân hệ truy cập và khởi động}{36}{subsection.4.3.1}%
+\contentsline {subsection}{\numberline {4.3.2}Phân hệ onboarding và kế hoạch tập khởi đầu}{36}{subsection.4.3.2}%
+\contentsline {subsection}{\numberline {4.3.3}Phân hệ nội dung bài tập và buổi tập}{36}{subsection.4.3.3}%
+\contentsline {subsection}{\numberline {4.3.4}Phân hệ theo dõi tiến độ, dinh dưỡng, hồ sơ và thông báo}{37}{subsection.4.3.4}%
+\contentsline {subsection}{\numberline {4.3.5}Phân hệ AI coach và hỗ trợ phân tích}{37}{subsection.4.3.5}%
+\contentsline {section}{\numberline {4.4}Triển khai nội dung động}{37}{section.4.4}%
+\contentsline {section}{\numberline {4.5}Kiểm thử hệ thống}{38}{section.4.5}%
+\contentsline {subsection}{\numberline {4.5.1}Kiểm thử đơn vị}{38}{subsection.4.5.1}%
+\contentsline {subsection}{\numberline {4.5.2}Kiểm thử chức năng}{38}{subsection.4.5.2}%
+\contentsline {subsection}{\numberline {4.5.3}Kiểm thử thông báo và đồng bộ dữ liệu}{40}{subsection.4.5.3}%
+\contentsline {section}{\numberline {4.6}Đánh giá kết quả triển khai}{40}{section.4.6}%
+\contentsline {subsection}{\numberline {4.6.1}Các kết quả đã đạt được}{40}{subsection.4.6.1}%
+\contentsline {subsection}{\numberline {4.6.2}Đối chiếu yêu cầu và kết quả hiện thực}{40}{subsection.4.6.2}%
+\contentsline {subsection}{\numberline {4.6.3}Ưu điểm và hạn chế}{42}{subsection.4.6.3}%
+\contentsline {section}{\numberline {4.7}Khả năng triển khai và mở rộng}{42}{section.4.7}%
+\contentsline {section}{\numberline {4.8}Tổng kết chương}{42}{section.4.8}%
+\contentsline {chapter}{Kết luận}{43}{chapter*.5}%
+\contentsline {chapter}{Tài liệu tham khảo}{45}{section*.6}%

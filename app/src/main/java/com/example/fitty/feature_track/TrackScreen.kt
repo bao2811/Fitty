@@ -381,7 +381,17 @@ class TrackViewModel @Inject constructor(
     }
 
     internal fun setCapturedImage(uri: String) {
-        _uiState.update { it.copy(capturedImageUri = uri, analysisResult = null, captureError = null) }
+        lastMealResult = null
+        lastBodyResult = null
+        _uiState.update {
+            it.copy(
+                capturedImageUri = uri,
+                analysisResult = null,
+                captureError = null,
+                mealConfirmed = false,
+                bodyScanSaved = false
+            )
+        }
     }
 
     internal fun setCaptureError(message: String) {
@@ -395,7 +405,14 @@ class TrackViewModel @Inject constructor(
         if (current.capturedImageUri.isNullOrBlank()) { setCaptureError(context.getString(R.string.track_error_take_photo_first)); return }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmittingImage = true, captureError = null) }
+            _uiState.update {
+                it.copy(
+                    isSubmittingImage = true,
+                    captureError = null,
+                    mealConfirmed = false,
+                    bodyScanSaved = false
+                )
+            }
             when (selectedTab) {
                 TrackTab.Meals -> {
                     analyzeMealImageUseCase(current.capturedImageUri)
@@ -744,6 +761,7 @@ private fun MealsTab(
         val todayProtein = todayScans.sumOf { it.protein }
         val todayCarbs = todayScans.sumOf { it.carbs }
         val todayFat = todayScans.sumOf { it.fat }
+        val todayCalories = todayScans.sumOf { it.calories }
 
         Card(
             shape = RoundedCornerShape(22.dp),
@@ -761,10 +779,15 @@ private fun MealsTab(
                     }
                     Column {
                         Text(stringResource(R.string.track_today_total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(stringResource(R.string.track_today_meal_count, todayMealCount), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "${stringResource(R.string.track_today_meal_count, todayMealCount)} • ${stringResource(R.string.track_kcal_value, todayCalories)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    MacroStatPill("kcal", "$todayCalories", FittyPink)
                     MacroStatPill(stringResource(R.string.track_row_protein), "${todayProtein}g", Color(0xFF6C63FF))
                     MacroStatPill(stringResource(R.string.track_row_carbs), "${todayCarbs}g", Color(0xFFFF9F43))
                     MacroStatPill(stringResource(R.string.track_row_fat), "${todayFat}g", Color(0xFF2ED573))
@@ -780,13 +803,7 @@ private fun MealsTab(
             }
         }
 
-        // ── Meal Log History ──
-        if (state.mealHistory.isNotEmpty()) {
-            Text(stringResource(R.string.track_meal_journal), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            state.mealHistory.forEach { (label, cal) ->
-                InfoRowCard(label, cal, Icons.Outlined.Restaurant)
-            }
-        } else if (state.scanHistory.isEmpty()) {
+        if (state.scanHistory.isEmpty()) {
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
