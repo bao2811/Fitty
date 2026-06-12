@@ -3,4 +3,7 @@
     <cache-path
         name="track_images"
         path="track_images/" />
+    <files-path
+        name="track_images_persistent"
+        path="track_images/" />
 </paths>

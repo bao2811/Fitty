@@ -189,26 +189,36 @@ private fun WorkoutHistoryHeader(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Brush.linearGradient(listOf(FittyGradientStart, FittyGradientEnd)))
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(start = 6.dp, top = 16.dp, end = 18.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = stringResource(R.string.common_back),
-                    tint = Color.White
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = stringResource(R.string.common_back),
+                        tint = Color.White,
+                        modifier = Modifier.size(25.dp)
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.workout_history_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Text(
-                text = stringResource(R.string.workout_history_title),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Text(
                 text = stringResource(R.string.workout_history_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.9f)
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.padding(start = 42.dp)
             )
         }
     }
