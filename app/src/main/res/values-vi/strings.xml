@@ -687,7 +687,7 @@
     <string name="home_workout_meta_format">%1$s • %2$s • %3$s</string>
     <string name="home_workout_empty_title">Chưa có buổi tập hôm nay</string>
     <string name="home_workout_empty_body">Hoàn tất onboarding hoặc tạo kế hoạch để Fitty gợi ý buổi tập.</string>
-    <!-- <string name="home_workout_waiting_plan_body">Đang chờ buổi tập theo lịch hôm nay. Thiết lập hiện tại: %1$s • %2$s • %3$s</string> -->
+    <string name="home_workout_waiting_plan_body">Đang chờ buổi tập theo lịch hôm nay. Thiết lập hiện tại: %1$s • %2$s • %3$s</string>
     <string name="home_default_task_goal">Duy trì thói quen hôm nay</string>
     <string name="home_macro_protein">Đạm</string>
     <string name="home_macro_carbs">Tinh bột</string>
