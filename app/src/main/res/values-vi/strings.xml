@@ -489,8 +489,7 @@
     <string name="plan_category_cardio">Cardio</string>
     <string name="plan_category_back">Lưng</string>
     <string name="plan_category_warm_up">Khởi động</string>
-    <!-- <string name="plan_sync_success">Đã đồng bộ %1$d bài tập.</string> -->
-      <string name="plan_sync_success"></string>
+    <string name="plan_sync_success">Đã đồng bộ %1$d bài tập.</string>
     <string name="plan_sync_cached_fallback">Đang dùng dữ liệu đã lưu.</string>
     <string name="track_confirm_save">Xác nhận &amp; lưu</string>
     <string name="track_today_total">Tổng hôm nay</string>
@@ -689,7 +688,6 @@
     <string name="home_workout_empty_title">Chưa có buổi tập hôm nay</string>
     <string name="home_workout_empty_body">Hoàn tất onboarding hoặc tạo kế hoạch để Fitty gợi ý buổi tập.</string>
     <!-- <string name="home_workout_waiting_plan_body">Đang chờ buổi tập theo lịch hôm nay. Thiết lập hiện tại: %1$s • %2$s • %3$s</string> -->
-    <string name="home_workout_waiting_plan_body"></string>
     <string name="home_default_task_goal">Duy trì thói quen hôm nay</string>
     <string name="home_macro_protein">Đạm</string>
     <string name="home_macro_carbs">Tinh bột</string>
