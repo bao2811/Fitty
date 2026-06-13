@@ -1502,6 +1502,9 @@ private fun ExerciseListItem(
                     )
                 }
                 canReplace -> {
+                    val actionButtonModifier = Modifier
+                        .width(88.dp)
+                        .height(36.dp)
                     Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.End
@@ -1510,7 +1513,7 @@ private fun ExerciseListItem(
                             OutlinedButton(
                                 onClick = onEdit,
                                 shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.height(36.dp),
+                                modifier = actionButtonModifier,
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
                                 Text(
@@ -1523,7 +1526,7 @@ private fun ExerciseListItem(
                         OutlinedButton(
                             onClick = onReplace,
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.height(36.dp),
+                            modifier = actionButtonModifier,
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         ) {
                             Text(
